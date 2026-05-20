@@ -1,7 +1,7 @@
 # Numerical Variability of functional MRI Graph Measures Summary
 > Written by Mina Alizadeh, Yohan Chatelain, Gregory Kiar and Tristan Glatard (see [here](https://www.biorxiv.org/content/10.64898/2025.12.22.695524v1)).
 
-Please note that some sentences, notably the tools, techniques or preprocessing enumerations are mostly taken as is from the research paper.
+Please note that some sentences, notably the tools, techniques, preprocessing enumerations and results are somewhat taken as is from the research paper.
 
 ## Abstract
 
@@ -119,3 +119,41 @@ compromises the detection of true population differences
 ## Results
 
 ### The influence of numerical variability on statistical inference
+
+For illustration of how numerical noise can influence statistical inference and experiment design, 2 synthetic populations of 10 subjects were generated with a "low" and "high"variability conditions with the same mean.
+
+Here are the results (taken directly from the paper [repository](https://github.com/mina94az/Numerical-Variability-of-functional-MRI-Graph-Measures)
+
+![Variability plot](./images/VariabilitySimulation.png "Figure 1a-b")
+
+![NPVR plot](./images/NPVR.png "Figure 1c")
+
+![Cohen plot](./images/Cohen'sdPlot.png "Figure 1d")
+
+
+
+Figure 1c shows the relative contribution of inter subject numerical variability.
+
+Figure 1d demonstrates how numerical variability propagates into effect size estimation. With small sample size (n < 100) higher NPVR values lead to larger Cohen's $delta$ ranging from 0.1 to 0.5. In contrast, lower NPVR conditions yield smaller dispersion, with σd values range from 0.05 to 0.2. As sample size
+increases, the variability in effect size estimates diminishes for both high- and low-NPVR settings.
+
+These results make explicit direct link between numerical variability and effect size variability.
+
+###  Numerical variability varies across graph statistics and network thresholding decisions
+
+Here are the results for the different graph metrics established in the previous section
+
+![Local graph metrics](./images/Wconf_LocalNPVR.png "Figure 2")
+
+![Global graph metrics](./images/Wconf_GlobalNPVR.png "Figure 3")
+
+For each metric, each plot shows the mean NPVR computed across 100 nodes, as well as numerical and inter subject variability values.
+
+For the local graph metrics, the NPVR ranged from 0.04 to 0.18. For the global ones it ranged from 0.02 to 0.17. As the the thresholds increased, the clustering coefficient and between centrality NPVR increased, while it decreased for the degree and eigenvector centrality.This suggest that the numerical variability grew faster than the inter-subject one, and that the inter-subject variability dominated.
+
+For the global graph metrics, small-worldness and average shortest path length showed
+higher NPVR at a threshold of 0.05, followed by a decrease up to 0.3, and a subsequent rise—more
+pronounced for the latter
+
+
+![Regional local graph metrics](./images/Sekected_Wconf_RegionalNPVR.png "Figure 4")
