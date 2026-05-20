@@ -1,7 +1,7 @@
 # Numerical Variability of functional MRI Graph Measures Summary
 > Written by Mina Alizadeh, Yohan Chatelain, Gregory Kiar and Tristan Glatard (see [here](https://www.biorxiv.org/content/10.64898/2025.12.22.695524v1)).
 
-Please note that some sentences, notably the tools, techniques, preprocessing enumerations and results are somewhat taken as is from the research paper.
+Please note that some sentences, in this summary are taken as is from the research paper, as it's sometimes difficult to summarize some sentences.
 
 ## Abstract
 
@@ -110,6 +110,12 @@ $$
   NPVR = \frac{\sigma_{num}}{\sigma_{pop}}
 $$
 
+It can also be noted that it's possible to approximate the std of Cohen's $d .\left( \sigma_d \right) as follow
+
+$$
+\sigma_d = \frac{2}{\sqrt{n}}NPVR
+$$
+
 
 Where $\sigma_{num}$ is the numerical variability, $\sigma_{pop}$ is the population variability, $x_{i,j}$ is the measurement for subject $j$ in MCA repetition $i$, $\bar x_{.,j}$ and $\bar x_{i,.}$ are column and row means, $n$ is the total number of MCA repetitions and $m$ is the number of subjects.
 
@@ -151,9 +157,73 @@ For each metric, each plot shows the mean NPVR computed across 100 nodes, as wel
 
 For the local graph metrics, the NPVR ranged from 0.04 to 0.18. For the global ones it ranged from 0.02 to 0.17. As the the thresholds increased, the clustering coefficient and between centrality NPVR increased, while it decreased for the degree and eigenvector centrality.This suggest that the numerical variability grew faster than the inter-subject one, and that the inter-subject variability dominated.
 
-For the global graph metrics, small-worldness and average shortest path length showed
-higher NPVR at a threshold of 0.05, followed by a decrease up to 0.3, and a subsequent rise—more
-pronounced for the latter
+For the global graph metrics, small-worldness and average shortest path length showed higher NPVR at a threshold of 0.05, followed by a decrease up to 0.3, and a subsequent rise, more pronounced for the average shortest path length.
+
+Even if the numerical variability remains smaller than the inter subject variability, it can still influence group-level inference, particularly in small sample studies. For instance a NPVR of 0.18 for between centrality at threshold 0.5 can approximate the Cohen's $d$ and implies that it may require more than 1000 subjects.
+
+### Regional variation in NPVR interacts with threshold decisions
+
+The following figure shows a regional map of the NPVR for all the local graph metrics across thresholds.
+
+![Regional local graph metrics](./images/Regional_WconfNPVR.png "Figure 4")
+
+ For lower thresholds, degree centrality and eigenvector centrality exhibit
+slightly higher NPVR values with increased variability across regions. In contrast, for clustering coefficient and betweenness centrality, higher thresholds tend to produce substantially larger NPVR magnitudes, accompanied by pronounced regional outliers. The spatial variability is also greater for these metrics at higher thresholds, reflecting more localized and extreme numerical variability.
+
+This highlights that the numerical variability is not uniformly distributed across the different brain regions. Therefore, inference drawn from regional graph metrics may be differentially affected by numerical variability.
+
+### Trade-offs of Using Confound Removal
+
+Figures 5 and 6 show the results for the local and global metrics obtained by doing with-confound metrics minus no-confound metrics across thresholds.
+
+![No confound local metrics](./images/WconfVSNoconf_LocalNPVR.png "Figure 5")
+
+![No confound global metrics](./images/WconfVSNoconf_GlobalNPVR.png "Figure 6")
+
+As we can see on Figure 5, the same overall trends can be seen across the with or without confound pipelines.
+
+The difference plots of the NPVR (purple boxplots) are predominantly negative, as are the differences in region-averaged NPVR (red stars), suggesting lower numerical variability in the no-confound pipeline relative to the with-confound pipeline across most metrics and thresholds.
+
+Permutation tests applied to each NPVR distribution confirmed that these differences were statistically significant and consistently negative, supporting the conclusion that confound regression increases numerical variability in this setting. However, this reduction in numerical variability does not necessarily imply better validity: removing confound regression may complicate the interpretation of the resulting connectivity estimates and could compromise the accuracy of the derived functional connectomes.
+
+### Discussion
+
+In this research, it showed that numerical variability from floating point arithmetic can influence functional connectomes and graph metrics.
+
+Our findings reveal that the numerical variability is not uniform across brain regions and metrics. However it consistently range between 0.1 and 0.2. This suggests that numerical variability may interfere with downstream analyses, particularly in studies with small sample sizes and when measuring small effect sizes.
 
 
-![Regional local graph metrics](./images/Sekected_Wconf_RegionalNPVR.png "Figure 4")
+Even modest numerical variability on the order of NVPR = 0.1 can introduce variability in Cohen’s d effect size estimation in the range of [0.01, 0.1],as shown in Figure 1c.
+
+Similar NPVR value ranges were seen in structural MRI. This range provides
+a useful reference point for contextualizing results in the current literature and for approximating the variability that propagates into downstream analyses, including its impact on statistical inferences such as effect sizes, F-statistics, and other measure.
+
+However, the NPVR values reported in this study will likely change across multiple factors:
+  - The chosen preprocessing and processing pipeline
+  - The task or resting state paradigm
+  - Sample characteristics
+  - Neurobiological properties of the studied population
+  - ...
+
+  Prior work showed that linear registration exhibits marked numerical variability across runs, and that the FastSurfer deep-learning pipeline does not yield lower numerical variability than the FreeSurfer workflow.
+
+  Understand how NPVR interacts could motivate new quality control strategies or the development of computational biomarkers.
+
+Future work could explore how network sparsification and different thresholding methods influence the NPVR of graph measures. The results suggest that an intermediate threshold (around 0.2) consistently minimizes NPVR across metrics.
+
+[comment]: <> TODO: Add more details to the conclusion ?
+
+## Data and Code availability
+
+The unprocessed data set is available [here](https://www.ppmi-info.org/access-data-specimens/download-data).
+
+DICOM images were converted to NIfTI format, as required for fMRIPrep inputs, using HeuDiConv (version 1.2) on the Narval cluster hosted by Calcul Quebec.
+
+The source code is available [here](https://github.com/mina94az/Numerical-Variability-of-functional-MRI-Graph-Measures).
+
+Floating-point perturbations were introduced using the fuzzy-libmath instrumentation. The documentation and container image are available [here](https://github.com/verificarlo/fuzzy/tree/master#fuzzy-libmath).
+
+All preprocessing was performed with fMRIPrep (version 23.2.1) instrumented with fuzzy-libmath, on the Narval cluster hosted by Calcul Quebec.
+
+Functional connectomes were generated using Python scripts available in the GitHub repository and were executed on the Rorqual cluster hosted by Calcul Qu´ebec, using Python 3.12 and the NetworkX (version 3.5) library. Downstream analyses were performed locally on a computer running Ubuntu 22.04.5 LTS,
+using Python 3.11.
