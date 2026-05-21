@@ -25,6 +25,8 @@
           packages = with pkgs; [
             uv
             python314
+
+            awscli2
           ];
 
         };
