@@ -110,7 +110,7 @@ $$
   NPVR = \frac{\sigma_{num}}{\sigma_{pop}}
 $$
 
-It can also be noted that it's possible to approximate the std of Cohen's $ d\left( \sigma_d \right) $ as follow
+It can also be noted that it's possible to approximate the std of Cohen's $d \left( \sigma_d \right)$ as follow
 
 $$
 \sigma_d = \frac{2}{\sqrt{n}}NPVR
@@ -142,7 +142,7 @@ Figure 1d
 Figure 1c shows the relative contribution of inter subject numerical variability.
 
 Figure 1d demonstrates how numerical variability propagates into effect size estimation. With small sample size (n < 100) higher NPVR values lead to larger Cohen's $delta$ ranging from 0.1 to 0.5. In contrast, lower NPVR conditions yield smaller dispersion, with σd values range from 0.05 to 0.2. As sample size
-increases, the variability in effect size estimates diminishes for both high- and low-NPVR settings.
+increases, the variability in effect size estimates diminishes for both high and low NPVR settings.
 
 These results make explicit direct link between numerical variability and effect size variability.
 
