@@ -25,9 +25,9 @@ The following are a known cause for numerical perturbations:
  - compilers
  - parallelization strategies
 
- They are more and more present in pipelines involving high-dimensional computations such as linear and non linear image registration or the training of DL models.
+They are more and more present in pipelines involving high-dimensional computations such as linear and non linear image registration or the training of DL models.
 
- Studies such as  Mirhakimi et al., 2025 Chatelain et al., 2025 and Kiar, Chatelain, et al., 2020 have already studied the numerical variability of structural and diffusion MRI pipelines. Yet, it's impact on functional MRI pipelines are currently unexplored.This paper aims to assess how numerical perturbations affect the reliability of functional connectivity matrices and graph metrics across multiple datasets and pre-processing configurations.
+Studies such as  Mirhakimi et al., 2025 Chatelain et al., 2025 and Kiar, Chatelain, et al., 2020 have already studied the numerical variability of structural and diffusion MRI pipelines. Yet, it's impact on functional MRI pipelines are currently unexplored.This paper aims to assess how numerical perturbations affect the reliability of functional connectivity matrices and graph metrics across multiple datasets and pre-processing configurations.
 
 ## Materials and Methods
 
@@ -72,21 +72,21 @@ Then 2 versions of the functional connectome were created for each subject and e
   - One with confound regression of the 6 main sets of motion parameters (translations and rotations)
   - One without confound regression isolating numerical variability arising solely from preprocessing.
 
-  For each version, a Pearson correlation matrix was computed using Nilearn's `ConnectivityMeasure` resulting in 1 functional connectivity matrix per subjet per MCA run.
+For each version, a Pearson correlation matrix was computed using Nilearn's `ConnectivityMeasure` resulting in 1 functional connectivity matrix per subjet per MCA run.
 
-  ### Graph Metrics
+### Graph Metrics
 
-  Since correlation matrices are complete graphs, 6 correlations values were used as threshold (0.05, 0.1, 0.2, 0.3, 0.4, 0.5) to then generate binarized adjacency matrices.
+Since correlation matrices are complete graphs, 6 correlations values were used as threshold (0.05, 0.1, 0.2, 0.3, 0.4, 0.5) to then generate binarized adjacency matrices.
 
-  Then based on those networks, 4 local graph metrics were computed:
-    - Degree centrality
-    - Clustering coefficient
-    - Betweenness centrality
-    - Eigenvector centrality
+Then based on those networks, 4 local graph metrics were computed:
+  - Degree centrality
+  - Clustering coefficient
+  - Betweenness centrality
+  - Eigenvector centrality
 
-  As well as 2 global metrics:
-    - Small-worldness
-    - Average shortest path length
+As well as 2 global metrics:
+  - Small-worldness
+  - Average shortest path length
 
 All measures were computed using `Pzthon 3.12` and `Network 3.5`.
 
@@ -136,8 +136,6 @@ Here are the results (taken directly from the paper [repository](https://github.
 
 ![Cohen plot](./images/Cohen'sdPlot.png "Figure 1d")
 
-
-
 Figure 1c shows the relative contribution of inter subject numerical variability.
 
 Figure 1d demonstrates how numerical variability propagates into effect size estimation. With small sample size (n < 100) higher NPVR values lead to larger Cohen's $delta$ ranging from 0.1 to 0.5. In contrast, lower NPVR conditions yield smaller dispersion, with σd values range from 0.05 to 0.2. As sample size
@@ -167,8 +165,7 @@ The following figure shows a regional map of the NPVR for all the local graph me
 
 ![Regional local graph metrics](./images/Regional_WconfNPVR.png "Figure 4")
 
- For lower thresholds, degree centrality and eigenvector centrality exhibit
-slightly higher NPVR values with increased variability across regions. In contrast, for clustering coefficient and betweenness centrality, higher thresholds tend to produce substantially larger NPVR magnitudes, accompanied by pronounced regional outliers. The spatial variability is also greater for these metrics at higher thresholds, reflecting more localized and extreme numerical variability.
+For lower thresholds, degree centrality and eigenvector centrality exhibit slightly higher NPVR values with increased variability across regions. In contrast, for clustering coefficient and betweenness centrality, higher thresholds tend to produce substantially larger NPVR magnitudes, accompanied by pronounced regional outliers. The spatial variability is also greater for these metrics at higher thresholds, reflecting more localized and extreme numerical variability.
 
 This highlights that the numerical variability is not uniformly distributed across the different brain regions. Therefore, inference drawn from regional graph metrics may be differentially affected by numerical variability.
 
@@ -192,7 +189,6 @@ In this research, it showed that numerical variability from floating point arith
 
 Our findings reveal that the numerical variability is not uniform across brain regions and metrics. However it consistently range between 0.1 and 0.2. This suggests that numerical variability may interfere with downstream analyses, particularly in studies with small sample sizes and when measuring small effect sizes.
 
-
 Even modest numerical variability on the order of NVPR = 0.1 can introduce variability in Cohen’s d effect size estimation in the range of [0.01, 0.1],as shown in Figure 1c.
 
 Similar NPVR value ranges were seen in structural MRI. This range provides
@@ -205,9 +201,9 @@ However, the NPVR values reported in this study will likely change across multip
   - Neurobiological properties of the studied population
   - ...
 
-  Prior work showed that linear registration exhibits marked numerical variability across runs, and that the FastSurfer deep-learning pipeline does not yield lower numerical variability than the FreeSurfer workflow.
+Prior work showed that linear registration exhibits marked numerical variability across runs, and that the FastSurfer deep-learning pipeline does not yield lower numerical variability than the FreeSurfer workflow.
 
-  Understand how NPVR interacts could motivate new quality control strategies or the development of computational biomarkers.
+Understand how NPVR interacts could motivate new quality control strategies or the development of computational biomarkers.
 
 Future work could explore how network sparsification and different thresholding methods influence the NPVR of graph measures. The results suggest that an intermediate threshold (around 0.2) consistently minimizes NPVR across metrics.
 
