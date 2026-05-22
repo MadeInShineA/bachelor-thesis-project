@@ -110,7 +110,7 @@ $$
   NPVR = \frac{\sigma_{num}}{\sigma_{pop}}
 $$
 
-It can also be noted that it's possible to approximate the std of Cohen's $d .\left( \sigma_d \right) as follow
+It can also be noted that it's possible to approximate the std of Cohen's $ d\left( \sigma_d \right) $ as follow
 
 $$
 \sigma_d = \frac{2}{\sqrt{n}}NPVR
@@ -128,7 +128,7 @@ compromises the detection of true population differences
 
 For illustration of how numerical noise can influence statistical inference and experiment design, 2 synthetic populations of 10 subjects were generated with a "low" and "high"variability conditions with the same mean.
 
-Here are the results (taken directly from the paper [repository](https://github.com/mina94az/Numerical-Variability-of-functional-MRI-Graph-Measures)
+Here are the results (taken directly from the paper [repository](https://github.com/mina94az/Numerical-Variability-of-functional-MRI-Graph-Measures))
 
 ![Variability plot](./images/VariabilitySimulation.png "Figure 1a-b")
 
