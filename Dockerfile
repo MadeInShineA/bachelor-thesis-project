@@ -2,8 +2,9 @@
 # https://github.com/glatard/fmriprep-1/blob/master/Dockerfile_fuzzy
 # https://github.com/verificarlo/verificarlo/blob/master/doc/01-Install.md
 # https://github.com/verificarlo/fuzzy#using-fuzzy-in-multi-stage-builds
+# https://github.com/verificarlo/verificarlo/blob/master/doc/02-Backends.md#logger
 
-# Qwen3.6-Plus was used for troubleshooting (mostly regarding make issues)
+# Qwen3.6-Plus was used for troubleshooting (mostly regarding make issues, and skullstrip_first_pass step crashes)
 
 FROM verificarlo/fuzzy:v0.9.1-lapack-python3.8.5-numpy-scipy-sklearn AS fuzzy
 
@@ -52,4 +53,10 @@ ENV VFC_BACKENDS='libinterflop_mca.so --precision-binary32=24 --precision-binary
 
 ENV LD_PRELOAD=/opt/mca-libmath/${FUZZY_LIBMATH_VERSION}/libmath.so
 
-ENV VFC_LOGGING=1
+# This is needed because logs make the skullstrip_first_pass step fail
+
+# Disable backend loading messages
+ENV VFC_BACKENDS_SILENT_LOAD=True
+
+# Disable the main logger messages
+ENV VFC_BACKENDS_LOGGER=False
