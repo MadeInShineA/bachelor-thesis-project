@@ -27,7 +27,7 @@ The following are a known cause for numerical perturbations:
 
 They are more and more present in pipelines involving high-dimensional computations such as linear and non linear image registration or the training of DL models.
 
-Studies such as  Mirhakimi et al., 2025 Chatelain et al., 2025 and Kiar, Chatelain, et al., 2020 have already studied the numerical variability of structural and diffusion MRI pipelines. Yet, it's impact on functional MRI pipelines are currently unexplored.This paper aims to assess how numerical perturbations affect the reliability of functional connectivity matrices and graph metrics across multiple datasets and pre-processing configurations.
+Studies such as  Mirhakimi et al., 2025 Chatelain et al., 2025 and Kiar, Chatelain, et al., 2020 have already studied the numerical variability of structural and diffusion MRI pipelines. Yet, it's impact on functional MRI pipelines are currently unexplored. This paper aims to assess how numerical perturbations affect the reliability of functional connectivity matrices and graph metrics across multiple datasets and pre-processing configurations.
 
 ## Materials and Methods
 
@@ -88,7 +88,7 @@ As well as 2 global metrics:
   - Small-worldness
   - Average shortest path length
 
-All measures were computed using `Pzthon 3.12` and `Network 3.5`.
+All measures were computed using `Python 3.12` and `Network 3.5`.
 
 ### Evaluation of Numerical Variability
 
@@ -153,7 +153,7 @@ Here are the results for the different graph metrics established in the previous
 
 For each metric, each plot shows the mean NPVR computed across 100 nodes, as well as numerical and inter subject variability values.
 
-For the local graph metrics, the NPVR ranged from 0.04 to 0.18. For the global ones it ranged from 0.02 to 0.17. As the the thresholds increased, the clustering coefficient and between centrality NPVR increased, while it decreased for the degree and eigenvector centrality.This suggest that the numerical variability grew faster than the inter-subject one, and that the inter-subject variability dominated.
+For the local graph metrics, the NPVR ranged from 0.04 to 0.18. For the global ones it ranged from 0.02 to 0.17. As the the thresholds increased, the clustering coefficient and between centrality NPVR increased, while it decreased for the degree and eigenvector centrality. This suggest that the numerical variability grew faster than the inter-subject one, and that the inter-subject variability dominated.
 
 For the global graph metrics, small-worldness and average shortest path length showed higher NPVR at a threshold of 0.05, followed by a decrease up to 0.3, and a subsequent rise, more pronounced for the average shortest path length.
 
