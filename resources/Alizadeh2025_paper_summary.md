@@ -131,10 +131,13 @@ For illustration of how numerical noise can influence statistical inference and 
 Here are the results (taken directly from the paper [repository](https://github.com/mina94az/Numerical-Variability-of-functional-MRI-Graph-Measures))
 
 ![Variability plot](./images/VariabilitySimulation.png "Figure 1a-b")
+Figure 1a-b
 
 ![NPVR plot](./images/NPVR.png "Figure 1c")
+Figure 1c
 
 ![Cohen plot](./images/Cohen'sdPlot.png "Figure 1d")
+Figure 1d
 
 Figure 1c shows the relative contribution of inter subject numerical variability.
 
@@ -148,8 +151,10 @@ These results make explicit direct link between numerical variability and effect
 Here are the results for the different graph metrics established in the previous section
 
 ![Local graph metrics](./images/Wconf_LocalNPVR.png "Figure 2")
+Figure 2
 
 ![Global graph metrics](./images/Wconf_GlobalNPVR.png "Figure 3")
+Figure 3
 
 For each metric, each plot shows the mean NPVR computed across 100 nodes, as well as numerical and inter subject variability values.
 
@@ -164,6 +169,7 @@ Even if the numerical variability remains smaller than the inter subject variabi
 The following figure shows a regional map of the NPVR for all the local graph metrics across thresholds.
 
 ![Regional local graph metrics](./images/Regional_WconfNPVR.png "Figure 4")
+Figure 4
 
 For lower thresholds, degree centrality and eigenvector centrality exhibit slightly higher NPVR values with increased variability across regions. In contrast, for clustering coefficient and betweenness centrality, higher thresholds tend to produce substantially larger NPVR magnitudes, accompanied by pronounced regional outliers. The spatial variability is also greater for these metrics at higher thresholds, reflecting more localized and extreme numerical variability.
 
@@ -174,8 +180,10 @@ This highlights that the numerical variability is not uniformly distributed acro
 Figures 5 and 6 show the results for the local and global metrics obtained by doing with-confound metrics minus no-confound metrics across thresholds.
 
 ![No confound local metrics](./images/WconfVSNoconf_LocalNPVR.png "Figure 5")
+Figure 5
 
 ![No confound global metrics](./images/WconfVSNoconf_GlobalNPVR.png "Figure 6")
+Figure 6
 
 As we can see on Figure 5, the same overall trends can be seen across the with or without confound pipelines.
 
