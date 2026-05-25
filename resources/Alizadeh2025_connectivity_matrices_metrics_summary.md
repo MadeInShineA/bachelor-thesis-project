@@ -15,9 +15,16 @@ Correlation matrices represent complete graphs, which limit the interpretability
 | 0.40 | Sparse | ~5-20% |
 | 0.50 | Very sparse | ~1-10% |
 
-For each threshold t, binarization follows:
-    A_ij = 1 if |r_ij| >= t, else 0
-    A_ii = 0 (no self-loops)
+For each threshold $t$, binarization follows:
+
+$$
+A_{ij} = \begin{cases} 
+1 & \text{if } |r_{ij}| \geq t \\
+0 & \text{otherwise}
+\end{cases}
+$$
+
+with $A_{ii} = 0$ (no self-loops).
 
 ---
 
@@ -28,11 +35,14 @@ For each threshold t, binarization follows:
 Definition: Number of direct connections incident to a node.
 
 Formula (binarized network):
-    k_i = sum_{j=1}^{N} A_ij
+
+$$
+k_i = \sum_{j=1}^{N} A_{ij}
+$$
 
 Properties:
-- Range: [0, N-1]
-- Computationally efficient: O(N) per node
+- Range: $[0, N-1]$
+- Computationally efficient: $O(N)$ per node
 - Symmetric networks: in-degree equals out-degree
 
 Interpretation in fMRI: Regions with high degree centrality serve as local hubs, maintaining direct functional coupling with many other brain areas. Elevated degree in association cortex is commonly reported in resting-state networks.
@@ -46,14 +56,21 @@ Sensitivity considerations: Highly dependent on threshold selection; lower thres
 Definition: Proportion of a node's neighbors that are also connected to each other, quantifying local transitivity.
 
 Formula (binarized, undirected):
-    C_i = [2 * triangle_i] / [k_i * (k_i - 1)]  if k_i >= 2
-    C_i = 0  if k_i < 2
-where triangle_i = number of closed triplets centered on node i.
+
+$$
+C_i = \frac{2 T_i}{k_i (k_i - 1)} \quad \text{if } k_i \geq 2
+$$
+
+$$
+C_i = 0 \quad \text{if } k_i < 2
+$$
+
+where $T_i$ is the number of closed triplets (triangles) centered on node $i$.
 
 Properties:
-- Range: [0, 1]
-- Undefined for nodes with degree < 2 (conventionally set to 0)
-- Computationally: O(k_i^2) per node
+- Range: $[0, 1]$
+- Undefined for nodes with degree $< 2$ (conventionally set to $0$)
+- Computationally: $O(k_i^2)$ per node
 
 Interpretation in fMRI: High clustering indicates functional segregation. Regions form tightly interconnected modules supporting specialized processing. Sensory and motor networks typically exhibit elevated clustering.
 
@@ -66,13 +83,17 @@ Sensitivity considerations: Requires sufficient edge density; may be unstable at
 Definition: Fraction of all-pairs shortest paths that pass through a given node, identifying network bottlenecks.
 
 Formula:
-    BC_i = sum_{s != i != t} [sigma_st(i) / sigma_st]
-where sigma_st = total shortest paths from s to t, and sigma_st(i) = those passing through i.
+
+$$
+BC_i = \sum_{s \neq i \neq t} \frac{\sigma_{st}(i)}{\sigma_{st}}
+$$
+
+where $\sigma_{st}$ is the total number of shortest paths from $s$ to $t$, and $\sigma_{st}(i)$ is the number of those paths passing through $i$.
 
 Properties:
-- Range: [0, (N-1)(N-2)/2] before normalization
+- Range: $[0, (N-1)(N-2)/2]$ before normalization
 - Typically normalized by dividing by maximum possible value
-- Computationally intensive: O(NM) using Brandes' algorithm (M = number of edges)
+- Computationally intensive: $O(NM)$ using Brandes' algorithm ($M$ = number of edges)
 
 Interpretation in fMRI: Nodes with high betweenness facilitate communication between otherwise segregated modules. Regions such as the anterior insula and thalamus frequently exhibit elevated betweenness, consistent with integrative functions.
 
@@ -85,14 +106,21 @@ Sensitivity considerations: Highly sensitive to edge removal; small changes in n
 Definition: Measure of node importance based on the principle that connections to high-scoring nodes contribute more to a node's score.
 
 Formula:
-    Ax = lambda_max * x
-    EC_i = x_i
-where A is the adjacency matrix, lambda_max is the largest eigenvalue, and x is the corresponding eigenvector.
+
+$$
+\mathbf{A}\mathbf{x} = \lambda_{\max} \mathbf{x}
+$$
+
+$$
+EC_i = x_i
+$$
+
+where $\mathbf{A}$ is the adjacency matrix, $\lambda_{\max}$ is the largest eigenvalue, and $\mathbf{x}$ is the corresponding eigenvector.
 
 Properties:
 - Values are positive and relative (interpretation depends on network context)
 - Requires network to have a dominant connected component
-- Computationally: O(N^2) for dense matrices using power iteration
+- Computationally: $O(N^2)$ for dense matrices using power iteration
 
 Interpretation in fMRI: Identifies regions that are not only well-connected but connected to other influential regions. Often highlights hubs of hubs within the connectome.
 
@@ -107,15 +135,19 @@ Sensitivity considerations: May be unstable in very sparse networks where the pr
 Definition: Mean geodesic distance between all pairs of nodes in the network.
 
 Formula:
-    L = [1 / (N(N-1))] * sum_{i != j} d(i,j)
-where d(i,j) = length of shortest path between nodes i and j.
+
+$$
+L = \frac{1}{N(N-1)} \sum_{i \neq j} d(i,j)
+$$
+
+where $d(i,j)$ is the length of the shortest path between nodes $i$ and $j$.
 
 Properties:
-- Range: [1, N-1] for connected networks
+- Range: $[1, N-1]$ for connected networks
 - Undefined for disconnected networks (convention: compute on largest connected component or use harmonic mean)
-- Computationally: O(NM) using breadth-first search from each node
+- Computationally: $O(NM)$ using breadth-first search from each node
 
-Interpretation in fMRI: Reflects global integration capacity. Lower path lengths indicate efficient information transfer across the brain. Healthy adult connectomes typically exhibit L approximately 2-3 for N=100 at moderate thresholds.
+Interpretation in fMRI: Reflects global integration capacity. Lower path lengths indicate efficient information transfer across the brain. Healthy adult connectomes typically exhibit $L \approx 2\text{--}3$ for $N=100$ at moderate thresholds.
 
 Sensitivity considerations: Requires network connectivity; high thresholds that induce fragmentation necessitate careful handling of infinite distances.
 
@@ -126,13 +158,17 @@ Sensitivity considerations: Requires network connectivity; high thresholds that 
 Definition: Composite metric quantifying whether a network simultaneously exhibits high clustering (like regular lattices) and short path lengths (like random graphs).
 
 Formula:
-    sigma = (C_network / C_random) / (L_network / L_random)
-where C_random and L_random are derived from an ensemble of degree-matched random graphs (typically generated via Maslov-Sneppen rewiring).
+
+$$
+\sigma = \frac{C_{\text{net}} / C_{\text{rand}}}{L_{\text{net}} / L_{\text{rand}}}
+$$
+
+where $C_{\text{rand}}$ and $L_{\text{rand}}$ are derived from an ensemble of degree-matched random graphs (typically generated via Maslov–Sneppen rewiring).
 
 Properties:
-- sigma > 1: Small-world architecture
-- sigma approximately 1: Random-like organization
-- sigma < 1: Lattice-like or disorganized organization
+- $\sigma > 1$: Small-world architecture
+- $\sigma \approx 1$: Random-like organization
+- $\sigma < 1$: Lattice-like or disorganized organization
 - Requires generation of surrogate random networks for baseline comparison
 
 Interpretation in fMRI: Small-world organization supports both specialized processing (via clustered modules) and integrated communication (via short paths). Deviations are frequently linked to neurological and psychiatric conditions.
