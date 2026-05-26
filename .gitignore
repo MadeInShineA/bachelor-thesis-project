@@ -3,4 +3,4 @@
 output/
 work/
 license.txt
-parallel_fmriprep.log
+parallel_fmriprep_run_*.log
