@@ -29,6 +29,12 @@
             awscli2
           ];
 
+          env.LD_LIBRARY_PATH = with pkgs; lib.makeLibraryPath [
+            stdenv.cc.cc.lib
+            libxcb
+            libGL
+            glib
+          ];
         };
       }
     );
