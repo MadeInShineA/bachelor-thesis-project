@@ -1,0 +1,576 @@
+import marimo
+
+__generated_with = "0.23.8"
+app = marimo.App(width="medium")
+
+
+@app.cell
+def _():
+    import marimo as mo
+    import numpy as np
+    import plotly.express as px
+    import matplotlib.pyplot as plt
+    import matplotlib.colors as mcolors
+    import seaborn as sns
+    from matplotlib import gridspec
+    from matplotlib.colors import LogNorm
+
+
+    return LogNorm, gridspec, mcolors, mo, np, plt, px, sns
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    # Simulation of the impact of numerical variability on the Numerical Population Variability Ratio (NPVR) and Cohen's delta
+    """)
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    > Please that this notebook is a reproduction of [this one](https://github.com/mina94az/Numerical-Variability-of-functional-MRI-Graph-Measures/blob/main/notebooks/simulation.ipynb)
+    """)
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    ## Plotting of the distributions
+    """)
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    ### Setup the different constants
+    """)
+    return
+
+
+@app.cell
+def _(np):
+    np.random.seed(41)
+
+    SAMPLE_NUMBER = 10
+
+    GENERATOR = np.random.default_rng()
+
+    DISTRUBUTION_MEANS = np.linspace(1, 5, SAMPLE_NUMBER)
+
+    LOW_VARIABILITY_SCALE = 0.1
+    HIGH_VARIABILITY_SCALE = 0.4
+
+    print(f"Constant values:\n\t{SAMPLE_NUMBER=}\n\t{DISTRUBUTION_MEANS=}\n\t{LOW_VARIABILITY_SCALE=}\n\t{HIGH_VARIABILITY_SCALE=}")
+    return (
+        DISTRUBUTION_MEANS,
+        HIGH_VARIABILITY_SCALE,
+        LOW_VARIABILITY_SCALE,
+        SAMPLE_NUMBER,
+    )
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    ### Setup the distributions
+    """)
+    return
+
+
+@app.cell
+def _(
+    DISTRUBUTION_MEANS,
+    HIGH_VARIABILITY_SCALE,
+    LOW_VARIABILITY_SCALE,
+    SAMPLE_NUMBER,
+    np,
+):
+    low_var_dists = np.random.normal(loc=DISTRUBUTION_MEANS, scale=LOW_VARIABILITY_SCALE, size=(SAMPLE_NUMBER, SAMPLE_NUMBER))
+    high_var_dists = np.random.normal(loc=DISTRUBUTION_MEANS, scale=HIGH_VARIABILITY_SCALE, size=(SAMPLE_NUMBER, SAMPLE_NUMBER))
+    return high_var_dists, low_var_dists
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    ### Setup the different colors
+    """)
+    return
+
+
+@app.cell
+def _(mcolors, px):
+    def convert_rgb2hex(rgbstr):
+      c = rgbstr.strip('rgb(').strip(')').split(',')
+      return mcolors.rgb2hex(tuple([int(c[0])/255,
+                                    int(c[1])/255,
+                                    int(c[2])/255]))
+
+    colors = [convert_rgb2hex(c) for c in px.colors.qualitative.Prism[:10]]
+
+    print(f"{colors=}")
+    return (colors,)
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    ### Plot the different distributions
+    """)
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    #### Set a fi_xed range to zoom in
+    """)
+    return
+
+
+@app.cell
+def _():
+    _x_range_left = (0, 6)
+    _x_range_right = (0, 6)
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    #### Define a function to create the left and right parts of the plot
+    """)
+    return
+
+
+@app.cell
+def _(colors, np, sns):
+    def create_distributions_side_sublpot_values(distributions, side_axes, x_range):
+        means = []
+        ref1s = []
+        ref2s = []
+        for i, distribution in enumerate(distributions.T):
+            ax = side_axes[i]
+
+            # =======Taken as is from the original notebook=======
+
+            # Draw horizontal baseline
+            ax.axhline(y=0, color='lightgray', linewidth=1, zorder=1)
+
+            # Plot KDE
+            sns.kdeplot(distribution, fill=True, alpha=0.6, ax=ax, color=colors[i])
+            sns.kdeplot(distribution, ax=ax, color="k", lw=1)
+
+            ax.set_title(f"Sample {i+1}",fontsize=24,fontweight='bold', loc='left')
+            ax.set_ylabel("")
+            ax.set_xlabel("")
+            ax.set_yticks([])
+            ax.set_xticks([])  # Remove x-axis ticks
+            ax.set_xlim(x_range)
+
+            # Remove spines
+            ax.spines['top'].set_visible(False)
+            ax.spines['right'].set_visible(False)
+            ax.spines['left'].set_visible(False)
+            ax.spines['bottom'].set_visible(False)
+
+            # ---- Reference points ----
+            mean_val = np.mean(distribution)
+            ref1 = distribution[2]
+            ref2 = distribution[5]
+
+            # Store values for projection
+            means.append(mean_val)
+            ref1s.append(ref1)
+            ref2s.append(ref2)
+
+            side_axes[i] = ax
+
+            #======================================================
+
+        return side_axes, means, ref1s, ref2s
+
+    return (create_distributions_side_sublpot_values,)
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    #### Define a function to create the projection a_xes
+    """)
+    return
+
+
+@app.cell
+def _(colors):
+    def create_axes(y_positions, means, ref1s, ref2s, x_range, ax_projection):
+
+        # =======Taken as is from the original notebook=======
+        for y_pos in y_positions:
+            ax_projection.axhline(y=y_pos, color='lightgray', linestyle='-', alpha=0.7,linewidth=1.5)
+
+        # Project means (circles) - each with its distribution color
+        for i, mean_val in enumerate(means):
+            ax_projection.scatter(mean_val, y_positions[0], color=colors[i], marker='o', s=60, alpha=0.8)
+
+        # Project ref1 (x markers) - each with its distribution color
+        for i, ref1_val in enumerate(ref1s):
+            ax_projection.scatter(ref1_val, y_positions[1], color=colors[i], marker='x', s=80)
+
+        # Project ref2 (x markers) - each with its distribution color
+        for i, ref2_val in enumerate(ref2s):
+            ax_projection.scatter(ref2_val, y_positions[2], color=colors[i], marker='x', s=80)
+
+        ax_projection.set_xlim(x_range)
+        ax_projection.set_ylim(0.2, 0.8)
+        ax_projection.set_yticks(y_positions)
+        ax_projection.set_yticklabels(['Mean', 'Ref1', 'Ref2'],fontsize=20, fontweight='bold')
+        ax_projection.set_xlabel('Value',fontsize=11, fontweight='bold')
+
+        # Remove spines for projection panel
+        ax_projection.spines['top'].set_visible(False)
+        ax_projection.spines['right'].set_visible(False)
+        ax_projection.spines['left'].set_visible(False)
+        ax_projection.spines['bottom'].set_visible(False)
+
+        ax_projection.set_xticks([])
+        #======================================================
+
+        return ax_projection
+
+    return (create_axes,)
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    ### Create the plot
+    """)
+    return
+
+
+@app.cell
+def _(
+    SAMPLE_NUMBER,
+    create_axes,
+    create_distributions_side_sublpot_values,
+    gridspec,
+    high_var_dists,
+    low_var_dists,
+    plt,
+):
+    _fig = plt.figure(figsize=(18,22))
+    gs = gridspec.GridSpec(11, 2, height_ratios=[1]*10 + [0.8], width_ratios=[1, 1],hspace=0.3, wspace=0.15)
+
+    left_axes = [_fig.add_subplot(gs[i, 0]) for i in range(SAMPLE_NUMBER)]
+    right_axes = [_fig.add_subplot(gs[i, 1]) for i in range(SAMPLE_NUMBER)]
+    left_ax_projection = _fig.add_subplot(gs[SAMPLE_NUMBER, 0])
+    right_ax_projection = _fig.add_subplot(gs[SAMPLE_NUMBER, 1])
+
+    x_range_left = (0, 6)
+    x_range_right = (0, 6)
+
+    left_axes,left_means, left_ref1s, left_ref1s = create_distributions_side_sublpot_values(low_var_dists, left_axes, x_range_left)
+
+    right_axes,right_means, right_ref1s, right_ref1s = create_distributions_side_sublpot_values(high_var_dists, right_axes, x_range_right)
+
+    y_positions = [0.7, 0.5, 0.3]
+
+    left_ax_projection = create_axes(y_positions, left_means, left_means, left_means, x_range_left, left_ax_projection)
+    right_ax_projection = create_axes(y_positions, right_means, right_means, right_means, x_range_right, right_ax_projection)
+
+    # Add panel titles
+    _fig.text(0.3, 0.9, "Group A: Low Numerical Variability", fontsize=24, fontweight='bold', ha='center')
+    _fig.text(0.70, 0.9, "Group B: High Numerical Variability", fontsize=24, fontweight='bold', ha='center')
+
+    plt.show()
+    plt.savefig("res/populations_plot.png", dpi=300, bbox_inches="tight")
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    ## Compute the sigma values (Population and numerical variabilities)
+    """)
+    return
+
+
+@app.cell
+def _(np):
+    def compute_metrics(distribution):
+
+        within_var_each = np.var(distribution, axis=0, ddof=1)
+        within_var_mean = np.mean(within_var_each)
+        sigma_num = np.sqrt(within_var_mean)
+        across_var_each = np.var(distribution, axis=1, ddof=1)  
+        across_var_mean = np.mean(across_var_each)
+        sigma_pop = np.sqrt(across_var_mean)
+
+        return within_var_each, within_var_mean, sigma_num, across_var_each, across_var_mean, sigma_pop
+
+    return (compute_metrics,)
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    ### For the low variability
+    """)
+    return
+
+
+@app.cell
+def _(compute_metrics, low_var_dists):
+
+    low_within_var_each, low_within_var_mean, low_sigma_num, low_across_var_each, low_across_var_mean, low_sigma_pop = compute_metrics(low_var_dists)
+    return low_sigma_num, low_sigma_pop
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    ### For the high variability distribution
+    """)
+    return
+
+
+@app.cell
+def _(compute_metrics, high_var_dists):
+    high_within_var_each, high_within_var_mean, high_sigma_num, high_across_var_each, high_across_var_mean, high_sigma_pop = compute_metrics(high_var_dists)
+    return high_sigma_num, high_sigma_pop
+
+
+@app.cell
+def _(high_sigma_num, high_sigma_pop, low_sigma_num, low_sigma_pop):
+    print("Low σ_num      =", low_sigma_num)
+    print("Low σ_pop     =", low_sigma_pop)
+    print("High σ_num     =", high_sigma_num)
+    print("High σ_pop    =", high_sigma_pop)
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    ## Plot the NVPR, $\sigma_{pop}$ and $\sigma_{num}$ variations
+
+    > This section is taken as is from the original notebook
+    """)
+    return
+
+
+@app.cell
+def _(
+    LogNorm,
+    high_sigma_num,
+    high_sigma_pop,
+    low_sigma_num,
+    low_sigma_pop,
+    np,
+    plt,
+):
+    plt.rcParams.update({
+        'font.size': 28,
+        'font.weight': 'bold',
+        'axes.labelweight': 'bold',
+        'axes.titlesize': 16,
+        'axes.titleweight': 'bold',
+        'legend.fontsize': 16,
+        'xtick.labelsize': 24,
+        'ytick.labelsize': 24,
+    })
+
+    # Grid (σ_num and σ_anat both in [0.001, 1.5])
+    x = np.linspace(0.001, 1, 400)  # σ_num
+    y = np.linspace(0.001, 3, 400)  # σ_anat
+    X, Y = np.meshgrid(x, y)
+
+    # Variability ratio
+    Z = X / Y
+
+    _fig, ax = plt.subplots(figsize=(16, 12))
+
+    # Log normalization for visibility
+    norm = LogNorm(vmin=0.01, vmax=5)
+    pcm = ax.pcolormesh(X, Y, Z, shading='auto', cmap='Greys', norm=norm)
+    _cbar = _fig.colorbar(pcm, ax=ax)
+    _cbar.set_label(r'$\nu_{\mathrm{npv}} = \sigma_{\mathrm{num}}/\sigma_{\mathrm{pop}}$')
+
+    # _contours
+    _contour_levels = [0.1, 0.2, 0.5, 1.0]
+    _contours = ax.contour(X, Y, Z, levels=_contour_levels, colors='black',
+                          linewidths=2.5, linestyles='solid', alpha=0.8)
+    ax.clabel(
+        _contours, inline=True, fontsize=24,
+        fmt=lambda v: r"$\nu_{\mathrm{npv}}$=%.2f" % v,
+        inline_spacing=10, colors='black'
+    )
+
+    # Example points - Low and High variability cases
+    # low_sigma_num, low_sigma_anat =0.075,  0.261
+    # high_sigma_num, high_sigma_anat = 0.121, 0.244
+
+    # Compute their ratios
+    low_ratio = low_sigma_num / low_sigma_pop
+    high_ratio = high_sigma_num / high_sigma_pop
+
+    # Plot dots (corrected labels)
+    ax.scatter(
+        low_sigma_num, low_sigma_pop,
+        color='green', s=500, marker='x', linewidth=4,
+        label=rf'Group A ($\nu_{{\mathrm{{npv}}}}$={low_ratio:.3f})',
+        zorder=10
+    )
+
+    ax.scatter(
+        high_sigma_num, high_sigma_pop,
+        color='orange', s=500, marker='x', linewidth=4,
+        label=rf'Group B ($\nu_{{\mathrm{{npv}}}}$={high_ratio:.3f})',
+        zorder=10
+    )
+
+
+    # Axes, title, legend
+    ax.set_xlim(x.min(), x.max())
+    ax.set_ylim(y.min(), y.max())
+    ax.set_xlabel(r'$\sigma_{\mathrm{num}}$ (Numerical Variability)', fontsize=28)
+    ax.set_ylabel(r'$\sigma_{\mathrm{pop}}$ (Sample Variability)', fontsize=28)
+    # ax.set_title("Variability Ratio Space", fontsize=14)
+    ax.grid(True, alpha=0.3)
+
+    plt.legend(
+        loc='upper center',
+        bbox_to_anchor=(0.5, -0.1),
+        ncol=2
+    )
+
+    plt.tight_layout()
+    plt.show()
+    plt.savefig("res/npvr_dpop_dnum_variation.png", dpi=300, bbox_inches="tight")
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    ## Plot the NVPR, sample size and Cohen's delta variations
+
+    > This section is taken as is from the original notebook
+    """)
+    return
+
+
+@app.cell
+def _(LogNorm, np, plt):
+    plt.rcParams.update({
+        'font.size': 28,
+        'font.weight': 'bold',
+        'axes.labelweight': 'bold',
+        'axes.titlesize': 16,
+        'axes.titleweight': 'bold',
+        'legend.fontsize': 24,
+        'xtick.labelsize': 24,
+        'ytick.labelsize': 24,
+    })
+
+
+    # Parameters
+    sample_sizes = np.logspace(1, 5, 300)  # 10 → 100,000
+    variability_ratios = np.linspace(0.0, 1.0, 300)
+
+    # Compute Cohen's d
+    def cohens_d(n, vr):
+        return (2 / np.sqrt(n)) * vr
+
+    # Create meshgrid
+    N, VR = np.meshgrid(sample_sizes, variability_ratios)
+    D = cohens_d(N, VR)
+    D_safe = np.maximum(D, 1e-5)
+
+    # ---- Plot Heatmap ----
+    plt.figure(figsize=(18, 14))
+    contourf = plt.contourf(
+        N, VR, D_safe, levels=50, cmap="pink_r",
+        # N, VR, D_safe, levels=50, cmap="RdYlGn_r",
+        norm=LogNorm(vmin=1e-5, vmax=1)
+    )
+
+    # ---- Add Isolines ----
+    _contour_levels = [0.01, 0.02, 0.05, 0.1, 0.2, 0.5]
+    _contours = plt.contour(N, VR, D, levels=_contour_levels, colors='black',
+                          linewidths=2.5, linestyles='solid', alpha=0.8)
+    # plt.clabel(_contours, inline=True, fontsize=18, fmt=lambda v: r"$\sigma_{\mathrm{d}}$=%.2f" % v, inline_spacing=10, colors='black' )
+    # plt.clabel(_contours, inline=True, fontsize=18, fmt=lambda v: r"$\sigma_{\mathrm{d}}$=%.2f" % v, colors='black' )
+    labels = plt.clabel(
+        _contours,
+        inline=True,
+        fontsize=24,
+        fmt=lambda v: r"$\sigma_{\mathrm{d}}$ = %.2f" % v,
+        inline_spacing=12,
+        colors='black')
+
+    angles = [7, 48, 67, 71, 72]
+    for a, txt in zip(angles,labels):
+      txt.set_rotation(a) # force vertical
+      txt.set_rotation_mode('anchor')# IMPORTANT
+      txt.set_transform_rotates_text(False) #  stops contour-following
+      txt.set_ha('center')
+      txt.set_va('center')
+
+    # ---- Replace horizontal lines with shaded dots ----
+    # Variability ratios
+    low_vr = 0.287
+    high_vr = 0.496
+
+    # Choose 6 sample sizes spaced evenly in log scale
+    # dot_samples = np.logspace(np.log10(18), np.log10(10000), 6)
+    dot_samples = [25, 150, 500, 2000, 5000]
+
+
+    # Plot blue-shaded dots (low variability line)
+    for _x in (dot_samples):
+        plt.scatter(_x, low_vr, color='green', s=500, marker='x', linewidth=3, zorder=5)
+        plt.vlines(_x, ymin=0, ymax=1, color='darkblue', linewidth=2, linestyles='dashed', alpha=0.8)
+        plt.text(_x*0.85, 0.06, rf"$n={{{int(_x)}}}$", fontsize=20, rotation=90, color='darkblue')
+        # Vertical dotted lines for fixed variability ratios
+        # plt.hlines(low_vr, xmin=10, xmax=100000, colors='orange', linestyles='dotted', linewidth=1.2, alpha=0.7)
+        # plt.hlines(high_vr, xmin=10, xmax=100000, colors='pink', linestyles='dotted', linewidth=1.2, alpha=0.7)
+    plt.hlines(y=low_vr, xmin=0, xmax=1e5, color='green', linewidth=2, linestyles='dashed')
+
+    # Plot green-shaded dots (high variability line)
+    for _x in zip(dot_samples):
+        plt.scatter(_x, high_vr, color='orange', marker='x', linewidth=3, s=500, zorder=5)
+
+    plt.hlines(y=high_vr, xmin=0, xmax=1e5, color='orange', linewidth=2, linestyles='dashed')
+
+
+    # ---- Colorbar and Axis Labels ----
+    _cbar = plt.colorbar(contourf, label=r"Cohen's d Variability ($\sigma_{\mathrm{d}}$, log scale)")
+
+    plt.xscale("log")
+    plt.xlabel("Sample Size (log scale)")
+    plt.ylabel(r"Numerical-Population Variability Ratio ($\nu_{\mathrm{npv}}$)")
+    # plt.title(r"Cohen's d Variability ($\sigma_{\mathrm{d}}$) Across Sample Size and Variability Ratio")
+
+    plt.ylim(0, 0.8)
+    plt.xlim(10, 5e4)
+
+    # plt.legend(
+    #     loc='upper center',
+    #     bbox_to_anchor=(0.5, -0.12),
+    #     ncol=2
+    # )
+
+    plt.tight_layout()
+    plt.show()
+    plt.savefig("res/npvr_sample_size_cohens_delta_variation.png", dpi=300, bbox_inches="tight")
+    return
+
+
+if __name__ == "__main__":
+    app.run()

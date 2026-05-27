@@ -4,3 +4,4 @@ output/
 work/
 license.txt
 parallel_fmriprep_run_*.log
+*__marimo__
