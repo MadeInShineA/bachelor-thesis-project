@@ -195,7 +195,7 @@ def _(mo):
 
 @app.cell
 def _(colors, np, sns):
-    def create_distributions_side_sublpot_values(distributions, side_axes, x_range):
+    def create_distributions_side_sublpot_values(distributions, side_axes, x_range, num_samples):
         means = []
         ref1s = []
         ref2s = []
@@ -226,8 +226,8 @@ def _(colors, np, sns):
 
             # ---- Reference points ----
             mean_val = np.mean(distribution)
-            ref1 = distribution[2]
-            ref2 = distribution[5]
+            ref1 = distribution[num_samples // 5]
+            ref2 = distribution[num_samples // 2]
 
             # Store values for projection
             means.append(mean_val)
@@ -321,14 +321,14 @@ def _(
     x_range_left = (0, 6)
     x_range_right = (0, 6)
 
-    left_axes,left_means, left_ref1s, left_ref1s = create_distributions_side_sublpot_values(low_var_dists, left_axes, x_range_left)
+    left_axes,left_means, left_ref1s, left_ref2s = create_distributions_side_sublpot_values(low_var_dists, left_axes, x_range_left, SAMPLE_NUMBER)
 
-    right_axes,right_means, right_ref1s, right_ref1s = create_distributions_side_sublpot_values(high_var_dists, right_axes, x_range_right)
+    right_axes,right_means, right_ref1s, right_ref2s = create_distributions_side_sublpot_values(high_var_dists, right_axes, x_range_right, SAMPLE_NUMBER)
 
     y_positions = [0.7, 0.5, 0.3]
 
-    left_ax_projection = create_axes(y_positions, left_means, left_means, left_means, x_range_left, left_ax_projection)
-    right_ax_projection = create_axes(y_positions, right_means, right_means, right_means, x_range_right, right_ax_projection)
+    left_ax_projection = create_axes(y_positions, left_means, left_ref1s, left_ref2s, x_range_left, left_ax_projection)
+    right_ax_projection = create_axes(y_positions, right_means, right_ref1s, right_ref2s, x_range_right, right_ax_projection)
 
     # Add panel titles
     _fig.text(0.3, 0.9, "Group A: Low Numerical Variability", fontsize=24, fontweight='bold', ha='center')
