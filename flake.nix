@@ -27,6 +27,7 @@
             python314
 
             awscli2
+            nushell
           ];
 
           env.LD_LIBRARY_PATH = with pkgs; lib.makeLibraryPath [
