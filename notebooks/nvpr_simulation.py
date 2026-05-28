@@ -1,3 +1,14 @@
+# /// script
+# requires-python = ">=3.14"
+# dependencies = [
+#     "marimo>=0.23.8",
+#     "matplotlib==3.10.9",
+#     "numpy==2.4.6",
+#     "plotly==6.7.0",
+#     "seaborn==0.13.2",
+# ]
+# ///
+
 import marimo
 
 __generated_with = "0.23.8"
@@ -15,7 +26,6 @@ def _():
     from matplotlib import gridspec
     from matplotlib.colors import LogNorm
 
-
     return LogNorm, gridspec, mcolors, mo, np, plt, px, sns
 
 
@@ -23,6 +33,7 @@ def _():
 def _(mo):
     mo.md(r"""
     # Simulation of the impact of numerical variability on the Numerical Population Variability Ratio (NPVR) and Cohen's delta
+    | v1.0.0
     """)
     return
 
@@ -30,7 +41,7 @@ def _(mo):
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    > Please that this notebook is a reproduction of [this one](https://github.com/mina94az/Numerical-Variability-of-functional-MRI-Graph-Measures/blob/main/notebooks/simulation.ipynb)
+    The goal of this notebook is to reproduce the different results of [this one](https://github.com/mina94az/Numerical-Variability-of-functional-MRI-Graph-Measures/blob/main/notebooks/simulation.ipynb), therefor it takes heavy inspiration from it
     """)
     return
 
@@ -38,7 +49,7 @@ def _(mo):
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    ## Plotting of the distributions
+    ## Create the low and high variability distributions
     """)
     return
 
@@ -52,17 +63,44 @@ def _(mo):
 
 
 @app.cell
-def _(np):
+def _(mo):
+    output_checkbox = mo.ui.checkbox(label="Save output figs", value=False)
+    sample_number = mo.ui.number(start=1, stop=100, step=1, label="Number of sample",value=10)
+    low_variability_number = mo.ui.number(start=0, stop=1, step=0.1, label="Low variability scale", value=0.1)
+    high_variability_number = mo.ui.number(start=0, stop=1, step=0.1, label="High variability scale", value=0.4)
+    return (
+        high_variability_number,
+        low_variability_number,
+        output_checkbox,
+        sample_number,
+    )
+
+
+@app.cell
+def _(
+    high_variability_number,
+    low_variability_number,
+    mo,
+    output_checkbox,
+    sample_number,
+):
+    mo.vstack([
+        mo.hstack([output_checkbox, sample_number], widths="equal"),
+        mo.hstack([low_variability_number, high_variability_number], widths="equal"),
+    ])
+    return
+
+
+@app.cell
+def _(high_variability_number, low_variability_number, np, sample_number):
     np.random.seed(41)
 
-    SAMPLE_NUMBER = 10
-
-    GENERATOR = np.random.default_rng()
+    SAMPLE_NUMBER = sample_number.value
 
     DISTRUBUTION_MEANS = np.linspace(1, 5, SAMPLE_NUMBER)
 
-    LOW_VARIABILITY_SCALE = 0.1
-    HIGH_VARIABILITY_SCALE = 0.4
+    LOW_VARIABILITY_SCALE = low_variability_number.value
+    HIGH_VARIABILITY_SCALE = high_variability_number.value
 
     print(f"Constant values:\n\t{SAMPLE_NUMBER=}\n\t{DISTRUBUTION_MEANS=}\n\t{LOW_VARIABILITY_SCALE=}\n\t{HIGH_VARIABILITY_SCALE=}")
     return (
@@ -97,6 +135,14 @@ def _(
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
+    ## Plot the distributions
+    """)
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
     ### Setup the different colors
     """)
     return
@@ -119,7 +165,7 @@ def _(mcolors, px):
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    ### Plot the different distributions
+    ### Prepare the plot
     """)
     return
 
@@ -127,7 +173,7 @@ def _(mo):
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    #### Set a fi_xed range to zoom in
+    #### Set a fixed range to zoom in
     """)
     return
 
@@ -200,7 +246,7 @@ def _(colors, np, sns):
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    #### Define a function to create the projection a_xes
+    #### Define a function to create the projection axes
     """)
     return
 
@@ -261,6 +307,7 @@ def _(
     gridspec,
     high_var_dists,
     low_var_dists,
+    output_checkbox,
     plt,
 ):
     _fig = plt.figure(figsize=(18,22))
@@ -287,8 +334,9 @@ def _(
     _fig.text(0.3, 0.9, "Group A: Low Numerical Variability", fontsize=24, fontweight='bold', ha='center')
     _fig.text(0.70, 0.9, "Group B: High Numerical Variability", fontsize=24, fontweight='bold', ha='center')
 
-    plt.show()
-    plt.savefig("res/populations_plot.png", dpi=300, bbox_inches="tight")
+    if output_checkbox.value:
+        _fig.savefig("res/npvr-simulation/populations_plot.png", dpi=300, bbox_inches="tight")
+    _fig
     return
 
 
@@ -296,6 +344,14 @@ def _(
 def _(mo):
     mo.md(r"""
     ## Compute the sigma values (Population and numerical variabilities)
+    """)
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    ### Define a function with the wanted metrics
     """)
     return
 
@@ -319,7 +375,7 @@ def _(np):
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    ### For the low variability
+    ### Compute for the low variability
     """)
     return
 
@@ -334,7 +390,7 @@ def _(compute_metrics, low_var_dists):
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    ### For the high variability distribution
+    ### Compute for the high variability distribution
     """)
     return
 
@@ -347,10 +403,36 @@ def _(compute_metrics, high_var_dists):
 
 @app.cell
 def _(high_sigma_num, high_sigma_pop, low_sigma_num, low_sigma_pop):
-    print("Low σ_num      =", low_sigma_num)
-    print("Low σ_pop     =", low_sigma_pop)
-    print("High σ_num     =", high_sigma_num)
-    print("High σ_pop    =", high_sigma_pop)
+    # Compute the low and high variability NPVR
+    low_npvr = low_sigma_num / low_sigma_pop
+    high_npvr = high_sigma_num / high_sigma_pop
+    return high_npvr, low_npvr
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    ### Print the results
+    """)
+    return
+
+
+@app.cell
+def _(
+    high_npvr,
+    high_sigma_num,
+    high_sigma_pop,
+    low_npvr,
+    low_sigma_num,
+    low_sigma_pop,
+):
+    print("Low σ_num =", low_sigma_num)
+    print("Low σ_pop = ", low_sigma_pop)
+    print("High σ_num = ", high_sigma_num)
+    print("High σ_pop = ", high_sigma_pop)
+
+    print("Low NPVR = ", low_npvr)
+    print("High NPVR = ", high_npvr)
     return
 
 
@@ -359,7 +441,37 @@ def _(mo):
     mo.md(r"""
     ## Plot the NVPR, $\sigma_{pop}$ and $\sigma_{num}$ variations
 
-    > This section is taken as is from the original notebook
+    > This section is mostly taken as is from the original notebook as it's hard to get the same plot with a different code
+    >
+    >And the original code was already pretty good> And the original code was already pretty good
+    """)
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    ### Setup the different plot variables
+    """)
+    return
+
+
+@app.cell
+def _(np):
+    # set the grid (σ_num and σ_pop both in [0.001, 1.5])
+    x_grid_space = np.linspace(0.001, 1, 400)  # σ_num
+    y_grid_space = np.linspace(0.001, 3, 400)  # σ_pop
+    X_grid, Y_grid = np.meshgrid(x_grid_space, y_grid_space)
+
+    # Variability ratio
+    NPVR = X_grid / Y_grid
+    return NPVR, X_grid, Y_grid, x_grid_space, y_grid_space
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    ### Create the plot
     """)
     return
 
@@ -367,12 +479,17 @@ def _(mo):
 @app.cell
 def _(
     LogNorm,
-    high_sigma_num,
+    NPVR,
+    X_grid,
+    Y_grid,
+    high_npvr,
     high_sigma_pop,
-    low_sigma_num,
+    low_npvr,
     low_sigma_pop,
-    np,
+    output_checkbox,
     plt,
+    x_grid_space,
+    y_grid_space,
 ):
     plt.rcParams.update({
         'font.size': 28,
@@ -385,25 +502,18 @@ def _(
         'ytick.labelsize': 24,
     })
 
-    # Grid (σ_num and σ_anat both in [0.001, 1.5])
-    x = np.linspace(0.001, 1, 400)  # σ_num
-    y = np.linspace(0.001, 3, 400)  # σ_anat
-    X, Y = np.meshgrid(x, y)
-
-    # Variability ratio
-    Z = X / Y
 
     _fig, ax = plt.subplots(figsize=(16, 12))
 
-    # Log normalization for visibility
+    # Add a log normalization color bar and background for visibility
     norm = LogNorm(vmin=0.01, vmax=5)
-    pcm = ax.pcolormesh(X, Y, Z, shading='auto', cmap='Greys', norm=norm)
+    pcm = ax.pcolormesh(X_grid, Y_grid, NPVR, shading='auto', cmap='Greys', norm=norm)
     _cbar = _fig.colorbar(pcm, ax=ax)
     _cbar.set_label(r'$\nu_{\mathrm{npv}} = \sigma_{\mathrm{num}}/\sigma_{\mathrm{pop}}$')
 
-    # _contours
+    # Add the plot npv lignes
     _contour_levels = [0.1, 0.2, 0.5, 1.0]
-    _contours = ax.contour(X, Y, Z, levels=_contour_levels, colors='black',
+    _contours = ax.contour(X_grid, Y_grid, NPVR, levels=_contour_levels, colors='black',
                           linewidths=2.5, linestyles='solid', alpha=0.8)
     ax.clabel(
         _contours, inline=True, fontsize=24,
@@ -411,36 +521,28 @@ def _(
         inline_spacing=10, colors='black'
     )
 
-    # Example points - Low and High variability cases
-    # low_sigma_num, low_sigma_anat =0.075,  0.261
-    # high_sigma_num, high_sigma_anat = 0.121, 0.244
 
-    # Compute their ratios
-    low_ratio = low_sigma_num / low_sigma_pop
-    high_ratio = high_sigma_num / high_sigma_pop
-
-    # Plot dots (corrected labels)
+    # Plot the NPVR crosses
     ax.scatter(
-        low_sigma_num, low_sigma_pop,
+        low_npvr, low_sigma_pop,
         color='green', s=500, marker='x', linewidth=4,
-        label=rf'Group A ($\nu_{{\mathrm{{npv}}}}$={low_ratio:.3f})',
+        label=rf'Group A ($\nu_{{\mathrm{{npv}}}}$={low_npvr:.3f})',
         zorder=10
     )
 
     ax.scatter(
-        high_sigma_num, high_sigma_pop,
+        high_npvr, high_sigma_pop,
         color='orange', s=500, marker='x', linewidth=4,
-        label=rf'Group B ($\nu_{{\mathrm{{npv}}}}$={high_ratio:.3f})',
+        label=rf'Group B ($\nu_{{\mathrm{{npv}}}}$={high_npvr:.3f})',
         zorder=10
     )
 
 
     # Axes, title, legend
-    ax.set_xlim(x.min(), x.max())
-    ax.set_ylim(y.min(), y.max())
+    ax.set_xlim(x_grid_space.min(), x_grid_space.max())
+    ax.set_ylim(y_grid_space.min(), y_grid_space.max())
     ax.set_xlabel(r'$\sigma_{\mathrm{num}}$ (Numerical Variability)', fontsize=28)
     ax.set_ylabel(r'$\sigma_{\mathrm{pop}}$ (Sample Variability)', fontsize=28)
-    # ax.set_title("Variability Ratio Space", fontsize=14)
     ax.grid(True, alpha=0.3)
 
     plt.legend(
@@ -450,8 +552,9 @@ def _(
     )
 
     plt.tight_layout()
-    plt.show()
-    plt.savefig("res/npvr_dpop_dnum_variation.png", dpi=300, bbox_inches="tight")
+    if output_checkbox.value:
+        _fig.savefig("res/npvr-simulation/npvr_dpop_dnum_variation.png", dpi=300, bbox_inches="tight")
+    _fig
     return
 
 
@@ -460,13 +563,65 @@ def _(mo):
     mo.md(r"""
     ## Plot the NVPR, sample size and Cohen's delta variations
 
-    > This section is taken as is from the original notebook
+    > This section is mostly taken as is from the original notebook as it's hard to get the same plot with a different code
+
+    > And the original code was already pretty good
+    """)
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    ### Create a function to compute Cohen's d based on the NPVR
     """)
     return
 
 
 @app.cell
-def _(LogNorm, np, plt):
+def _(np):
+    def cohens_d(n, npvr):
+        return (2 / np.sqrt(n)) * npvr
+
+    return (cohens_d,)
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    ### Set the different plot variables
+    """)
+    return
+
+
+@app.cell
+def _(cohens_d, np):
+    # Plot parameters
+    sample_sizes = np.logspace(1, 5, 300)  # 10 → 100,000
+    variability_ratios = np.linspace(0.0, 1.0, 300)
+
+    # Create the plot grid
+    N, VR = np.meshgrid(sample_sizes, variability_ratios)
+    D = cohens_d(N, VR)
+    D_safe = np.maximum(D, 1e-5)
+    return D, D_safe, N, VR
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    #### Create the plot
+
+    > Please note that this plot gives a different result than the original one regarding the NPVR values.
+    >
+    > This is because the original paper had hard coded them to ```low_npvr = 0.287``` and ```high_nvr = 0.496``` instead of using the results provided by the distributions
+    """)
+    return
+
+
+@app.cell
+def _(D, D_safe, LogNorm, N, VR, high_npvr, low_npvr, output_checkbox, plt):
+    # Setup styling
     plt.rcParams.update({
         'font.size': 28,
         'font.weight': 'bold',
@@ -478,35 +633,21 @@ def _(LogNorm, np, plt):
         'ytick.labelsize': 24,
     })
 
+    # Create figure and axis explicitly
+    _fig, _ax = plt.subplots(figsize=(18, 14))
 
-    # Parameters
-    sample_sizes = np.logspace(1, 5, 300)  # 10 → 100,000
-    variability_ratios = np.linspace(0.0, 1.0, 300)
-
-    # Compute Cohen's d
-    def cohens_d(n, vr):
-        return (2 / np.sqrt(n)) * vr
-
-    # Create meshgrid
-    N, VR = np.meshgrid(sample_sizes, variability_ratios)
-    D = cohens_d(N, VR)
-    D_safe = np.maximum(D, 1e-5)
-
-    # ---- Plot Heatmap ----
-    plt.figure(figsize=(18, 14))
-    contourf = plt.contourf(
+    # Plot the background
+    contourf = _ax.contourf(
         N, VR, D_safe, levels=50, cmap="pink_r",
-        # N, VR, D_safe, levels=50, cmap="RdYlGn_r",
         norm=LogNorm(vmin=1e-5, vmax=1)
     )
 
-    # ---- Add Isolines ----
+    # Add contour lines
     _contour_levels = [0.01, 0.02, 0.05, 0.1, 0.2, 0.5]
-    _contours = plt.contour(N, VR, D, levels=_contour_levels, colors='black',
+    _contours = _ax.contour(N, VR, D, levels=_contour_levels, colors='black',
                           linewidths=2.5, linestyles='solid', alpha=0.8)
-    # plt.clabel(_contours, inline=True, fontsize=18, fmt=lambda v: r"$\sigma_{\mathrm{d}}$=%.2f" % v, inline_spacing=10, colors='black' )
-    # plt.clabel(_contours, inline=True, fontsize=18, fmt=lambda v: r"$\sigma_{\mathrm{d}}$=%.2f" % v, colors='black' )
-    labels = plt.clabel(
+
+    labels = _ax.clabel(
         _contours,
         inline=True,
         fontsize=24,
@@ -515,60 +656,43 @@ def _(LogNorm, np, plt):
         colors='black')
 
     angles = [7, 48, 67, 71, 72]
-    for a, txt in zip(angles,labels):
-      txt.set_rotation(a) # force vertical
-      txt.set_rotation_mode('anchor')# IMPORTANT
-      txt.set_transform_rotates_text(False) #  stops contour-following
-      txt.set_ha('center')
-      txt.set_va('center')
+    for a, txt in zip(angles, labels):
+        txt.set_rotation(a)
+        txt.set_rotation_mode('anchor')
+        txt.set_transform_rotates_text(False)
+        txt.set_ha('center')
+        txt.set_va('center')
 
-    # ---- Replace horizontal lines with shaded dots ----
-    # Variability ratios
-    low_vr = 0.287
-    high_vr = 0.496
-
-    # Choose 6 sample sizes spaced evenly in log scale
-    # dot_samples = np.logspace(np.log10(18), np.log10(10000), 6)
+    # Sample sizes and markers
     dot_samples = [25, 150, 500, 2000, 5000]
 
+    for _x in dot_samples:
+        _ax.scatter(_x, low_npvr, color='green', s=500, marker='x', linewidth=3, zorder=5)
+        _ax.vlines(_x, ymin=0, ymax=1, color='darkblue', linewidth=2, linestyles='dashed', alpha=0.8)
+        _ax.text(_x*0.85, 0.06, rf"$n={{{int(_x)}}}$", fontsize=20, rotation=90, color='darkblue')
 
-    # Plot blue-shaded dots (low variability line)
-    for _x in (dot_samples):
-        plt.scatter(_x, low_vr, color='green', s=500, marker='x', linewidth=3, zorder=5)
-        plt.vlines(_x, ymin=0, ymax=1, color='darkblue', linewidth=2, linestyles='dashed', alpha=0.8)
-        plt.text(_x*0.85, 0.06, rf"$n={{{int(_x)}}}$", fontsize=20, rotation=90, color='darkblue')
-        # Vertical dotted lines for fixed variability ratios
-        # plt.hlines(low_vr, xmin=10, xmax=100000, colors='orange', linestyles='dotted', linewidth=1.2, alpha=0.7)
-        # plt.hlines(high_vr, xmin=10, xmax=100000, colors='pink', linestyles='dotted', linewidth=1.2, alpha=0.7)
-    plt.hlines(y=low_vr, xmin=0, xmax=1e5, color='green', linewidth=2, linestyles='dashed')
+    _ax.hlines(y=low_npvr, xmin=0, xmax=1e5, color='green', linewidth=2, linestyles='dashed')
 
-    # Plot green-shaded dots (high variability line)
-    for _x in zip(dot_samples):
-        plt.scatter(_x, high_vr, color='orange', marker='x', linewidth=3, s=500, zorder=5)
+    for _x in dot_samples:
+        _ax.scatter(_x, high_npvr, color='orange', marker='x', linewidth=3, s=500, zorder=5)
 
-    plt.hlines(y=high_vr, xmin=0, xmax=1e5, color='orange', linewidth=2, linestyles='dashed')
+    _ax.hlines(y=high_npvr, xmin=0, xmax=1e5, color='orange', linewidth=2, linestyles='dashed')
 
+    # Colorbar and labels
+    _cbar = _fig.colorbar(contourf, ax=_ax, label=r"Cohen's d Variability ($\sigma_{\mathrm{d}}$, log scale)")
 
-    # ---- Colorbar and Axis Labels ----
-    _cbar = plt.colorbar(contourf, label=r"Cohen's d Variability ($\sigma_{\mathrm{d}}$, log scale)")
+    _ax.set_xscale("log")
+    _ax.set_xlabel("Sample Size (log scale)")
+    _ax.set_ylabel(r"Numerical-Population Variability Ratio ($\nu_{\mathrm{npv}}$)")
+    _ax.set_ylim(0, 0.8)
+    _ax.set_xlim(10, 5e4)
 
-    plt.xscale("log")
-    plt.xlabel("Sample Size (log scale)")
-    plt.ylabel(r"Numerical-Population Variability Ratio ($\nu_{\mathrm{npv}}$)")
-    # plt.title(r"Cohen's d Variability ($\sigma_{\mathrm{d}}$) Across Sample Size and Variability Ratio")
+    _fig.tight_layout()
 
-    plt.ylim(0, 0.8)
-    plt.xlim(10, 5e4)
+    if output_checkbox.value:
+        _fig.savefig("res/npvr-simulation/npvr_sample_size_cohens_delta_variation.png", dpi=300, bbox_inches="tight")
 
-    # plt.legend(
-    #     loc='upper center',
-    #     bbox_to_anchor=(0.5, -0.12),
-    #     ncol=2
-    # )
-
-    plt.tight_layout()
-    plt.show()
-    plt.savefig("res/npvr_sample_size_cohens_delta_variation.png", dpi=300, bbox_inches="tight")
+    _fig
     return
 
 
