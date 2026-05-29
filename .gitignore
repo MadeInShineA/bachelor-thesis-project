@@ -5,3 +5,5 @@ work/
 license.txt
 parallel_fmriprep_run_*.log
 *__marimo__
+fuzzy-fmriprep-sub*.o*
+fuzzy-fmriprep-sub*.e*

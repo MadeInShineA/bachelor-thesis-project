@@ -3,49 +3,109 @@
 
 set -euo pipefail
 
-if [ $# -lt 1 ]; then
-  echo "Usage: $0 <run_number>"
-  echo "Example: $0 1"
+# Initialize all variables to empty
+RUN_NUM=""
+SUBJECTS_STR=""
+DATA_DIR=""
+N_SUBS_IN_PARALLEL=""
+OUT_DIR=""
+WORK_DIR=""
+LICENSE_FILE=""
+
+# Parse arguments
+while [[ $# -gt 0 ]]; do
+  case $1 in
+    --run-num)
+      [[ -z "${2:-}" ]] && { echo "Error: --run-num requires a value"; exit 1; }
+      RUN_NUM="$2"; shift 2 ;;
+    --subjects)
+      [[ -z "${2:-}" ]] && { echo "Error: --subjects requires a value"; exit 1; }
+      SUBJECTS_STR="$2"; shift 2 ;;
+    --data-dir)
+      [[ -z "${2:-}" ]] && { echo "Error: --data-dir requires a value"; exit 1; }
+      DATA_DIR="$2"; shift 2 ;;
+    --n-subs-in-parallel)
+      [[ -z "${2:-}" ]] && { echo "Error: --n-subs-in-parallel requires a value"; exit 1; }
+      N_SUBS_IN_PARALLEL="$2"; shift 2 ;;
+    --out-dir)
+      [[ -z "${2:-}" ]] && { echo "Error: --out-dir requires a value"; exit 1; }
+      OUT_DIR="$2"; shift 2 ;;
+    --work-dir)
+      [[ -z "${2:-}" ]] && { echo "Error: --work-dir requires a value"; exit 1; }
+      WORK_DIR="$2"; shift 2 ;;
+    --license-file)
+      [[ -z "${2:-}" ]] && { echo "Error: --license-file requires a value"; exit 1; }
+      LICENSE_FILE="$2"; shift 2 ;;
+    *)
+      echo "Unknown option: $1"
+      exit 1 ;;
+  esac
+done
+
+# Validate all required arguments are provided
+if [[ -z "$RUN_NUM" || -z "$SUBJECTS_STR" || -z "$DATA_DIR" || -z "$N_SUBS_IN_PARALLEL" || -z "$OUT_DIR" || -z "$WORK_DIR" || -z "$LICENSE_FILE" ]]; then
+  cat <<EOF
+Error: All arguments are required. No defaults are set.
+
+Usage:
+  $0 --run-num <num> \
+     --subjects <sub1,sub2,...> \
+     --data-dir <path> \
+     --n-subs-in-parallel <int> \
+     --out-dir <path> \
+     --work-dir <path> \
+     --license-file <path>
+
+Arguments:
+  --run-num                 Run identifier (e.g., 1)
+  --subjects                Comma-separated subject IDs (e.g., "001,060,120")
+  --data-dir                Path to BIDS data directory
+  --n-subs-in-parallel       Number of parallel sub Docker jobs to run
+  --out-dir                 Path to output directory
+  --work-dir                Path to work/scratch directory
+  --license-file            Path to FreeSurfer license file
+EOF
   exit 1
 fi
 
-# Configuration
-RUN_NUM="$1"
-N_JOBS=3
-DATA_DIR="./data/reproduction-data"
-OUT_DIR="./output"
-WORK_DIR="./work"
-LICENSE_FILE="./license.txt"
-
-# SUBJECTS=("001" "030" "060" "090" "120")
-SUBJECTS=("001" "060" "120")
-
-
-# Check if the array is empty
-if [ ${#SUBJECTS[@]} -eq 0 ]; then
-  echo "No subjects defined in the SUBJECTS array."
+# Validate N_SUBS_IN_PARALLEL is a positive integer
+if ! [[ "$N_SUBS_IN_PARALLEL" =~ ^[0-9]+$ ]] || [[ "$N_SUBS_IN_PARALLEL" -eq 0 ]]; then
+  echo "Error: --n-subs-in-parallel must be a positive integer greater than 0."
   exit 1
 fi
 
-echo "Running fmriprep for ${#SUBJECTS[@]} subjects (${N_JOBS} at a time)..."
+# Validate license file exists
+if [[ ! -f "$LICENSE_FILE" ]]; then
+  echo "Error: License file not found at $LICENSE_FILE"
+  exit 1
+fi
+
+# Convert comma-separated subjects to bash array
+IFS=',' read -r -a SUBJECTS <<< "$SUBJECTS_STR"
+if [[ ${#SUBJECTS[@]} -eq 0 ]]; then
+  echo "Error: No subjects provided."
+  exit 1
+fi
+
+echo "Running fmriprep for ${#SUBJECTS[@]} subjects (${N_SUBS_IN_PARALLEL} at a time)..."
 echo "Subjects: ${SUBJECTS[*]}"
 
 # Pre-create work directories to ensure correct permissions before Docker mounts them
 for sub in "${SUBJECTS[@]}"; do
   mkdir -p "$(pwd)/${WORK_DIR}/run-${RUN_NUM}-sub-${sub}"
 done
+
 # Pre-create output directory
 mkdir -p "$(pwd)/${OUT_DIR}/reproduction/run-${RUN_NUM}"
 
-# Pass the array to parallel using printf
-
-printf '%s\n' "${SUBJECTS[@]}" | parallel -j "${N_JOBS}" --joblog parallel_fmriprep_run_${RUN_NUM}.log \
+# Execute in parallel
+printf '%s\n' "${SUBJECTS[@]}" | parallel -j "${N_SUBS_IN_PARALLEL}" --joblog "/home/cbi/olivier.amacker/bachelor-thesis/bachelor-thesis-project/parallel_fmriprep_run_${RUN_NUM}.log" \
     docker run --rm \
-    -u $(id -u):$(id -g) \
-    -v "$(pwd)/${DATA_DIR}:/data:ro" \
-    -v "$(pwd)/${OUT_DIR}/reproduction/run-${RUN_NUM}:/out" \
-    -v "$(pwd)/${WORK_DIR}/run-${RUN_NUM}-sub-{}/:/work" \
-    -v "$(pwd)/${LICENSE_FILE}:/opt/freesurfer/license.txt:ro" \
+    -u "$(id -u):$(id -g)" \
+    -v "${DATA_DIR}:/data:ro" \
+    -v "${OUT_DIR}:/out" \
+    -v "${WORK_DIR}/run-${RUN_NUM}-sub-{}/:/work" \
+    -v "${LICENSE_FILE}:/opt/freesurfer/license.txt:ro" \
     madeinshinea/fuzzy-fmriprep:25.2.5 /data /out participant \
     --skull-strip-fixed-seed \
     --participant-label {} \
@@ -54,6 +114,7 @@ printf '%s\n' "${SUBJECTS[@]}" | parallel -j "${N_JOBS}" --joblog parallel_fmrip
     --fs-no-reconall \
     --output-spaces MNI152NLin2009cAsym:res-2 \
     --stop-on-first-crash \
+    --output_dir run${RUN_NUM} \
     -w /work
 
 echo "All subjects submitted. Check 'parallel_fmriprep_run_${RUN_NUM}.log' for details."
