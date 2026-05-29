@@ -1,5 +1,6 @@
 #!/bin/bash
 # Please note that this file was adapted from one given by Ayumu-san
+# The argument parsing section was taken from the ../parallel_jobs.sh file, which was written by Qwen3.6-Plus
 
 source /home/cbi/olivier.amacker/bachelor-thesis/bachelor-thesis-project/scripts/pbs/config.sh
 
@@ -137,12 +138,10 @@ echo "#!/bin/bash
 chmod +x "$TMP_JOB"
 
  SAFE_SUBJECTS=$(echo "${SUBJECTS_STR}" | tr ',' '-')
- JOB_NAME="fuzzy-fmriprep-sub${SAFE_SUBJECTS}-run${RUN_NUM}"
+ JOB_NAME="fuzzy-fmriprep-sub-${SAFE_SUBJECTS}-run-${RUN_NUM}"
 
-# Submit ONLY the temp job file
 JOB_ID=$(qsub -N ${JOB_NAME} -l nodes="${NODENAME}${use_node}:ppn=${N_SUBS_IN_PARALLEL}" "$TMP_JOB")
 
-# Clean up the local job file
 rm -f "$TMP_JOB"
 
 echo "Submitted job ${JOB_ID} to ${NODENAME}${use_node}"
