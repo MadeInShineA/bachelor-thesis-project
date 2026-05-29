@@ -93,7 +93,7 @@ echo "Subjects: ${SUBJECTS[*]}"
 
 # Pre-create work directories to ensure correct permissions before Docker mounts them
 for sub in "${SUBJECTS[@]}"; do
-  TARGET_DIR="${WORK_DIR}/run-${RUN_NUM}-sub-${sub}"
+  TARGET_DIR="${WORK_DIR}/run-${RUN_NUM}-${sub}"
   echo "Creating: $TARGET_DIR"
   mkdir -p "$TARGET_DIR" || { echo "ERROR: Failed to create $TARGET_DIR"; exit 1; }
 done
@@ -118,7 +118,7 @@ printf '%s\n' "${SUBJECTS[@]}" | parallel -j "${N_SUBS_IN_PARALLEL}" --joblog "/
     -u "$(id -u):$(id -g)" \
     -v "${DATA_DIR}:/data:ro" \
     -v "${OUT_DIR}/run-${RUN_NUM}:/out" \
-    -v "${WORK_DIR}/run-${RUN_NUM}-sub-{}/:/work" \
+    -v "${WORK_DIR}/run-${RUN_NUM}-{}/:/work" \
     -v "${LICENSE_FILE}:/opt/freesurfer/license.txt:ro" \
     madeinshinea/fuzzy-fmriprep:25.2.5 /data/ /out participant \
     --skull-strip-fixed-seed \
