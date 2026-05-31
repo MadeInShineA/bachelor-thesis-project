@@ -13,7 +13,7 @@ def main [
 
             $lab_list | each { |lab|
                 $sub_list | each { |sub|
-                    { "lab-sub": $"($lab)-($sub)" }
+                  { "lab-sub": $"sub-($lab)($sub)" }
                 }
             } | flatten
         } | flatten
