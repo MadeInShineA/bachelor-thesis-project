@@ -6,4 +6,7 @@ license.txt
 parallel_fmriprep_run_*.log
 *__marimo__
 fuzzy-fmriprep-sub*.o*
-fuzzy-fmriprep-sub*.e*
+fuzzy-fmriprep*-sub*.e*
+fuzzy-fmriprep-run*.e*
+fuzzy-fmriprep-run*.o*
+.env
