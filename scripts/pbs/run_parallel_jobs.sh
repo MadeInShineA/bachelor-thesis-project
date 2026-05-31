@@ -133,14 +133,14 @@ echo "#!/bin/bash
         --out-dir "${OUT_DIR}" \
         --work-dir "${WORK_DIR}" \
         --license-file "${LICENSE_FILE}"
-    " >> ${TMP_JOB}
+    " > ${TMP_JOB}
 
 chmod +x "$TMP_JOB"
 
 # Create the job name
-SAFE_SUBJECTS=$(echo "${SUBJECTS_STR}" | tr ',' '-'
+SAFE_SUBJECTS=$(echo "${SUBJECTS_STR}" | tr ',' '-')
 SUBJECT_HASH=$(echo -n "${SAFE_SUBJECTS}" | md5sum | cut -c1-8)
-JOB_NAME="fmriprep-run${RUN_NUM}-${SUBJECT_HASH}"
+JOB_NAME="fuzzy-fmriprep-run${RUN_NUM}-${SUBJECT_HASH}"
 
 # Create a metadata file for the job
 META_FILE="./jobs-metadata/job_${SAFE_SUBJECTS}_run_${RUN_NUM}_metadata.txt"
@@ -151,7 +151,7 @@ echo "PBS_JOB_NAME: ${JOB_NAME}
     N_SUBS_IN_PARALLEL: ${N_SUBS_IN_PARALLEL}
     SUBMIT_TIME: $(date)
     SUBMITTER: $(whoami)
-    " >> ${META_FILE}
+    " > ${META_FILE}
 
 JOB_ID=$(qsub -N ${JOB_NAME} -l nodes="${NODENAME}${use_node}:ppn=${N_SUBS_IN_PARALLEL}" "$TMP_JOB")
 
