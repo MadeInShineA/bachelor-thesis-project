@@ -30,12 +30,15 @@ def _():
     import numpy as np
     import matplotlib.pyplot as plt
     import seaborn as sns
+    from joblib import Parallel, delayed
 
     return (
         ConnectivityMeasure,
         NiftiLabelsMasker,
+        Parallel,
         Path,
         defaultdict,
+        delayed,
         fetch_atlas_schaefer_2018,
         json,
         mo,
@@ -76,7 +79,21 @@ def _(Path):
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    The we want to collect all the different run paths
+    We also define the FC matrices output path
+    """)
+    return
+
+
+@app.cell
+def _(Path):
+    fc_matrices_output_path = Path("./res/fc-matrices/")
+    return (fc_matrices_output_path,)
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    Then we want to collect all the different run paths
     """)
     return
 
@@ -113,11 +130,6 @@ def _(run_paths):
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    Now we will create 2 classes:
-
-    - The `FuzzyFmriprepSub` class which will represent a fuzzy fMRIPrep subject
-    - The `FuzzyFmriprepAnalysis` with the different connectivity analysis functions and settings
-
     This notebook connectivity analysis pipeline will be as follow:
     - Confound regression
       - The FC matrices will be generated once with and once without confound regressions.
@@ -134,15 +146,8 @@ def _(mo):
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    Remove the confound Future release warning
+    Here, we define functions to process a bold file and save an FC matric one at a time, to be used in parallel
     """)
-    return
-
-
-@app.cell
-def _(warnings):
-
-    warnings.filterwarnings("ignore", message=".*From release 0.14.0, confounds will be standardized.*")
     return
 
 
@@ -151,13 +156,166 @@ def _(
     ConnectivityMeasure,
     NiftiLabelsMasker,
     Path,
-    defaultdict,
-    fetch_atlas_schaefer_2018,
     json,
     np,
     pl,
-    re,
     signal,
+    warnings,
+):
+    def get_confounds(
+        confound_file_path: Path, confound_columns: list
+    ) -> pl.DataFrame:
+        confounds_df = pl.read_csv(
+            confound_file_path, columns=confound_columns, separator="\t"
+        )
+        return confounds_df
+
+
+    def get_masker(repetition_time: float, brain_maps) -> NiftiLabelsMasker:
+        masker = NiftiLabelsMasker(
+            labels_img=brain_maps,
+            standardize="zscore_sample",
+            standardize_confounds=True,
+            smoothing_fwhm=6,
+            detrend=True,
+            t_r=repetition_time,
+            memory=None,
+            memory_level=1,
+            verbose=0,
+        )
+
+        return masker
+
+
+    def save_fc_matrix(
+        fc_matrix: np.ndarray,
+        subject_id: str,
+        subject_run: str,
+        session_name: str,
+        run_name: str,
+        version: str,
+        output_dir: Path,
+    ) -> None:
+
+        output_dir = Path(output_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        run_dir = output_dir / subject_id / subject_run / session_name
+        run_dir.mkdir(parents=True, exist_ok=True)
+
+        out_path = run_dir / f"{run_name}-{version}.npy"
+        np.save(out_path, fc_matrix)
+
+        # print(f"Saved {subject_id} {version} to {out_path}")
+
+
+    def process_single_bold(
+        connectivity_measure: ConnectivityMeasure,
+        preproc_bold: dict,
+        subject_id: str,
+        subject_run: str,
+        brain_maps,
+        confound_columns: list,
+        output_dir: Path,
+    ) -> dict:
+
+        # Disable the future release warning
+        warnings.filterwarnings(
+            "ignore",
+            message=".*From release 0.14.0, confounds will be standardized.*",
+        )
+
+        session_name = preproc_bold["session_name"]
+        run_name = preproc_bold["run_name"]
+        bold_nii_gz_path = preproc_bold["bold.nii.gz"]
+        bold_json_path = preproc_bold["bold.json"]
+        confounds_path = preproc_bold["confounds_timeseries.tsv"]
+
+        confounds = get_confounds(confounds_path, confound_columns).to_pandas()
+
+        repetition_time = None
+
+        with open(bold_json_path, "r") as f:
+            repetition_time = json.load(f)["RepetitionTime"]
+
+        # Generate the FC matrices without confound regression
+
+        without_confound_masker = get_masker(repetition_time, brain_maps)
+        without_confound_ts = without_confound_masker.fit_transform(
+            str(bold_nii_gz_path)
+        )
+
+        without_confound_correlation = connectivity_measure.fit_transform(
+            [without_confound_ts]
+        )[0]
+
+        save_fc_matrix(
+            without_confound_correlation,
+            subject_id,
+            subject_run,
+            session_name,
+            run_name,
+            "without-confound",
+            output_dir,
+        )
+
+        # Generate the FC matrices with confound regression
+
+        with_confound_ts = signal.clean(
+            without_confound_ts,
+            confounds=confounds,
+            standardize="zscore_sample",
+            standardize_confounds=True,
+        )
+
+        with_confound_correlation = connectivity_measure.fit_transform(
+            [with_confound_ts]
+        )[0]
+
+        save_fc_matrix(
+            with_confound_correlation,
+            subject_id,
+            subject_run,
+            session_name,
+            run_name,
+            "with-confound",
+            output_dir,
+        )
+
+        return {
+            "subject_id": subject_id,
+            "subject_run": subject_run,
+            "session_name": session_name,
+            "run_name": run_name,
+            "without-confounds": without_confound_correlation,
+            "with-confounds": with_confound_correlation,
+        }
+
+    return (process_single_bold,)
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    Now we will create 2 classes:
+
+    - The `FuzzyFmriprepSub` class which will represent a fuzzy fMRIPrep subject
+    - The `FuzzyFmriprepAnalysis` with the different connectivity analysis functions and settings
+    """)
+    return
+
+
+@app.cell
+def _(
+    ConnectivityMeasure,
+    Parallel,
+    Path,
+    defaultdict,
+    delayed,
+    fetch_atlas_schaefer_2018,
+    np,
+    process_single_bold,
+    re,
 ):
     class FuzzyFmriprepSub:
         def __init__(
@@ -273,145 +431,99 @@ def _(
             "rot_z",
         ]
 
-        def __init__(self, subjects: list[FuzzyFmriprepSub]):
+        def __init__(self, subjects: list):
             self.subjects = subjects
-
-            # Setup the atlas and it's different elements
             self.atlas = fetch_atlas_schaefer_2018(
                 n_rois=100, yeo_networks=7, resolution_mm=2
             )
             self.brain_maps = self.atlas["maps"]
             self.roi_labels = self.atlas["labels"]
-
-            # Define how the connectivity matrices will be obtained
-            self.connectivity_measure = ConnectivityMeasure(
+            self.connectivity_measures = ConnectivityMeasure(
                 kind="correlation", standardize="zscore_sample"
             )
 
-        def get_confounds(self, confound_file_path: Path) -> pl.DataFrame:
-            confounds_df = pl.read_csv(
-                confound_file_path, columns=self.CONFOUND_COLUMNS, separator="\t"
-            )
-            return confounds_df
+        def generate_fc_matrices(self, output_dir: Path, max_workers=None) -> dict:
 
-        def get_masker(self, repetition_time: float) -> NiftiLabelsMasker:
-            masker = NiftiLabelsMasker(
-                labels_img=self.brain_maps,
-                standardize="zscore_sample",
-                standardize_confounds=True,
-                smoothing_fwhm=6,
-                detrend=True,
-                t_r=repetition_time,
-                memory="nilearn_cache",
-                memory_level=1,
-                verbose=0,
+            res = defaultdict(
+                lambda: defaultdict(
+                    lambda: defaultdict(
+                        lambda: defaultdict(lambda: defaultdict(dict))
+                    )
+                )
             )
 
-            return masker
-
-        def generate_fc_matrices(self, output_dir: Path) -> dict:
-            res = defaultdict(lambda: defaultdict(lambda: defaultdict(lambda: defaultdict(lambda: defaultdict(dict)))))
-
+            tasks = []
             for subject in self.subjects:
-                subject_id = subject.id
-                subject_run = subject.run
-                print(f"Processing {subject_id} from {subject_run}")
-
                 for preproc_bold in subject.preproc_bold_paths:
-                    session_name = preproc_bold["session_name"]
-                    run_name = preproc_bold["run_name"]
-                    bold_nii_gz_path = preproc_bold["bold.nii.gz"]
-                    bold_json_path = preproc_bold["bold.json"]
-                    confounds_path = preproc_bold["confounds_timeseries.tsv"]
-
-                    confounds = self.get_confounds(confounds_path).to_pandas()
-
-                    repetition_time = None
-                    with open(bold_json_path, "r") as f:
-                        repetition_time = json.load(f)["RepetitionTime"]
-
-                    # Generate the FC matrices without confound regression
-
-                    without_confound_masker = self.get_masker(repetition_time)
-                    without_confound_ts = without_confound_masker.fit_transform(
-                        str(bold_nii_gz_path)
-                    )
-                    without_confound_correlation = (
-                        self.connectivity_measure.fit_transform(
-                            [without_confound_ts]
-                        )[0]
+                    tasks.append(
+                        (
+                            self.connectivity_measures,
+                            preproc_bold,
+                            subject.id,
+                            subject.run,
+                            self.brain_maps,
+                            self.CONFOUND_COLUMNS,
+                            output_dir,
+                        )
                     )
 
-                    res[subject_id][subject_run][session_name][run_name]["without-confounds"] = (
-                        without_confound_correlation
-                    )
+            if max_workers is None:
+                max_workers = len(tasks)
 
-                    self.save_fc_matrix(
-                        without_confound_correlation,
-                        subject_id,
-                        subject_run,
-                        session_name,
-                        run_name,
-                        "without-confound",
-                        output_dir,
-                    )
+            print(
+                f"Starting parallel processing of {len(tasks)} tasks with {max_workers} workers."
+            )
 
-                    # Generate the FC matrices with confound regression
+            results = Parallel(n_jobs=max_workers, backend="loky")(
+                delayed(process_single_bold)(*task) for task in tasks
+            )
 
-                    with_confound_ts = signal.clean(
-                        without_confound_ts,
-                        confounds=confounds,
-                        standardize="zscore_sample",
-                        standardize_confounds=True,
-                    )
-
-                    with_confound_correlation = (
-                        self.connectivity_measure.fit_transform(
-                            [with_confound_ts]
-                        )[0]
-                    )
-
-                    res[subject_id][subject_run][session_name][run_name]["with-confounds"] = (
-                        with_confound_correlation
-                    )
-
-                    self.save_fc_matrix(
-                        with_confound_correlation,
-                        subject_id,
-                        subject_run,
-                        session_name,
-                        run_name,
-                        "with-confound",
-                        output_dir,
-                    )
-                break
+            for result in results:
+                res[result["subject_id"]][result["subject_run"]][
+                    result["session_name"]
+                ][result["run_name"]]["without-confounds"] = result[
+                    "without-confounds"
+                ]
+                res[result["subject_id"]][result["subject_run"]][
+                    result["session_name"]
+                ][result["run_name"]]["with-confounds"] = result["with-confounds"]
+                print(
+                    f"Completed {result['subject_id']} | {result['session_name']} | {result['run_name']}"
+                )
 
             return res
 
-        def save_fc_matrix(
-            self,
-            fc_matrix: np.ndarray,
-            subject_id: str,
-            subject_run: str,
-            session_name,
-            run_name: str,
-            version: str,
-            output_dir: Path,
-        ) -> None:
-            output_dir = Path(output_dir)
-            output_dir.mkdir(parents=True, exist_ok=True)
+        def load_fc_matrices(self, input_dir: Path) -> dict:
 
-            subject_dir = output_dir / subject_id
-
-            run_dir = subject_dir / subject_run / session_name
-            run_dir.mkdir(parents=True, exist_ok=True)
-
-            out_path = run_dir / f"{run_name}-{version}.npy"
-            np.save(out_path, fc_matrix)
-
-            print(
-                f"\nSaved the {subject_id} {version} FC matrix from {subject_run} session {session_name} sub {run_name} to {out_path}"
+            res = defaultdict(
+                lambda: defaultdict(
+                    lambda: defaultdict(
+                        lambda: defaultdict(lambda: defaultdict(dict))
+                    )
+                )
             )
+
+            for subject_dir in input_dir.iterdir():
+                for run_dir in subject_dir.iterdir():
+                    for session_dir in run_dir.iterdir():
+                        for fc_matrix_file in session_dir.iterdir():
+                            fc_matrix = np.load(fc_matrix_file)
+
+                            sub_run_match = re.search(
+                                r"(run-\d+)-", fc_matrix_file.name
+                            )
+                            sub_run = sub_run_match.group(1)
+
+                            type_match = re.search(
+                                r"(with(out)?-confound)", fc_matrix_file.name
+                            )
+                            type = type_match.group(1)
+
+                            res[subject_dir.name][run_dir.name][session_dir.name][
+                                sub_run
+                            ][type] = fc_matrix
+
+            return res
 
 
     FuzzyFmriprepSub, FuzzyFmriprepAnalysis
@@ -542,12 +654,14 @@ def _(mo):
 
 
 @app.cell
-def _(Path, fuzzy_fmriprep_analysis):
-    fc_matrices = fuzzy_fmriprep_analysis.generate_fc_matrices(
-        Path("./res/fc-matrices")
-    )
+def _(fc_matrices_output_path, fuzzy_fmriprep_analysis):
+    fc_matrices = fuzzy_fmriprep_analysis.load_fc_matrices(fc_matrices_output_path)
 
-    print(f"Saved {len(fc_matrices)} FC matrices")
+    if not fc_matrices:
+        fc_matrices = fuzzy_fmriprep_analysis.generate_fc_matrices(
+            fc_matrices_output_path,
+        )
+
     fc_matrices
     return (fc_matrices,)
 
@@ -570,17 +684,25 @@ def _(mo):
 
 @app.cell
 def _(fc_matrices, plt, sns):
-    # This code was generated by Qwen3.6-Plus
+    total_matrices = 0
 
-    for subject, run_values in fc_matrices.items():
+    subject_matrices = {
+        subject: {"with-confound": [], "without-confound": []}
+        for subject in fc_matrices.keys()
+    }
+
+    for _subject, run_values in fc_matrices.items():
         for run, session_values in run_values.items():
             for session, sub_run_values in session_values.items():
                 for sub_run, type_values in sub_run_values.items():
                     for type, fc_matrix in type_values.items():
-                    
-    
+                        subject_matrices[_subject][type].append(fc_matrix)
+                        total_matrices += 1
+
                         plt.figure(figsize=(8, 6))
-                
+
+                        # This code was generated by Qwen3.6-Plus
+
                         sns.heatmap(
                             fc_matrix,
                             cmap="RdBu_r",
@@ -591,9 +713,37 @@ def _(fc_matrices, plt, sns):
                             xticklabels=False,
                             yticklabels=False,
                         )
-                    
-                        plt.title(f"Functional Connectivity Matrix of {subject} {run} {session} {sub_run} ({type})")
+
+                        plt.title(
+                            f"Functional Connectivity Matrix of {_subject} {run} {session} {sub_run} ({type})"
+                        )
                         plt.show()
+    print(f"Total FC matrices: {total_matrices}")
+    return (subject_matrices,)
+
+
+@app.cell
+def _(fc_matrices, np, plt, sns, subject_matrices):
+    for subject, _type_values in subject_matrices.items():
+        for _type, _fc_matrices in _type_values.items():
+            if len(fc_matrices) > 0:
+                mean_fc_matrix = np.mean(_fc_matrices, axis=0)
+
+                plt.figure(figsize=(8, 6))
+                sns.heatmap(
+                    mean_fc_matrix,
+                    cmap="RdBu_r",
+                    vmin=-1,
+                    vmax=1,
+                    square=True,
+                    cbar_kws={"shrink": 0.8},
+                    xticklabels=False,
+                    yticklabels=False,
+                )
+                plt.title(
+                    f"Mean Functional Connectivity Matrix of {subject} ({_type})"
+                )
+                plt.show()
     return
 
 
