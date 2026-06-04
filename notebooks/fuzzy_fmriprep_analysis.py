@@ -30,15 +30,21 @@ def _():
     import polars as pl
     import numpy as np
     import matplotlib.pyplot as plt
+    from matplotlib.ticker import ScalarFormatter
+    from matplotlib.patches import Patch
+    from matplotlib.lines import Line2D
     import seaborn as sns
     from itertools import batched
     from joblib import Parallel, delayed
 
     return (
         ConnectivityMeasure,
+        Line2D,
         NiftiLabelsMasker,
         Parallel,
+        Patch,
         Path,
+        ScalarFormatter,
         batched,
         defaultdict,
         delayed,
@@ -774,6 +780,14 @@ def _(mo):
     return
 
 
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    Please note that we apply the filter to the absolute value here!
+    """)
+    return
+
+
 @app.cell
 def _(fc_matrices):
     thresholded_data = {0.05: [], 0.1: [], 0.2: [], 0.3: [], 0.4: [], 0.5: []}
@@ -889,7 +903,7 @@ def _(mo):
 
 @app.cell
 def _(nx, thresholded_data):
-    fc_metrics = {threshold: [] for threshold in thresholded_data.keys()}
+    graph_metrics = {threshold: [] for threshold in thresholded_data.keys()}
 
     for _threshold, _entries in thresholded_data.items():
         print(f"\nProcessing threshold: {_threshold}")
@@ -916,41 +930,642 @@ def _(nx, thresholded_data):
 
             # small_world = nx.sigma(graph, niter=1, nrand=10)
 
-            fc_metrics[_threshold].append(
+            graph_metrics[_threshold].append(
                 {
                     "metadata": metadata,
-                    "local_metrics": {
-                        "degree_centrality": degree_centrality,
-                        "clustering_coefficient": clustering_coefficient,
-                        "betweenness_centrality": betweenness_centrality,
-                        "eigenvector_centrality": eigenvector_centrality,
-                    },
-                    "global_metrics": {
-                        "average_shortest_path_length": avg_shortest_path,
-                        # "small_worldness": small_world,
+                    "metrics": {
+                        "local_metrics": {
+                            "degree_centrality": degree_centrality,
+                            "clustering_coefficient": clustering_coefficient,
+                            "betweenness_centrality": betweenness_centrality,
+                            "eigenvector_centrality": eigenvector_centrality,
+                        },
+                        "global_metrics": {
+                            "average_shortest_path_length": avg_shortest_path,
+                            # "small_worldness": small_world,
+                        },
                     },
                 }
             )
-    return (fc_metrics,)
+    return (graph_metrics,)
 
 
 @app.cell
-def _(fc_metrics):
-    fc_metrics[0.05][0]["local_metrics"]
-    return
-
-
-@app.cell
-def _(fc_metrics):
-    fc_metrics[0.05][0]["global_metrics"]
+def _(graph_metrics):
+    graph_metrics[0.05][0]
     return
 
 
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    We now want to plot the NPVR for the different metrics and the different thresholds
+    We now want to calculate the NPVR for all of the computed graph metrics as follow +
+
+    $$
+      \sigma_{num}^2 = \frac{1}{m} \sum_{j=1}^m \left[ \frac{1}{n-1} \sum_{i=1}^n \left( x_{i,j} - \bar x_{.,j}\right)^2\right]
+    $$
+
+    $$
+      \sigma_{pop}^2 = \frac{1}{n} \sum_{i=1}^n \left[ \frac{1}{m-1} \sum_{j=1}^m \left( x_{i,j} - \bar x_{i,.}\right)^2\right]
+    $$
+
+    $$
+      NPVR = \frac{\sigma_{num}}{\sigma_{pop}}
+    $$
+
+    It can also be noted that it's possible to approximate the std of Cohen's $d \left( \sigma_d \right)$ as follow
+
+    $$
+    \sigma_d = \frac{2}{\sqrt{n}}NPVR
+    $$
+
+    Where $\sigma_{num}$ is the numerical variability, $\sigma_{pop}$ is the population variability, $x_{i,j}$ is the measurement for subject $j$ in MCA repetition $i$, $\bar x_{.,j}$ and $\bar x_{i,.}$ are column and row means, $n$ is the total number of MCA repetitions and $m$ is the number of subjects.
+
+    Higher NPVR values indicate regions where computational variability potentially
+    compromises the detection of true population differences
     """)
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    Since each subject doesn't have the same number of run, and each run doesn't have the same number of subject, we will instead use the following formula:
+
+    $$
+     \sigma_{num}^2 = \frac{1}{\sum_{j=1}^m (n_j - 1)} \sum_{j=1}^m (n_j - 1)\left[ \frac{1}{n_j-1} \sum_{i=1}^{n_j} \left( x_{i,j} - \bar x_{.,j}\right)^2\right]
+    $$
+
+    $$
+     \sigma_{pop}^2 = \frac{1}{\sum_{i=1}^n (m_i - 1)} \sum_{i=1}^n (m_i - 1)\left[ \frac{1}{m_i-1} \sum_{j=1}^{m_i} \left( x_{i,j} - \bar x_{.,j}\right)^2\right]
+    $$
+
+    Where $n_j$ is the number of MCA repetition per subject $j$ $m_i$ is the number of subjects per MCA repetition $i$
+    """)
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    Please note that for now, this complete cell has been written by Qwen3.6-Plus and need to be double checked
+    """)
+    return
+
+
+@app.cell
+def _(Line2D, Patch, ScalarFormatter, defaultdict, graph_metrics, np, plt):
+    def calculate_npvr_data(fc_metrics, metric_name, session_filter=None):
+        """
+        Calculate σ_num, σ_pop, and NPVR for a given metric using pooled standard deviation.
+        """
+        thresholds = sorted(fc_metrics.keys())
+        npvr_values = []
+        sigma_num_all_regions = []
+        sigma_pop_all_regions = []
+
+        for threshold in thresholds:
+            entries = fc_metrics[threshold]
+
+            region_config_subject_data = defaultdict(
+                lambda: defaultdict(lambda: defaultdict(list))
+            )
+
+            for entry in entries:
+                subject_id = entry["metadata"]["subject"]
+                mca_run = entry["metadata"]["run"]
+                session = entry["metadata"]["session"]
+                sub_run = entry["metadata"]["sub_run"]
+                data_type = entry["metadata"]["type"]
+
+                if session_filter is not None and session != session_filter:
+                    continue
+
+                if metric_name in entry["metrics"].get("local_metrics", {}):
+                    values_dict = entry["metrics"]["local_metrics"][metric_name]
+                elif metric_name in entry["metrics"].get("global_metrics", {}):
+                    values_dict = {
+                        "global": entry["metrics"]["global_metrics"][metric_name]
+                    }
+                else:
+                    continue
+
+                config_key = (session, sub_run, data_type)
+
+                for region, value in values_dict.items():
+                    region_config_subject_data[region][config_key][
+                        subject_id
+                    ].append(value)
+
+            if not region_config_subject_data:
+                npvr_values.append(0)
+                sigma_num_all_regions.append([0])
+                sigma_pop_all_regions.append([0])
+                continue
+
+            region_sigma_num = []
+            region_sigma_pop = []
+        
+            # Accumulators for pooled variance calculation
+            ss_num = 0.0
+            df_num = 0
+            ss_pop = 0.0
+            df_pop = 0
+
+            for region, config_data in region_config_subject_data.items():
+                for config_key, subject_data in config_data.items():
+                    all_subjects = sorted(list(subject_data.keys()))
+                    m = len(all_subjects)
+
+                    if m < 2:
+                        continue
+
+                    all_mca_runs = set()
+                    for subj_data in subject_data.values():
+                        all_mca_runs.update(range(len(subj_data)))
+
+                    n_mca_runs = len(all_mca_runs)
+
+                    if n_mca_runs < 2:
+                        continue
+
+                    X = np.full((n_mca_runs, m), np.nan)
+
+                    for j, subj in enumerate(all_subjects):
+                        subj_mca_values = subject_data[subj]
+                        for i, mca_val in enumerate(subj_mca_values):
+                            X[i, j] = mca_val
+
+                    # Calculate Numerical Variability (across MCA runs for each subject)
+                    for j in range(m):
+                        col = X[:, j]
+                        valid_vals = col[~np.isnan(col)]
+                        if len(valid_vals) > 1:
+                            var_j = np.var(valid_vals, ddof=1)
+                        
+                            # 1. Keep for boxplot distribution
+                            region_sigma_num.append(np.sqrt(var_j))
+                        
+                            # 2. Accumulate for pooled standard deviation
+                            df_j = len(valid_vals) - 1
+                            ss_num += var_j * df_j
+                            df_num += df_j
+
+                    # Calculate Population Variability (across subjects for each MCA run)
+                    for i in range(n_mca_runs):
+                        row = X[i, :]
+                        valid_vals = row[~np.isnan(row)]
+                        if len(valid_vals) > 1:
+                            var_i = np.var(valid_vals, ddof=1)
+                        
+                            # 1. Keep for boxplot distribution
+                            region_sigma_pop.append(np.sqrt(var_i))
+                        
+                            # 2. Accumulate for pooled standard deviation
+                            df_i = len(valid_vals) - 1
+                            ss_pop += var_i * df_i
+                            df_pop += df_i
+
+            sigma_num_all_regions.append(
+                region_sigma_num if region_sigma_num else [0]
+            )
+            sigma_pop_all_regions.append(
+                region_sigma_pop if region_sigma_pop else [0]
+            )
+
+            # Calculate POOLED standard deviations (Root of the weighted mean of variances)
+            pooled_sigma_num = np.sqrt(ss_num / df_num) if df_num > 0 else 0.0
+            pooled_sigma_pop = np.sqrt(ss_pop / df_pop) if df_pop > 0 else 0.0
+        
+            # Calculate NPVR using the pooled values
+            npvr = pooled_sigma_num / pooled_sigma_pop if pooled_sigma_pop != 0 else 0.0
+            npvr_values.append(npvr)
+
+        return (
+            thresholds,
+            sigma_num_all_regions,
+            sigma_pop_all_regions,
+            npvr_values,
+        )
+
+
+    def get_session_entry_counts(fc_metrics):
+        """
+        Count total number of entries for each session (same across all thresholds).
+        Returns: dict mapping session_name -> entry count
+        """
+        session_counts = defaultdict(int)
+
+        # Just look at the first threshold since counts are identical
+        first_threshold = sorted(fc_metrics.keys())[0]
+        for entry in fc_metrics[first_threshold]:
+            session = entry["metadata"]["session"]
+            session_counts[session] += 1
+
+        return dict(session_counts)
+
+
+    def plot_single_ax(
+        ax, x_positions, sigma_num_data, sigma_pop_data, npvr_values, title
+    ):
+        """Plot boxplots and NPVR line aligned on the same x-coordinates."""
+        boxplot_data = []
+        boxplot_positions = []
+        boxplot_colors = []
+
+        for i in range(len(x_positions)):
+            boxplot_data.append(sigma_num_data[i])
+            boxplot_positions.append(x_positions[i] - 0.2)
+            boxplot_colors.append("blue")
+
+            boxplot_data.append(sigma_pop_data[i])
+            boxplot_positions.append(x_positions[i] + 0.2)
+            boxplot_colors.append("orange")
+
+        bp = ax.boxplot(
+            boxplot_data,
+            positions=boxplot_positions,
+            widths=0.35,
+            patch_artist=True,
+            showfliers=True,
+            flierprops=dict(marker=".", markersize=2, alpha=0.3, color='gray'),
+        )
+
+        for patch, color in zip(bp["boxes"], boxplot_colors):
+            patch.set_facecolor(color)
+            patch.set_alpha(0.7)
+            patch.set_edgecolor('black')
+            patch.set_linewidth(0.8)
+
+        plt.setp(bp["medians"], color='black', linewidth=2)
+        plt.setp(bp["whiskers"], color='black', linewidth=1, linestyle='-')
+        plt.setp(bp["caps"], color='black', linewidth=1)
+
+        for xpos in x_positions:
+            ax.axvline(x=xpos, color='gray', linestyle='-', alpha=0.2, linewidth=0.5)
+
+        ax2 = ax.twinx()
+        ax2.plot(
+            x_positions,
+            npvr_values,
+            "r--*",
+            linewidth=2.5,
+            markersize=10,
+            markerfacecolor="red",
+            markeredgecolor="black",
+            markeredgewidth=1,
+        )
+
+        ax.set_ylabel("NV, PV", fontsize=11, fontweight='bold')
+        ax2.set_ylabel("Averaged NPVR", fontsize=11, fontweight='bold')
+        ax.set_title(title, fontsize=13, fontweight='bold', pad=15)
+
+        ax.set_xticks(x_positions)
+
+        ax.ticklabel_format(axis="y", style="sci", scilimits=(0, 0))
+        ax.yaxis.set_major_formatter(ScalarFormatter(useMathText=True))
+        ax.grid(True, alpha=0.3, axis='y', linestyle='--')
+        ax2.grid(False)
+
+        ax.tick_params(axis='both', which='major', labelsize=9)
+        ax2.tick_params(axis='both', which='major', labelsize=9)
+
+
+    def create_session_comparison_plot(fc_metrics):
+        """Create a figure with columns for each session + Global for each metric."""
+        metrics = [
+            ("degree_centrality", "Degree Centrality"),
+            ("clustering_coefficient", "Clustering Coefficient"),
+            ("betweenness_centrality", "Betweenness Centrality"),
+            ("eigenvector_centrality", "Eigenvector Centrality"),
+            ("average_shortest_path_length", "Average Shortest Path Length"),
+        ]
+
+        # Get entry counts for each session
+        session_entry_counts = get_session_entry_counts(fc_metrics)
+        all_sessions = sorted(list(session_entry_counts.keys()))
+        n_sessions = len(all_sessions)
+
+        n_cols = n_sessions + 1
+        n_metrics = len(metrics)
+
+        fig_width = 6 * n_cols
+        fig, axes = plt.subplots(
+            n_metrics, n_cols, figsize=(fig_width, 4 * n_metrics), sharex='col'
+        )
+
+        if n_metrics == 1:
+            axes = [axes]
+
+        thresholds = sorted(fc_metrics.keys())
+        threshold_labels = [
+            f"T={t}" if t != int(t) else f"T={int(t)}" for t in thresholds
+        ]
+        x_positions = np.arange(len(thresholds))
+
+        # Create column titles with entry counts
+        column_titles = []
+        total_entries = 0
+        for session in all_sessions:
+            entry_count = session_entry_counts[session]
+            total_entries += entry_count
+            column_titles.append(f"{session}\n({entry_count} entries)")
+
+        column_titles.append(f"Global\n({total_entries} entries)")
+
+        for idx, (metric_key, metric_title) in enumerate(metrics):
+            # Plot each session
+            for col_idx, session in enumerate(all_sessions):
+                _, sigma_num, sigma_pop, npvr = calculate_npvr_data(
+                    fc_metrics, metric_key, session_filter=session
+                )
+                plot_single_ax(
+                    axes[idx][col_idx], x_positions, sigma_num, sigma_pop, npvr, 
+                    f"{metric_title}\n{column_titles[col_idx]}"
+                )
+
+            # Plot Global (last column)
+            _, sigma_num, sigma_pop, npvr = calculate_npvr_data(
+                fc_metrics, metric_key, session_filter=None
+            )
+            plot_single_ax(
+                axes[idx][n_cols-1], x_positions, sigma_num, sigma_pop, npvr, 
+                f"{metric_title}\n{column_titles[n_cols-1]}"
+            )
+
+        # Format bottom axes
+        for col in range(n_cols):
+            axes[-1][col].set_xticks(x_positions)
+            axes[-1][col].set_xticklabels(threshold_labels, fontsize=9)
+            axes[-1][col].set_xlabel("Threshold Values", fontsize=10, fontweight='bold')
+
+        # Create shared legend
+        legend_elements = [
+            Patch(
+                facecolor="blue",
+                alpha=0.6,
+                edgecolor="blue",
+                label="Numerical Variability (NV), $\\sigma$_num",
+            ),
+            Patch(
+                facecolor="orange",
+                alpha=0.6,
+                edgecolor="orange",
+                label="Population Variability (PV), $\\sigma$_pop",
+            ),
+            Line2D(
+                [0],
+                [0],
+                marker="*",
+                color="red",
+                linestyle="--",
+                markersize=8,
+                label="Average NPVR",
+                markerfacecolor="red",
+                markeredgecolor="black",
+                linewidth=2,
+            ),
+        ]
+
+        fig.legend(
+            handles=legend_elements,
+            loc="lower center",
+            bbox_to_anchor=(0.5, -0.01),
+            ncol=3,
+            fontsize=9,
+            frameon=False,
+        )
+
+        plt.tight_layout()
+        return fig
+
+
+    _fig = create_session_comparison_plot(graph_metrics)
+
+
+    _fig.suptitle("Variation of NPVR per threshold for each graph metric", fontsize=14, fontweight='bold')
+    plt.tight_layout(rect=[0, 0.05, 1, 0.95]) 
+    plt.show()
+    return calculate_npvr_data, plot_single_ax
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    We now want to do the same plots but with the `without-confound` minus `with-confound`
+    """)
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    Please note that for now, this complete cell has been written by Qwen3.6-Plus and need to be double checked
+    """)
+    return
+
+
+@app.cell
+def _(
+    Line2D,
+    Patch,
+    calculate_npvr_data,
+    defaultdict,
+    graph_metrics,
+    np,
+    plot_single_ax,
+    plt,
+):
+    def calculate_npvr_difference(fc_metrics, metric_name, session_filter=None):
+        """
+        Calculate σ_num, σ_pop, and NPVR for the difference (without-confound - with-confound).
+    
+        This function pre-processes the data to compute the differences, then delegates 
+        the actual NPVR calculation to calculate_npvr_data to ensure statistical consistency 
+        (using pooled standard deviation) and avoid code duplication.
+        """
+        thresholds = sorted(fc_metrics.keys())
+        fc_metrics_diff = {}
+    
+        for threshold in thresholds:
+            entries = fc_metrics[threshold]
+        
+            # Group by (subject, session, sub_run, mca_run, region) to find pairs
+            grouped_values = defaultdict(dict)
+        
+            for entry in entries:
+                subject_id = entry["metadata"]["subject"]
+                mca_run = entry["metadata"]["run"]
+                session = entry["metadata"]["session"]
+                sub_run = entry["metadata"]["sub_run"]
+                data_type = entry["metadata"]["type"]
+            
+                if metric_name in entry["metrics"].get("local_metrics", {}):
+                    values_dict = entry["metrics"]["local_metrics"][metric_name]
+                elif metric_name in entry["metrics"].get("global_metrics", {}):
+                    values_dict = {"global": entry["metrics"]["global_metrics"][metric_name]}
+                else:
+                    continue
+            
+                for region, value in values_dict.items():
+                    key = (subject_id, session, sub_run, mca_run, region)
+                    grouped_values[key][data_type] = value
+        
+            # Create new synthetic entries for the differences
+            entry_cache = {}
+        
+            for key, type_values in grouped_values.items():
+                subject_id, session, sub_run, mca_run, region = key
+            
+                if "without-confound" in type_values and "with-confound" in type_values:
+                    diff_value = type_values["without-confound"] - type_values["with-confound"]
+                
+                    cache_key = (subject_id, session, sub_run, mca_run)
+                    if cache_key not in entry_cache:
+                        entry_cache[cache_key] = {
+                            "metadata": {
+                                "subject": subject_id,
+                                "run": mca_run,
+                                "session": session,
+                                "sub_run": sub_run,
+                                "type": "difference"  # Distinct type to isolate difference calculations
+                            },
+                            "metrics": {
+                                "local_metrics": {},
+                                "global_metrics": {}
+                            }
+                        }
+                
+                    # Place the difference in the correct metric dictionary
+                    if region == "global":
+                        entry_cache[cache_key]["metrics"]["global_metrics"][metric_name] = diff_value
+                    else:
+                        if metric_name not in entry_cache[cache_key]["metrics"]["local_metrics"]:
+                            entry_cache[cache_key]["metrics"]["local_metrics"][metric_name] = {}
+                        entry_cache[cache_key]["metrics"]["local_metrics"][metric_name][region] = diff_value
+        
+            fc_metrics_diff[threshold] = list(entry_cache.values())
+    
+        # Delegate to the main function, which will handle the pooled variance calculation
+        return calculate_npvr_data(fc_metrics_diff, metric_name, session_filter=session_filter)
+
+
+    def get_difference_entry_counts(fc_metrics):
+        """
+        Count number of valid difference pairs (where both with and without confound exist).
+        Returns: total number of valid pairs
+        """
+        valid_pairs = 0
+        first_threshold = sorted(fc_metrics.keys())[0]
+
+        # Group by (session, sub_run, subject, mca_run)
+        pairs = defaultdict(dict)
+
+        for entry in fc_metrics[first_threshold]:
+            subject_id = entry["metadata"]["subject"]
+            mca_run = entry["metadata"]["run"]
+            session = entry["metadata"]["session"]
+            sub_run = entry["metadata"]["sub_run"]
+            data_type = entry["metadata"]["type"]
+
+            key = (session, sub_run, subject_id, mca_run)
+            pairs[key][data_type] = True
+
+        # Count pairs that have both types
+        for key, types in pairs.items():
+            if "without-confound" in types and "with-confound" in types:
+                valid_pairs += 1
+
+        return valid_pairs
+
+    def create_difference_plot(fc_metrics):
+        """Create a figure showing NPVR of (without-confound - with-confound) differences."""
+        metrics = [
+            ("degree_centrality", "Degree Centrality"),
+            ("clustering_coefficient", "Clustering Coefficient"),
+            ("betweenness_centrality", "Betweenness Centrality"),
+            ("eigenvector_centrality", "Eigenvector Centrality"),
+            ("average_shortest_path_length", "Average Shortest Path Length"),
+        ]
+
+        # Get count of valid difference pairs
+        valid_pairs = get_difference_entry_counts(fc_metrics)
+
+        n_metrics = len(metrics)
+        fig, axes = plt.subplots(
+            n_metrics, 1, figsize=(10, 4 * n_metrics), sharex=True
+        )
+
+        if n_metrics == 1:
+            axes = [axes]
+
+        thresholds = sorted(fc_metrics.keys())
+        threshold_labels = [
+            f"T={t}" if t != int(t) else f"T={int(t)}" for t in thresholds
+        ]
+        x_positions = np.arange(len(thresholds))
+
+        for idx, (metric_key, metric_title) in enumerate(metrics):
+            _, sigma_num, sigma_pop, npvr = calculate_npvr_difference(
+                fc_metrics, metric_key
+            )
+            plot_single_ax(
+                axes[idx], x_positions, sigma_num, sigma_pop, npvr, 
+                f"{metric_title}\n(Without - With Confound)\n({valid_pairs} valid pairs)"
+            )
+
+        # Format bottom axis
+        axes[-1].set_xticks(x_positions)
+        axes[-1].set_xticklabels(threshold_labels, fontsize=9)
+        axes[-1].set_xlabel("Threshold Values", fontsize=10, fontweight='bold')
+
+        # Create shared legend
+        legend_elements = [
+            Patch(
+                facecolor="blue",
+                alpha=0.6,
+                edgecolor="blue",
+                label="Numerical Variability (NV), $\\sigma$_num",
+            ),
+            Patch(
+                facecolor="orange",
+                alpha=0.6,
+                edgecolor="orange",
+                label="Population Variability (PV), $\\sigma$_pop",
+            ),
+            Line2D(
+                [0],
+                [0],
+                marker="*",
+                color="red",
+                linestyle="--",
+                markersize=8,
+                label="Average NPVR",
+                markerfacecolor="red",
+                markeredgecolor="black",
+                linewidth=2,
+            ),
+        ]
+
+        fig.legend(
+            handles=legend_elements,
+            loc="lower center",
+            bbox_to_anchor=(0.5, -0.01),
+            ncol=3,
+            fontsize=9,
+            frameon=False,
+        )
+
+        plt.tight_layout()
+        return fig
+
+
+    _fig = create_difference_plot(graph_metrics)
+
+    _fig.suptitle("Variation of the difference of NPVR between without and with confound graph metrics per threshold", fontsize=14, fontweight='bold')
+
+    plt.tight_layout(rect=[0, 0.05, 1, 0.95])
+    plt.show()
     return
 
 
