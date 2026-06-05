@@ -1,0 +1,172 @@
+# Bachelor Thesis -  Numerical Stability of fMRIPrep Outputs and Its Impact on Functional Connectivity Biomarkers
+
+Please note that this README was generated with Opencode's Big Pickle model and fine tuned by myself.
+
+## Overview
+
+This project reproduces and extends the methodology from *Alizadeh et al. 2025* ([biorxiv](https://www.biorxiv.org/content/10.64898/2025.12.22.695524v1)), computing the **Numerical-Population Variability Ratio (NPVR)** for functional connectivity matrices, graph-theoretical metrics and connectivity biomarkers derived from preprocessed fMRI data.
+
+**Key question:** How does numerical noise from floating-point operations propagate through preprocessing and affect downstream functional connectivity biomarkers?
+
+> This repository is based on work by Mina Alizadeh, Copyright (c) 2026 Mina Alizadeh used under the MIT License.
+
+## Getting started
+
+### Prerequisites
+
+- [Docker](https://docs.docker.com/engine/install/)
+- A BIDS-compliant dataset
+- A FreeSurfer license file ([register here](https://surfer.nmr.mgh.harvard.edu/registration.html))
+- Optional: [Nix](https://nixos.org/download.html) + [direnv](https://direnv.net/) for the dev shell
+
+### Development environment
+
+**With Nix + direnv (recommended):**
+```shell
+direnv allow          # activates the Nix flake (uv, Python 3.14, nushell, etc.)
+uv sync               # install Python dependencies
+```
+
+**With Nix (without direnv):**
+```shell
+nix develop           # enters the Nix dev shell (uv, Python 3.14, nushell, etc.)
+uv sync               # install Python dependencies
+```
+
+**Without Nix (only uv required):**
+```shell
+# Install uv: https://docs.astral.sh/uv/getting-started/installation/
+uv sync               # creates a venv and installs all dependencies
+```
+
+### Docker image
+
+The `Dockerfile` builds a multi-stage image:
+1. **Stage 1** (`verificarlo/fuzzy:v0.9.1`) — provides fuzzy libmath and Verificarlo
+2. **Stage 2** (`nipreps/fmriprep:25.2.5`) — installs Verificarlo and preloads the MCA-instrumented libmath
+
+Key environment variables:
+
+| Variable | Purpose |
+|---|---|
+| `VFC_BACKENDS` | MCA backend configuration (default: `libinterflop_mca.so --precision-binary32=24 --precision-binary64=53 --mode=mca`) |
+| `LD_PRELOAD` | Path to the instrumented libmath library |
+| `VFC_BACKENDS_SILENT_LOAD=True` | Suppresses backend loading logs (needed to avoid `skullstrip_first_pass` crashes) |
+| `VFC_BACKENDS_LOGGER=False` | Disables the logger |
+
+**Build yourself:**
+```shell
+docker build -t fuzzy-fmriprep:25.2.5 .
+```
+
+**Or pull the pre-built image:**
+```shell
+docker pull madeinshinea/fuzzy-fmriprep:25.2.5
+```
+
+## Running Fuzzy fMRIPrep
+
+All scripts use `--skull-strip-fixed-seed`, `--skip-bids-validation`, `--md-only-boilerplate`, `--fs-no-reconall`, and output space `MNI152NLin2009cAsym:res-2`.
+
+### Sequential (one subject at a time)
+
+```shell
+./scripts/sequential_jobs.sh 1
+```
+
+Runs subjects `001, 060, 120` sequentially. Edit the `SUBJECTS` array in the script to change them.
+
+### Parallel (GNU parallel)
+
+```shell
+./scripts/parallel_jobs.sh \
+  --run-num 1 \
+  --subjects "001,060,120" \
+  --data-dir ./data/reproduction-data \
+  --n-subs-in-parallel 2 \
+  --out-dir ./output \
+  --work-dir ./work \
+  --license-file ./license.txt
+```
+
+Runs up to `N` subjects concurrently using GNU parallel.
+
+### SLURM
+
+```shell
+sbatch scripts/run_fmriprep.slurm
+```
+
+SLURM array job (subjects `001–135`, up to 5 at a time via `%5`). Edit the `SUBJECTS` array and `--array` range in the script.
+
+### PBS (dynamic node allocation)
+
+```shell
+./scripts/pbs/run_parallel_jobs.sh \
+  --run-num 1 \
+  --subjects "001,060,120" \
+  --data-dir ./data/reproduction-data \
+  --n-subs-in-parallel 4 \
+  --out-dir ./output \
+  --work-dir ./work \
+  --license-file ./license.txt
+```
+
+Finds the least-loaded node across the cluster, creates a temporary job script, and submits it via `qsub`. Job metadata is saved to `jobs-metadata/`.
+
+## Utility scripts (Nushell)
+
+These require [nushell](https://www.nushell.sh/) (available via the Nix dev shell).
+
+- **`group_sub_by_common_lab.nu`** — Parses a directory listing (`data/ls_output.txt`) and groups subjects by common lab patterns. Outputs to `res/sub_by_common_lab.json`.
+- **`get_sub_filename_by_common_lab.nu`** — Given a lab pattern string, extracts matching subject filenames from the JSON file. Outputs a CSV to `res/`.
+
+## Analysis notebooks (Marimo)
+
+Run with `uv run marimo`:
+
+```shell
+# Edit interactively
+uv run marimo edit notebooks/fuzzy_fmriprep_analysis.py
+
+# Or run as an app
+uv run marimo run notebooks/fuzzy_fmriprep_analysis.py
+```
+
+### `fuzzy_fmriprep_analysis.py`
+
+Loads preprocessed fMRIPrep outputs and:
+
+1. Extracts ROI time series using the **Schaefer 2018** atlas (100 regions, 7 networks) via `NiftiLabelsMasker` (smoothing 6mm FWHM, temporal standardization)
+2. Generates FC matrices (Pearson correlation) in two variants:
+   - **Without confound regression**
+   - **With confound regression**
+3. Applies absolute thresholds (0.05, 0.1, 0.2, 0.3, 0.4, 0.5) to produce binary adjacency matrices
+4. Computes graph metrics:
+   - **Local:** degree centrality, clustering coefficient, betweenness centrality, eigenvector centrality
+   - **Global:** average shortest path length, small worldness
+5. Calculates the **NPVR** (pooled across subjects) per threshold, per session, and per metric
+6. Produces comparison plots: NV/PV boxplots with NPVR overlay for each metric, split by session and globally, plus a difference plot (without-confound minus with-confound)
+
+### `nvpr_simulation.py`
+
+Synthetic simulation reproducing Figure 1 from Alizadeh et al. 2025:
+- Two synthetic populations (low vs high numerical variability)
+- Interactive controls for sample size and variability scales
+- NPVR calculation and visualisation on a σ_num / σ_pop grid
+- Cohen's d variability as a function of sample size and NPVR
+
+## Resources
+
+| File | Content |
+|---|---|
+| `resources/alizadeh-2025-paper-summary/` | Full summary of the paper, preprocessing pipeline explanation, graph metrics reference |
+| `resources/alizadeh-2025-paper-summary/images/` | Figures from the paper |
+| `resources/connectivity-analysis-pipeline/` | Overview of the connectivity analysis pipeline steps |
+
+## Acknowledgments
+
+- This work builds on **Alizadeh et al. 2025**, *Numerical Variability of functional MRI Graph Measures*
+- Floating-point perturbations via [Verificarlo / fuzzy](https://github.com/verificarlo/fuzzy)
+- Preprocessing with [fMRIPrep](https://fmriprep.org/)
+- Data from the [PPMI dataset](https://www.ppmi-info.org/)
