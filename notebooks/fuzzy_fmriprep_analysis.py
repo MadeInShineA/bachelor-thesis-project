@@ -548,8 +548,12 @@ def _(
 
             for subject_dir in (d for d in input_dir.iterdir() if d.is_dir()):
                 for run_dir in (d for d in subject_dir.iterdir() if d.is_dir()):
-                    for session_dir in (d for d in run_dir.iterdir() if d.is_dir()):
-                        for fc_matrix_file in (d for d in session_dir.iterdir() if not d.is_dir()):
+                    for session_dir in (
+                        d for d in run_dir.iterdir() if d.is_dir()
+                    ):
+                        for fc_matrix_file in (
+                            d for d in session_dir.iterdir() if not d.is_dir()
+                        ):
                             fc_matrix = np.load(fc_matrix_file)
 
                             sub_run_match = re.search(
@@ -568,34 +572,38 @@ def _(
 
             return res
 
-        def compute_graphs_metrics(self, thresholded_data, graph_metrics_output_path):
-            graph_metrics = {threshold: [] for threshold in thresholded_data.keys()}
+        def compute_graphs_metrics(
+            self, thresholded_data, graph_metrics_output_path
+        ):
+            graph_metrics = {
+                threshold: [] for threshold in thresholded_data.keys()
+            }
 
             for _threshold, _entries in thresholded_data.items():
                 print(f"\nProcessing threshold: {_threshold}")
-        
+
                 for _entry in _entries:
                     matrix = _entry["matrix"]
                     metadata = _entry["metadata"]
-        
+
                     graph = nx.from_numpy_array(matrix)
-        
+
                     # Here we remove the FC matrix diagonal (self loops)
                     graph.remove_edges_from(nx.selfloop_edges(graph))
-        
+
                     # Local metrics
                     degree_centrality = nx.degree_centrality(graph)
                     clustering_coefficient = nx.clustering(graph)
                     betweenness_centrality = nx.betweenness_centrality(graph)
                     eigenvector_centrality = nx.eigenvector_centrality(graph)
-        
+
                     # Global metrics
                     largest_cc = max(nx.connected_components(graph), key=len)
                     subgraph = graph.subgraph(largest_cc)
                     avg_shortest_path = nx.average_shortest_path_length(subgraph)
-        
+
                     # small_world = nx.sigma(graph, niter=1, nrand=10)
-        
+
                     graph_metrics[_threshold].append(
                         {
                             "metadata": metadata,
@@ -613,9 +621,11 @@ def _(
                             },
                         }
                     )
-        
-                graph_metrics_threshold_path = graph_metrics_output_path / f"threshold-{_threshold}.json"
-        
+
+                graph_metrics_threshold_path = (
+                    graph_metrics_output_path / f"threshold-{_threshold}.json"
+                )
+
                 with open(graph_metrics_threshold_path, "w") as f:
                     json.dump(graph_metrics[_threshold], f, indent=4)
             return graph_metrics
@@ -623,7 +633,9 @@ def _(
         def load_graph_metrics(self, thresholds, graph_metrics_input_path):
             graph_metrics = {threshold: [] for threshold in thresholds}
 
-            for graph_metric_threshold_file in (d for d in graph_metrics_input_path.iterdir() if not d.is_dir()):
+            for graph_metric_threshold_file in (
+                d for d in graph_metrics_input_path.iterdir() if not d.is_dir()
+            ):
                 file_name = graph_metric_threshold_file.name
 
                 threshold_match = re.search(r"threshold-(.+)\.json", file_name)
@@ -632,18 +644,14 @@ def _(
 
                 for threshold in thresholds:
                     if threshold_str == str(threshold):
-
                         data = None
 
                         with open(graph_metric_threshold_file, "r") as file:
                             data = json.load(file)
-                        
+
                         graph_metrics[threshold] = data
-        
+
             return graph_metrics
-
-                
-
 
 
     FuzzyFmriprepSub, FuzzyFmriprepAnalysis
@@ -998,11 +1006,14 @@ def _(batched, figures_output_path, plt, sns, thresholded_data):
             )
 
             plt.tight_layout()
-            plt.show()
+
             _fig.savefig(
                 figures_output_path
-                / f"binary_fc_matrices-threshold-{_threshold}.png"
+                / f"binary_fc_matrices-threshold-{_threshold}.png",
+                bbox_inches="tight",
             )
+
+            plt.show()
     return
 
 
@@ -1024,10 +1035,14 @@ def _(mo):
 
 @app.cell
 def _(fuzzy_fmriprep_analysis, graph_metrics_output_path, thresholded_data):
-    graph_metrics = fuzzy_fmriprep_analysis.load_graph_metrics(thresholded_data.keys(), graph_metrics_output_path)
+    graph_metrics = fuzzy_fmriprep_analysis.load_graph_metrics(
+        thresholded_data.keys(), graph_metrics_output_path
+    )
 
     if not any(graph_metrics.values()):
-        graph_metrics = fuzzy_fmriprep_analysis.compute_graphs_metrics(thresholded_data, graph_metrics_output_path)
+        graph_metrics = fuzzy_fmriprep_analysis.compute_graphs_metrics(
+            thresholded_data, graph_metrics_output_path
+        )
 
     first_threshold = list(thresholded_data.keys())[0]
     first_metric = graph_metrics[first_threshold][0]
@@ -1453,8 +1468,11 @@ def _(
         fontsize=14,
         fontweight="bold",
     )
-    _fig.savefig(figures_output_path / "graph_metrics_npvr.png")
     plt.tight_layout(rect=[0, 0.05, 1, 0.95])
+    _fig.savefig(
+        figures_output_path / "graph_metrics_npvr.png",
+        bbox_inches="tight",
+    )
     plt.show()
     return calculate_npvr_data, plot_single_ax
 
@@ -1702,12 +1720,19 @@ def _(
         fontweight="bold",
     )
 
+    plt.tight_layout(rect=[0, 0.05, 1, 0.95])
+
     _fig.savefig(
-        figures_output_path / "graph_metrics_npvr_confound_difference.png"
+        figures_output_path / "graph_metrics_npvr_confound_difference.png",
+        bbox_inches="tight",
     )
 
-    plt.tight_layout(rect=[0, 0.05, 1, 0.95])
     plt.show()
+    return
+
+
+@app.cell
+def _():
     return
 
 
