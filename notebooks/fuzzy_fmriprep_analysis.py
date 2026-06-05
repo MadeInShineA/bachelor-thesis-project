@@ -37,6 +37,10 @@ def _():
     from itertools import batched
     from joblib import Parallel, delayed
 
+
+    import matplotlib.style
+
+    matplotlib.style.use("default")
     return (
         ConnectivityMeasure,
         Line2D,
@@ -89,15 +93,31 @@ def _(Path):
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    We also define the FC matrices output path
+    We also define the different output paths
     """)
     return
 
 
 @app.cell
 def _(Path):
-    fc_matrices_output_path = Path("./res/fc-matrices/")
-    return (fc_matrices_output_path,)
+    output_path = Path("./res/fuzzy-fmriprep-analysis/")
+
+    version = "v1"
+
+    fc_matrices_output_path = output_path / version / "fc-matrices"
+    figures_output_path = output_path / version / "figures"
+    graph_metrics_output_path = output_path / version / "graph-metrics"
+
+    fc_matrices_output_path.mkdir(parents=True, exist_ok=True)
+    figures_output_path.mkdir(parents=True, exist_ok=True)
+    graph_metrics_output_path.mkdir(parents=True, exist_ok=True)
+
+    fc_matrices_output_path, figures_output_path
+    return (
+        fc_matrices_output_path,
+        figures_output_path,
+        graph_metrics_output_path,
+    )
 
 
 @app.cell(hide_code=True)
@@ -207,7 +227,6 @@ def _(
         output_dir: Path,
     ) -> None:
 
-        output_dir = Path(output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
 
         run_dir = output_dir / subject_id / subject_run / session_name
@@ -323,7 +342,9 @@ def _(
     defaultdict,
     delayed,
     fetch_atlas_schaefer_2018,
+    json,
     np,
+    nx,
     process_single_bold,
     re,
 ):
@@ -452,7 +473,19 @@ def _(
                 kind="correlation", standardize="zscore_sample"
             )
 
+        def save_metadata(self, output_dir: Path) -> None:
+            output_dir.mkdir(parents=True, exist_ok=True)
+
+            metadata = {"confound_columns": self.CONFOUND_COLUMNS}
+
+            metadata_path = output_dir / "metadata.json"
+
+            with open(metadata_path, "w") as f:
+                json.dump(metadata, f, indent=4)
+
         def generate_fc_matrices(self, output_dir: Path, max_workers=None) -> dict:
+
+            self.save_metadata(output_dir)
 
             res = defaultdict(
                 lambda: defaultdict(
@@ -513,10 +546,10 @@ def _(
                 )
             )
 
-            for subject_dir in input_dir.iterdir():
-                for run_dir in subject_dir.iterdir():
-                    for session_dir in run_dir.iterdir():
-                        for fc_matrix_file in session_dir.iterdir():
+            for subject_dir in (d for d in input_dir.iterdir() if d.is_dir()):
+                for run_dir in (d for d in subject_dir.iterdir() if d.is_dir()):
+                    for session_dir in (d for d in run_dir.iterdir() if d.is_dir()):
+                        for fc_matrix_file in (d for d in session_dir.iterdir() if not d.is_dir()):
                             fc_matrix = np.load(fc_matrix_file)
 
                             sub_run_match = re.search(
@@ -534,6 +567,83 @@ def _(
                             ][type] = fc_matrix
 
             return res
+
+        def compute_graphs_metrics(self, thresholded_data, graph_metrics_output_path):
+            graph_metrics = {threshold: [] for threshold in thresholded_data.keys()}
+
+            for _threshold, _entries in thresholded_data.items():
+                print(f"\nProcessing threshold: {_threshold}")
+        
+                for _entry in _entries:
+                    matrix = _entry["matrix"]
+                    metadata = _entry["metadata"]
+        
+                    graph = nx.from_numpy_array(matrix)
+        
+                    # Here we remove the FC matrix diagonal (self loops)
+                    graph.remove_edges_from(nx.selfloop_edges(graph))
+        
+                    # Local metrics
+                    degree_centrality = nx.degree_centrality(graph)
+                    clustering_coefficient = nx.clustering(graph)
+                    betweenness_centrality = nx.betweenness_centrality(graph)
+                    eigenvector_centrality = nx.eigenvector_centrality(graph)
+        
+                    # Global metrics
+                    largest_cc = max(nx.connected_components(graph), key=len)
+                    subgraph = graph.subgraph(largest_cc)
+                    avg_shortest_path = nx.average_shortest_path_length(subgraph)
+        
+                    # small_world = nx.sigma(graph, niter=1, nrand=10)
+        
+                    graph_metrics[_threshold].append(
+                        {
+                            "metadata": metadata,
+                            "metrics": {
+                                "local_metrics": {
+                                    "degree_centrality": degree_centrality,
+                                    "clustering_coefficient": clustering_coefficient,
+                                    "betweenness_centrality": betweenness_centrality,
+                                    "eigenvector_centrality": eigenvector_centrality,
+                                },
+                                "global_metrics": {
+                                    "average_shortest_path_length": avg_shortest_path,
+                                    # "small_worldness": small_world,
+                                },
+                            },
+                        }
+                    )
+        
+                graph_metrics_threshold_path = graph_metrics_output_path / f"threshold-{_threshold}.json"
+        
+                with open(graph_metrics_threshold_path, "w") as f:
+                    json.dump(graph_metrics[_threshold], f, indent=4)
+            return graph_metrics
+
+        def load_graph_metrics(self, thresholds, graph_metrics_input_path):
+            graph_metrics = {threshold: [] for threshold in thresholds}
+
+            for graph_metric_threshold_file in (d for d in graph_metrics_input_path.iterdir() if not d.is_dir()):
+                file_name = graph_metric_threshold_file.name
+
+                threshold_match = re.search(r"threshold-(.+)\.json", file_name)
+
+                threshold_str = threshold_match.group(1)
+
+                for threshold in thresholds:
+                    if threshold_str == str(threshold):
+
+                        data = None
+
+                        with open(graph_metric_threshold_file, "r") as file:
+                            data = json.load(file)
+                        
+                        graph_metrics[threshold] = data
+        
+            return graph_metrics
+
+                
+
 
 
     FuzzyFmriprepSub, FuzzyFmriprepAnalysis
@@ -667,6 +777,7 @@ def _(mo):
 def _(fc_matrices_output_path, fuzzy_fmriprep_analysis):
     fc_matrices = fuzzy_fmriprep_analysis.load_fc_matrices(fc_matrices_output_path)
 
+
     if not fc_matrices:
         fc_matrices = fuzzy_fmriprep_analysis.generate_fc_matrices(
             fc_matrices_output_path,
@@ -674,6 +785,12 @@ def _(fc_matrices_output_path, fuzzy_fmriprep_analysis):
 
     fc_matrices
     return (fc_matrices,)
+
+
+@app.cell
+def _(fc_matrices_output_path, fuzzy_fmriprep_analysis):
+    fuzzy_fmriprep_analysis.save_metadata(fc_matrices_output_path)
+    return
 
 
 @app.cell(hide_code=True)
@@ -829,12 +946,12 @@ def _(mo):
 
 
 @app.cell
-def _(batched, plt, sns, thresholded_data):
+def _(batched, figures_output_path, plt, sns, thresholded_data):
     for _threshold, entries in thresholded_data.items():
         for without_confound, with_confound in batched(entries[:2], n=2):
             # This plot code was generated by Qwen3.6-Plus
 
-            fig, axes = plt.subplots(1, 2, figsize=(12, 6))
+            _fig, _axes = plt.subplots(1, 2, figsize=(12, 6))
 
             sns.heatmap(
                 without_confound["matrix"],
@@ -845,9 +962,9 @@ def _(batched, plt, sns, thresholded_data):
                 yticklabels=False,
                 cmap="Greys",
                 cbar=False,
-                ax=axes[0],
+                ax=_axes[0],
             )
-            axes[0].set_title(
+            _axes[0].set_title(
                 f"Type: {without_confound['metadata']['type']}",
                 fontsize=12,
                 fontweight="bold",
@@ -862,9 +979,9 @@ def _(batched, plt, sns, thresholded_data):
                 yticklabels=False,
                 cmap="Greys",
                 cbar=False,
-                ax=axes[1],
+                ax=_axes[1],
             )
-            axes[1].set_title(
+            _axes[1].set_title(
                 f"Type: {with_confound['metadata']['type']}",
                 fontsize=12,
                 fontweight="bold",
@@ -872,7 +989,7 @@ def _(batched, plt, sns, thresholded_data):
 
             _meta_shared = without_confound["metadata"]
 
-            fig.suptitle(
+            _fig.suptitle(
                 f"Threshold: {_threshold}\n"
                 f"Sub: {_meta_shared['subject']} | Run: {_meta_shared['run']} | Session: {_meta_shared['session']} | Subrun: {_meta_shared['sub_run']}\n"
                 f"White = 0 | Black = 1",
@@ -882,6 +999,10 @@ def _(batched, plt, sns, thresholded_data):
 
             plt.tight_layout()
             plt.show()
+            _fig.savefig(
+                figures_output_path
+                / f"binary_fc_matrices-threshold-{_threshold}.png"
+            )
     return
 
 
@@ -902,64 +1023,23 @@ def _(mo):
 
 
 @app.cell
-def _(nx, thresholded_data):
-    graph_metrics = {threshold: [] for threshold in thresholded_data.keys()}
+def _(fuzzy_fmriprep_analysis, graph_metrics_output_path, thresholded_data):
+    graph_metrics = fuzzy_fmriprep_analysis.load_graph_metrics(thresholded_data.keys(), graph_metrics_output_path)
 
-    for _threshold, _entries in thresholded_data.items():
-        print(f"\nProcessing threshold: {_threshold}")
+    if not any(graph_metrics.values()):
+        graph_metrics = fuzzy_fmriprep_analysis.compute_graphs_metrics(thresholded_data, graph_metrics_output_path)
 
-        for _entry in _entries:
-            matrix = _entry["matrix"]
-            metadata = _entry["metadata"]
+    first_threshold = list(thresholded_data.keys())[0]
+    first_metric = graph_metrics[first_threshold][0]
 
-            graph = nx.from_numpy_array(matrix)
-
-            # Here we remove the FC matrix diagonal (self loops)
-            graph.remove_edges_from(nx.selfloop_edges(graph))
-
-            # Local metrics
-            degree_centrality = nx.degree_centrality(graph)
-            clustering_coefficient = nx.clustering(graph)
-            betweenness_centrality = nx.betweenness_centrality(graph)
-            eigenvector_centrality = nx.eigenvector_centrality(graph)
-
-            # Global metrics
-            largest_cc = max(nx.connected_components(graph), key=len)
-            subgraph = graph.subgraph(largest_cc)
-            avg_shortest_path = nx.average_shortest_path_length(subgraph)
-
-            # small_world = nx.sigma(graph, niter=1, nrand=10)
-
-            graph_metrics[_threshold].append(
-                {
-                    "metadata": metadata,
-                    "metrics": {
-                        "local_metrics": {
-                            "degree_centrality": degree_centrality,
-                            "clustering_coefficient": clustering_coefficient,
-                            "betweenness_centrality": betweenness_centrality,
-                            "eigenvector_centrality": eigenvector_centrality,
-                        },
-                        "global_metrics": {
-                            "average_shortest_path_length": avg_shortest_path,
-                            # "small_worldness": small_world,
-                        },
-                    },
-                }
-            )
+    first_metric
     return (graph_metrics,)
-
-
-@app.cell
-def _(graph_metrics):
-    graph_metrics[0.05][0]
-    return
 
 
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    We now want to calculate the NPVR for all of the computed graph metrics as follow +
+    We now want to calculate the NPVR for all of the computed graph metrics as follow:
 
     $$
       \sigma_{num}^2 = \frac{1}{m} \sum_{j=1}^m \left[ \frac{1}{n-1} \sum_{i=1}^n \left( x_{i,j} - \bar x_{.,j}\right)^2\right]
@@ -1014,7 +1094,16 @@ def _(mo):
 
 
 @app.cell
-def _(Line2D, Patch, ScalarFormatter, defaultdict, graph_metrics, np, plt):
+def _(
+    Line2D,
+    Patch,
+    ScalarFormatter,
+    defaultdict,
+    figures_output_path,
+    graph_metrics,
+    np,
+    plt,
+):
     def calculate_npvr_data(fc_metrics, metric_name, session_filter=None):
         """
         Calculate σ_num, σ_pop, and NPVR for a given metric using pooled standard deviation.
@@ -1065,7 +1154,7 @@ def _(Line2D, Patch, ScalarFormatter, defaultdict, graph_metrics, np, plt):
 
             region_sigma_num = []
             region_sigma_pop = []
-        
+
             # Accumulators for pooled variance calculation
             ss_num = 0.0
             df_num = 0
@@ -1102,10 +1191,10 @@ def _(Line2D, Patch, ScalarFormatter, defaultdict, graph_metrics, np, plt):
                         valid_vals = col[~np.isnan(col)]
                         if len(valid_vals) > 1:
                             var_j = np.var(valid_vals, ddof=1)
-                        
+
                             # 1. Keep for boxplot distribution
                             region_sigma_num.append(np.sqrt(var_j))
-                        
+
                             # 2. Accumulate for pooled standard deviation
                             df_j = len(valid_vals) - 1
                             ss_num += var_j * df_j
@@ -1117,10 +1206,10 @@ def _(Line2D, Patch, ScalarFormatter, defaultdict, graph_metrics, np, plt):
                         valid_vals = row[~np.isnan(row)]
                         if len(valid_vals) > 1:
                             var_i = np.var(valid_vals, ddof=1)
-                        
+
                             # 1. Keep for boxplot distribution
                             region_sigma_pop.append(np.sqrt(var_i))
-                        
+
                             # 2. Accumulate for pooled standard deviation
                             df_i = len(valid_vals) - 1
                             ss_pop += var_i * df_i
@@ -1136,9 +1225,13 @@ def _(Line2D, Patch, ScalarFormatter, defaultdict, graph_metrics, np, plt):
             # Calculate POOLED standard deviations (Root of the weighted mean of variances)
             pooled_sigma_num = np.sqrt(ss_num / df_num) if df_num > 0 else 0.0
             pooled_sigma_pop = np.sqrt(ss_pop / df_pop) if df_pop > 0 else 0.0
-        
+
             # Calculate NPVR using the pooled values
-            npvr = pooled_sigma_num / pooled_sigma_pop if pooled_sigma_pop != 0 else 0.0
+            npvr = (
+                pooled_sigma_num / pooled_sigma_pop
+                if pooled_sigma_pop != 0
+                else 0.0
+            )
             npvr_values.append(npvr)
 
         return (
@@ -1188,21 +1281,23 @@ def _(Line2D, Patch, ScalarFormatter, defaultdict, graph_metrics, np, plt):
             widths=0.35,
             patch_artist=True,
             showfliers=True,
-            flierprops=dict(marker=".", markersize=2, alpha=0.3, color='gray'),
+            flierprops=dict(marker=".", markersize=2, alpha=0.3, color="gray"),
         )
 
         for patch, color in zip(bp["boxes"], boxplot_colors):
             patch.set_facecolor(color)
             patch.set_alpha(0.7)
-            patch.set_edgecolor('black')
+            patch.set_edgecolor("black")
             patch.set_linewidth(0.8)
 
-        plt.setp(bp["medians"], color='black', linewidth=2)
-        plt.setp(bp["whiskers"], color='black', linewidth=1, linestyle='-')
-        plt.setp(bp["caps"], color='black', linewidth=1)
+        plt.setp(bp["medians"], color="black", linewidth=2)
+        plt.setp(bp["whiskers"], color="black", linewidth=1, linestyle="-")
+        plt.setp(bp["caps"], color="black", linewidth=1)
 
         for xpos in x_positions:
-            ax.axvline(x=xpos, color='gray', linestyle='-', alpha=0.2, linewidth=0.5)
+            ax.axvline(
+                x=xpos, color="gray", linestyle="-", alpha=0.2, linewidth=0.5
+            )
 
         ax2 = ax.twinx()
         ax2.plot(
@@ -1216,19 +1311,19 @@ def _(Line2D, Patch, ScalarFormatter, defaultdict, graph_metrics, np, plt):
             markeredgewidth=1,
         )
 
-        ax.set_ylabel("NV, PV", fontsize=11, fontweight='bold')
-        ax2.set_ylabel("Averaged NPVR", fontsize=11, fontweight='bold')
-        ax.set_title(title, fontsize=13, fontweight='bold', pad=15)
+        ax.set_ylabel("NV, PV", fontsize=11, fontweight="bold")
+        ax2.set_ylabel("Averaged NPVR", fontsize=11, fontweight="bold")
+        ax.set_title(title, fontsize=13, fontweight="bold", pad=15)
 
         ax.set_xticks(x_positions)
 
         ax.ticklabel_format(axis="y", style="sci", scilimits=(0, 0))
         ax.yaxis.set_major_formatter(ScalarFormatter(useMathText=True))
-        ax.grid(True, alpha=0.3, axis='y', linestyle='--')
+        ax.grid(True, alpha=0.3, axis="y", linestyle="--")
         ax2.grid(False)
 
-        ax.tick_params(axis='both', which='major', labelsize=9)
-        ax2.tick_params(axis='both', which='major', labelsize=9)
+        ax.tick_params(axis="both", which="major", labelsize=9)
+        ax2.tick_params(axis="both", which="major", labelsize=9)
 
 
     def create_session_comparison_plot(fc_metrics):
@@ -1251,7 +1346,7 @@ def _(Line2D, Patch, ScalarFormatter, defaultdict, graph_metrics, np, plt):
 
         fig_width = 6 * n_cols
         fig, axes = plt.subplots(
-            n_metrics, n_cols, figsize=(fig_width, 4 * n_metrics), sharex='col'
+            n_metrics, n_cols, figsize=(fig_width, 4 * n_metrics), sharex="col"
         )
 
         if n_metrics == 1:
@@ -1280,8 +1375,12 @@ def _(Line2D, Patch, ScalarFormatter, defaultdict, graph_metrics, np, plt):
                     fc_metrics, metric_key, session_filter=session
                 )
                 plot_single_ax(
-                    axes[idx][col_idx], x_positions, sigma_num, sigma_pop, npvr, 
-                    f"{metric_title}\n{column_titles[col_idx]}"
+                    axes[idx][col_idx],
+                    x_positions,
+                    sigma_num,
+                    sigma_pop,
+                    npvr,
+                    f"{metric_title}\n{column_titles[col_idx]}",
                 )
 
             # Plot Global (last column)
@@ -1289,15 +1388,21 @@ def _(Line2D, Patch, ScalarFormatter, defaultdict, graph_metrics, np, plt):
                 fc_metrics, metric_key, session_filter=None
             )
             plot_single_ax(
-                axes[idx][n_cols-1], x_positions, sigma_num, sigma_pop, npvr, 
-                f"{metric_title}\n{column_titles[n_cols-1]}"
+                axes[idx][n_cols - 1],
+                x_positions,
+                sigma_num,
+                sigma_pop,
+                npvr,
+                f"{metric_title}\n{column_titles[n_cols - 1]}",
             )
 
         # Format bottom axes
         for col in range(n_cols):
             axes[-1][col].set_xticks(x_positions)
             axes[-1][col].set_xticklabels(threshold_labels, fontsize=9)
-            axes[-1][col].set_xlabel("Threshold Values", fontsize=10, fontweight='bold')
+            axes[-1][col].set_xlabel(
+                "Threshold Values", fontsize=10, fontweight="bold"
+            )
 
         # Create shared legend
         legend_elements = [
@@ -1343,8 +1448,13 @@ def _(Line2D, Patch, ScalarFormatter, defaultdict, graph_metrics, np, plt):
     _fig = create_session_comparison_plot(graph_metrics)
 
 
-    _fig.suptitle("Variation of NPVR per threshold for each graph metric", fontsize=14, fontweight='bold')
-    plt.tight_layout(rect=[0, 0.05, 1, 0.95]) 
+    _fig.suptitle(
+        "Variation of NPVR per threshold for each graph metric",
+        fontsize=14,
+        fontweight="bold",
+    )
+    _fig.savefig(figures_output_path / "graph_metrics_npvr.png")
+    plt.tight_layout(rect=[0, 0.05, 1, 0.95])
     plt.show()
     return calculate_npvr_data, plot_single_ax
 
@@ -1371,6 +1481,7 @@ def _(
     Patch,
     calculate_npvr_data,
     defaultdict,
+    figures_output_path,
     graph_metrics,
     np,
     plot_single_ax,
@@ -1379,47 +1490,55 @@ def _(
     def calculate_npvr_difference(fc_metrics, metric_name, session_filter=None):
         """
         Calculate σ_num, σ_pop, and NPVR for the difference (without-confound - with-confound).
-    
-        This function pre-processes the data to compute the differences, then delegates 
-        the actual NPVR calculation to calculate_npvr_data to ensure statistical consistency 
+
+        This function pre-processes the data to compute the differences, then delegates
+        the actual NPVR calculation to calculate_npvr_data to ensure statistical consistency
         (using pooled standard deviation) and avoid code duplication.
         """
         thresholds = sorted(fc_metrics.keys())
         fc_metrics_diff = {}
-    
+
         for threshold in thresholds:
             entries = fc_metrics[threshold]
-        
+
             # Group by (subject, session, sub_run, mca_run, region) to find pairs
             grouped_values = defaultdict(dict)
-        
+
             for entry in entries:
                 subject_id = entry["metadata"]["subject"]
                 mca_run = entry["metadata"]["run"]
                 session = entry["metadata"]["session"]
                 sub_run = entry["metadata"]["sub_run"]
                 data_type = entry["metadata"]["type"]
-            
+
                 if metric_name in entry["metrics"].get("local_metrics", {}):
                     values_dict = entry["metrics"]["local_metrics"][metric_name]
                 elif metric_name in entry["metrics"].get("global_metrics", {}):
-                    values_dict = {"global": entry["metrics"]["global_metrics"][metric_name]}
+                    values_dict = {
+                        "global": entry["metrics"]["global_metrics"][metric_name]
+                    }
                 else:
                     continue
-            
+
                 for region, value in values_dict.items():
                     key = (subject_id, session, sub_run, mca_run, region)
                     grouped_values[key][data_type] = value
-        
+
             # Create new synthetic entries for the differences
             entry_cache = {}
-        
+
             for key, type_values in grouped_values.items():
                 subject_id, session, sub_run, mca_run, region = key
-            
-                if "without-confound" in type_values and "with-confound" in type_values:
-                    diff_value = type_values["without-confound"] - type_values["with-confound"]
-                
+
+                if (
+                    "without-confound" in type_values
+                    and "with-confound" in type_values
+                ):
+                    diff_value = (
+                        type_values["without-confound"]
+                        - type_values["with-confound"]
+                    )
+
                     cache_key = (subject_id, session, sub_run, mca_run)
                     if cache_key not in entry_cache:
                         entry_cache[cache_key] = {
@@ -1428,26 +1547,36 @@ def _(
                                 "run": mca_run,
                                 "session": session,
                                 "sub_run": sub_run,
-                                "type": "difference"  # Distinct type to isolate difference calculations
+                                "type": "difference",  # Distinct type to isolate difference calculations
                             },
-                            "metrics": {
-                                "local_metrics": {},
-                                "global_metrics": {}
-                            }
+                            "metrics": {"local_metrics": {}, "global_metrics": {}},
                         }
-                
+
                     # Place the difference in the correct metric dictionary
                     if region == "global":
-                        entry_cache[cache_key]["metrics"]["global_metrics"][metric_name] = diff_value
+                        entry_cache[cache_key]["metrics"]["global_metrics"][
+                            metric_name
+                        ] = diff_value
                     else:
-                        if metric_name not in entry_cache[cache_key]["metrics"]["local_metrics"]:
-                            entry_cache[cache_key]["metrics"]["local_metrics"][metric_name] = {}
-                        entry_cache[cache_key]["metrics"]["local_metrics"][metric_name][region] = diff_value
-        
+                        if (
+                            metric_name
+                            not in entry_cache[cache_key]["metrics"][
+                                "local_metrics"
+                            ]
+                        ):
+                            entry_cache[cache_key]["metrics"]["local_metrics"][
+                                metric_name
+                            ] = {}
+                        entry_cache[cache_key]["metrics"]["local_metrics"][
+                            metric_name
+                        ][region] = diff_value
+
             fc_metrics_diff[threshold] = list(entry_cache.values())
-    
+
         # Delegate to the main function, which will handle the pooled variance calculation
-        return calculate_npvr_data(fc_metrics_diff, metric_name, session_filter=session_filter)
+        return calculate_npvr_data(
+            fc_metrics_diff, metric_name, session_filter=session_filter
+        )
 
 
     def get_difference_entry_counts(fc_metrics):
@@ -1477,6 +1606,7 @@ def _(
                 valid_pairs += 1
 
         return valid_pairs
+
 
     def create_difference_plot(fc_metrics):
         """Create a figure showing NPVR of (without-confound - with-confound) differences."""
@@ -1510,14 +1640,18 @@ def _(
                 fc_metrics, metric_key
             )
             plot_single_ax(
-                axes[idx], x_positions, sigma_num, sigma_pop, npvr, 
-                f"{metric_title}\n(Without - With Confound)\n({valid_pairs} valid pairs)"
+                axes[idx],
+                x_positions,
+                sigma_num,
+                sigma_pop,
+                npvr,
+                f"{metric_title}\n(Without - With Confound)\n({valid_pairs} valid pairs)",
             )
 
         # Format bottom axis
         axes[-1].set_xticks(x_positions)
         axes[-1].set_xticklabels(threshold_labels, fontsize=9)
-        axes[-1].set_xlabel("Threshold Values", fontsize=10, fontweight='bold')
+        axes[-1].set_xlabel("Threshold Values", fontsize=10, fontweight="bold")
 
         # Create shared legend
         legend_elements = [
@@ -1562,7 +1696,15 @@ def _(
 
     _fig = create_difference_plot(graph_metrics)
 
-    _fig.suptitle("Variation of the difference of NPVR between without and with confound graph metrics per threshold", fontsize=14, fontweight='bold')
+    _fig.suptitle(
+        "Variation of the difference of NPVR between without and with confound graph metrics per threshold",
+        fontsize=14,
+        fontweight="bold",
+    )
+
+    _fig.savefig(
+        figures_output_path / "graph_metrics_npvr_confound_difference.png"
+    )
 
     plt.tight_layout(rect=[0, 0.05, 1, 0.95])
     plt.show()

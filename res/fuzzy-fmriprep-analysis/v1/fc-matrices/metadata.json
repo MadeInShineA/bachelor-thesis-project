@@ -1,0 +1,10 @@
+{
+    "confound_columns": [
+        "trans_x",
+        "trans_y",
+        "trans_z",
+        "rot_x",
+        "rot_y",
+        "rot_z"
+    ]
+}

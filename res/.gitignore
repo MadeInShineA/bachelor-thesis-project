@@ -1,3 +1,14 @@
 sub_by_common_lab.json
 sub_by_labs*_filenames.csv
-fc-matrices/
+
+fuzzy-fmriprep-analysis/*
+
+!fuzzy-fmriprep-analysis/*/
+
+fuzzy-fmriprep-analysis/*/*
+
+!fuzzy-fmriprep-analysis/*/fc-matrices/
+!fuzzy-fmriprep-analysis/*/figures/
+
+fuzzy-fmriprep-analysis/*/fc-matrices/*
+!fuzzy-fmriprep-analysis/*/fc-matrices/metadata.json
