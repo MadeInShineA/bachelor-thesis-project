@@ -102,7 +102,7 @@ def _(mo):
 def _(Path):
     output_path = Path("./res/fuzzy-fmriprep-analysis/")
 
-    version = "v1"
+    version = "v2"
 
     fc_matrices_output_path = output_path / version / "fc-matrices"
     figures_output_path = output_path / version / "figures"
@@ -245,6 +245,7 @@ def _(
         subject_run: str,
         brain_maps,
         confound_columns: list,
+        framewise_displacement_threshold: float,
         output_dir: Path,
     ) -> dict:
 
@@ -290,6 +291,16 @@ def _(
 
         # Generate the FC matrices with confound regression
 
+        """
+        fd_values = np.nan_to_num(
+            confounds["framewise_displacement"].values, nan=0.0
+        )
+
+        good_volumes_mask = fd_values <= framewise_displacement_threshold
+
+        sample_mask = np.where(good_volumes_mask)[0]
+        """
+
         with_confound_ts = signal.clean(
             without_confound_ts,
             confounds=confounds,
@@ -316,8 +327,8 @@ def _(
             "subject_run": subject_run,
             "session_name": session_name,
             "run_name": run_name,
-            "without-confounds": without_confound_correlation,
-            "with-confounds": with_confound_correlation,
+            "without-confound": without_confound_correlation,
+            "with-confound": with_confound_correlation,
         }
 
     return (process_single_bold,)
@@ -460,7 +471,18 @@ def _(
             "rot_x",
             "rot_y",
             "rot_z",
+            "global_signal",
+            "csf",
+            "white_matter",
+            "a_comp_cor_00",
+            "a_comp_cor_01",
+            "a_comp_cor_02",
+            "a_comp_cor_03",
+            "a_comp_cor_04",
+            "a_comp_cor_05",
         ]
+
+        FRAMWEWISE_DISPLACEMENT_THRESHOLD = 0.2
 
         def __init__(self, subjects: list):
             self.subjects = subjects
@@ -476,7 +498,10 @@ def _(
         def save_metadata(self, output_dir: Path) -> None:
             output_dir.mkdir(parents=True, exist_ok=True)
 
-            metadata = {"confound_columns": self.CONFOUND_COLUMNS}
+            metadata = {
+                "confound_columns": self.CONFOUND_COLUMNS,
+                # "framewise_deplacement_threshold": self.FRAMWEWISE_DISPLACEMENT_THRESHOLD,
+            }
 
             metadata_path = output_dir / "metadata.json"
 
@@ -506,6 +531,7 @@ def _(
                             subject.run,
                             self.brain_maps,
                             self.CONFOUND_COLUMNS,
+                            self.FRAMWEWISE_DISPLACEMENT_THRESHOLD,
                             output_dir,
                         )
                     )
@@ -524,12 +550,12 @@ def _(
             for result in results:
                 res[result["subject_id"]][result["subject_run"]][
                     result["session_name"]
-                ][result["run_name"]]["without-confounds"] = result[
-                    "without-confounds"
+                ][result["run_name"]]["without-confound"] = result[
+                    "without-confound"
                 ]
                 res[result["subject_id"]][result["subject_run"]][
                     result["session_name"]
-                ][result["run_name"]]["with-confounds"] = result["with-confounds"]
+                ][result["run_name"]]["with-confound"] = result["with-confound"]
                 print(
                     f"Completed {result['subject_id']} | {result['session_name']} | {result['run_name']}"
                 )
@@ -595,7 +621,9 @@ def _(
                     degree_centrality = nx.degree_centrality(graph)
                     clustering_coefficient = nx.clustering(graph)
                     betweenness_centrality = nx.betweenness_centrality(graph)
-                    eigenvector_centrality = nx.eigenvector_centrality(graph)
+                    eigenvector_centrality = nx.eigenvector_centrality(
+                        graph, max_iter=1000
+                    )
 
                     # Global metrics
                     largest_cc = max(nx.connected_components(graph), key=len)
@@ -784,7 +812,6 @@ def _(mo):
 @app.cell
 def _(fc_matrices_output_path, fuzzy_fmriprep_analysis):
     fc_matrices = fuzzy_fmriprep_analysis.load_fc_matrices(fc_matrices_output_path)
-
 
     if not fc_matrices:
         fc_matrices = fuzzy_fmriprep_analysis.generate_fc_matrices(
@@ -1728,11 +1755,6 @@ def _(
     )
 
     plt.show()
-    return
-
-
-@app.cell
-def _():
     return
 
 
