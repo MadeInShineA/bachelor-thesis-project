@@ -2133,15 +2133,15 @@ def _(
             sm.set_array([])
             fig.colorbar(sm, cax=cax, label="NPVR")
 
-            figures.append(fig)
+            figures.append({"metric": metric_name, "figure": fig})
 
         return figures
 
 
     figures = plot_npvr_brain_grid(graph_metrics, brain_maps_img)
-    for _fig in figures:
-        _fig.savefig(
-            figures_output_path / "npvr_across_brain_regions.png",
+    for values in figures:
+        values["figure"].savefig(
+            figures_output_path / f"npvr_across_brain_regions_{values["metric"]}.png",
             bbox_inches="tight",
         )
         plt.show()
