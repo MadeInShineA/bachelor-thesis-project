@@ -1119,11 +1119,11 @@ def _(mo):
     Since each subject doesn't have the same number of run, and each run doesn't have the same number of subject, we will instead use the following formula:
 
     $$
-     \sigma_{num}^2 = \frac{1}{\sum_{j=1}^m (n_j - 1)} \sum_{j=1}^m (n_j - 1)\left[ \frac{1}{n_j-1} \sum_{i=1}^{n_j} \left( x_{i,j} - \bar x_{.,j}\right)^2\right]
+     \sigma_{num\_pooled}^2 = \frac{1}{\sum_{j=1}^m (n_j - 1)} \sum_{j=1}^m (n_j - 1)\left[ \frac{1}{n_j-1} \sum_{i=1}^{n_j} \left( x_{i,j} - \bar x_{.,j}\right)^2\right]
     $$
 
     $$
-     \sigma_{pop}^2 = \frac{1}{\sum_{i=1}^n (m_i - 1)} \sum_{i=1}^n (m_i - 1)\left[ \frac{1}{m_i-1} \sum_{j=1}^{m_i} \left( x_{i,j} - \bar x_{.,j}\right)^2\right]
+     \sigma_{pop\_pooled}^2 = \frac{1}{\sum_{i=1}^n (m_i - 1)} \sum_{i=1}^n (m_i - 1)\left[ \frac{1}{m_i-1} \sum_{j=1}^{m_i} \left( x_{i,j} - \bar x_{.,j}\right)^2\right]
     $$
 
     Where $n_j$ is the number of MCA repetition per subject $j$ $m_i$ is the number of subjects per MCA repetition $i$
@@ -1134,22 +1134,87 @@ def _(mo):
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    Please note that for now, this complete cell has been written by Qwen3.6-Plus and need to be double checked
+    In the following code cell, we will use the following matrix to represent the different MCA run metrics
+    $$
+    \begin{equation}
+    X_{metric}^{(r)} = \begin{bmatrix}
+    x_{1,1}^{(r)} & x_{1,2}^{(r)} & x_{1,3}^{(r)} & \cdots & x_{1,m}^{(r)} \\
+    x_{2,1}^{(r)} & x_{2,2}^{(r)} & \text{NaN} & \cdots & x_{2,m}^{(r)} \\
+    x_{3,1}^{(r)} & \text{NaN} & x_{3,3}^{(r)} & \cdots & x_{3,m}^{(r)} \\
+    \vdots & \vdots & \vdots & \ddots & \vdots \\
+    x_{n,1}^{(r)} & x_{n,2}^{(r)} & x_{n,3}^{(r)} & \cdots & x_{n,m}^{(r)}
+    \end{bmatrix}
+    \end{equation}
+    $$
+
+    $$
+    \text{With } metric \in \left[
+    \begin{aligned}
+    &\text{degree\_centrality,} \\
+    &\text{clustering\_coefficient,} \\
+    &\text{betweenness\_centrality,}\\
+    &\text{eigenvector\_centrality,} \\
+    &\text{small\_worldness,}\\
+    &\text{average\_shortest\_path\_length}
+    \end{aligned}
+    \right]
+    $$
+
+    Where:
+
+    - $X_{metric}$ is an $n \times m$ matrix  evaluated for a specific brain region $r$ (for global metrics $r$ represents the whole brain).
+    - $n$ is the total number of MCA runs
+    - $m$ is the total number of subjects.
+    - $x_{i,j}^{(r)}$ is The metric value for run $i$ and subject $j$, evaluated for region $r$
+    - $\text{NaN}$ represents a missing observation for example (e.g., subject $j$ is missing run $i$)
+    """)
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    We then calculate the $\text{NPVR}$ as follows:
+
+    $$
+    \begin{equation}
+    \sigma_{num\_pooled}^{2(r)} = \frac{1}{\sum_{j=1}^m (n_j - 1)} \sum_{j=1}^m (n_j - 1) \left[ \frac{1}{n_j - 1} \sum_{i \in \Omega_j} \left( x_{i,j}^{(r)} - \bar{x}_{.,j}^{(r)} \right)^2 \right]
+    \end{equation}
+    $$
+
+    $$
+    \begin{equation}
+    \sigma_{pop\_pooled}^{2(r)} = \frac{1}{\sum_{i=1}^n (m_i - 1)} \sum_{i=1}^n (m_i - 1) \left[ \frac{1}{m_i - 1} \sum_{j \in \Omega_i} \left( x_{i,j}^{(r)} - \bar{x}_{i,.}^{(r)} \right)^2 \right]
+    \end{equation}
+    $$
+
+    $$
+    \begin{equation}
+    \text{NPVR}_{pooled} = \frac{\sqrt{\sigma_{num\_pooled}^{2(r)}}}{\sqrt{\sigma_{pop\_pooled}^{2(r)}}} = \frac{\sigma_{num\_pooled}^{(r)}}{\sigma_{pop\_pooled}^{(r)}}
+    \end{equation}
+    $$
+
+    Where:
+    - $n_j$ is the number of valid MCA runs for subject $j$ (number of non-NaN elements in column $j$ of $X_{metric}^{(r)}$).
+    - $m_i$ is the number of valid subjects for MCA run $i$ (number of non-NaN elements in row $i$ of $X_{metric}^{(r)}$).
+    - $\Omega_j$ is the set of valid run indices for subject $j$.
+    - $\Omega_i$ is the set of valid subject indices for run $i$.
+    - $\bar{x}_{.,j}^{(r)}$ is the mean of column $j$ (mean across valid runs for subject $j$).
+    - $\bar{x}_{i,.}^{(r)}$ is the mean of row $i$ (mean across valid subjects for run $i$).
+    """)
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    Please note that for now, this complete cell has been written by Qwen3.7-Plus and was double checked
     """)
     return
 
 
 @app.cell
-def _(
-    Line2D,
-    Patch,
-    ScalarFormatter,
-    defaultdict,
-    figures_output_path,
-    graph_metrics,
-    np,
-    plt,
-):
+def _(defaultdict, np):
     def calculate_npvr_data(fc_metrics, metric_name, session_filter=None):
         """
         Calculate σ_num, σ_pop, and NPVR for a given metric using pooled standard deviation.
@@ -1162,8 +1227,9 @@ def _(
         for threshold in thresholds:
             entries = fc_metrics[threshold]
 
+            # Use nested dictionaries to explicitly map metric values to their specific MCA run identifiers
             region_config_subject_data = defaultdict(
-                lambda: defaultdict(lambda: defaultdict(list))
+                lambda: defaultdict(lambda: defaultdict(dict))
             )
 
             for entry in entries:
@@ -1188,9 +1254,10 @@ def _(
                 config_key = (session, sub_run, data_type)
 
                 for region, value in values_dict.items():
-                    region_config_subject_data[region][config_key][
-                        subject_id
-                    ].append(value)
+                    # Assign values by run ID to ensure exact cross-subject alignment for the pooled variance formula
+                    region_config_subject_data[region][config_key][subject_id][
+                        mca_run
+                    ] = value
 
             if not region_config_subject_data:
                 npvr_values.append(0)
@@ -1217,8 +1284,11 @@ def _(
 
                     all_mca_runs = set()
                     for subj_data in subject_data.values():
-                        all_mca_runs.update(range(len(subj_data)))
+                        # Collect all unique run IDs across subjects to account for missing or non-sequential runs
+                        all_mca_runs.update(subj_data.keys())
 
+                    # Sort run IDs to establish a deterministic row order for the alignment matrix
+                    all_mca_runs = sorted(list(all_mca_runs))
                     n_mca_runs = len(all_mca_runs)
 
                     if n_mca_runs < 2:
@@ -1226,10 +1296,13 @@ def _(
 
                     X = np.full((n_mca_runs, m), np.nan)
 
+                    # Map each run ID to a matrix row index to guarantee strict cross-subject alignment
+                    run_to_idx = {run: i for i, run in enumerate(all_mca_runs)}
+
                     for j, subj in enumerate(all_subjects):
                         subj_mca_values = subject_data[subj]
-                        for i, mca_val in enumerate(subj_mca_values):
-                            X[i, j] = mca_val
+                        for run, mca_val in subj_mca_values.items():
+                            X[run_to_idx[run], j] = mca_val
 
                     # Calculate Numerical Variability (across MCA runs for each subject)
                     for j in range(m):
@@ -1287,7 +1360,29 @@ def _(
             npvr_values,
         )
 
+    return (calculate_npvr_data,)
 
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    Please note that the follwing plotting code was generated by Qwen3.6-Plus
+    """)
+    return
+
+
+@app.cell
+def _(
+    Line2D,
+    Patch,
+    ScalarFormatter,
+    calculate_npvr_data,
+    defaultdict,
+    figures_output_path,
+    graph_metrics,
+    np,
+    plt,
+):
     def get_session_entry_counts(fc_metrics):
         """
         Count total number of entries for each session (same across all thresholds).
@@ -1505,7 +1600,7 @@ def _(
         bbox_inches="tight",
     )
     plt.show()
-    return calculate_npvr_data, plot_single_ax
+    return (plot_single_ax,)
 
 
 @app.cell(hide_code=True)
@@ -1596,7 +1691,7 @@ def _(
                                 "run": mca_run,
                                 "session": session,
                                 "sub_run": sub_run,
-                                "type": "difference",  # Distinct type to isolate difference calculations
+                                "type": "difference",
                             },
                             "metrics": {"local_metrics": {}, "global_metrics": {}},
                         }
@@ -1799,12 +1894,15 @@ def _(
 
         for threshold in thresholds:
             entries = fc_metrics[threshold]
+
+            # Use nested dictionaries to explicitly map metric values to their specific MCA run identifiers
             region_config_subject_data = defaultdict(
-                lambda: defaultdict(lambda: defaultdict(list))
+                lambda: defaultdict(lambda: defaultdict(dict))
             )
 
             for entry in entries:
                 subject_id = entry["metadata"]["subject"]
+                mca_run = entry["metadata"]["run"]
                 session = entry["metadata"]["session"]
                 sub_run = entry["metadata"]["sub_run"]
                 data_type = entry["metadata"]["type"]
@@ -1823,9 +1921,10 @@ def _(
 
                 config_key = (session, sub_run, data_type)
                 for region, value in values_dict.items():
-                    region_config_subject_data[region][config_key][
-                        subject_id
-                    ].append(value)
+                    # Assign values by run ID to ensure exact cross-subject alignment for the pooled variance formula
+                    region_config_subject_data[region][config_key][subject_id][
+                        mca_run
+                    ] = value
 
             for region, config_data in region_config_subject_data.items():
                 ss_num, df_num = 0.0, 0.0
@@ -1839,15 +1938,24 @@ def _(
 
                     all_mca_runs = set()
                     for subj_data in subject_data.values():
-                        all_mca_runs.update(range(len(subj_data)))
+                        # Collect all unique run IDs across subjects to account for missing or non-sequential runs
+                        all_mca_runs.update(subj_data.keys())
+
+                    # Sort run IDs to establish a deterministic row order for the alignment matrix
+                    all_mca_runs = sorted(list(all_mca_runs))
                     n_mca_runs = len(all_mca_runs)
                     if n_mca_runs < 2:
                         continue
 
                     X = np.full((n_mca_runs, m), np.nan)
+
+                    # Map each run ID to a matrix row index to guarantee strict cross-subject alignment
+                    run_to_idx = {run: i for i, run in enumerate(all_mca_runs)}
+
                     for j, subj in enumerate(all_subjects):
-                        for i, mca_val in enumerate(subject_data[subj]):
-                            X[i, j] = mca_val
+                        subj_mca_values = subject_data[subj]
+                        for run, mca_val in subj_mca_values.items():
+                            X[run_to_idx[run], j] = mca_val
 
                     for j in range(m):
                         valid_vals = X[:, j][~np.isnan(X[:, j])]
