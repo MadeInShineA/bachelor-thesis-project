@@ -3,17 +3,17 @@ name = "bachelor-thesis-project"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
-requires-python = ">=3.14"
+requires-python = "==3.14.3"
 dependencies = [
-    "fmriprep-docker>=25.2.5",
-    "marimo>=0.23.8",
-    "matplotlib>=3.10.9",
-    "networkx>=3.6.1",
-    "nilearn>=0.13.1",
-    "numpy>=2.4.6",
-    "plotly>=6.7.0",
-    "polars>=1.41.2",
-    "pyarrow>=24.0.0",
-    "ruff>=0.15.15",
-    "seaborn>=0.13.2",
+    "fmriprep-docker==25.2.5",
+    "marimo==0.23.8",
+    "matplotlib==3.10.9",
+    "networkx==3.6.1",
+    "nilearn==0.13.1",
+    "numpy==2.4.6",
+    "plotly==6.7.0",
+    "polars==1.41.2",
+    "pyarrow==24.0.0",
+    "ruff==0.15.15",
+    "seaborn==0.13.2",
 ]
