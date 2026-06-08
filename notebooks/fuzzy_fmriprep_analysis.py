@@ -36,6 +36,8 @@ def _():
     import seaborn as sns
     from itertools import batched
     from joblib import Parallel, delayed
+    import nibabel as nib
+    from nilearn import plotting
 
 
     import matplotlib.style
@@ -55,9 +57,11 @@ def _():
         fetch_atlas_schaefer_2018,
         json,
         mo,
+        nib,
         np,
         nx,
         pl,
+        plotting,
         plt,
         re,
         signal,
@@ -1755,6 +1759,284 @@ def _(
     )
 
     plt.show()
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    We now want to plot the NPVR across the different brain regions
+    """)
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    Please note that for now, this complete cell has been written by Qwen3.7-Plus and need to be double checked
+    """)
+    return
+
+
+@app.cell
+def _(
+    defaultdict,
+    figures_output_path,
+    fuzzy_fmriprep_analysis,
+    graph_metrics,
+    nib,
+    np,
+    plotting,
+    plt,
+):
+    brain_maps_img = nib.load(fuzzy_fmriprep_analysis.brain_maps)
+
+
+    def calculate_npvr_per_region(fc_metrics, metric_name, session_filter=None):
+        """Calculate pooled NPVR for each brain region individually."""
+        thresholds = sorted(fc_metrics.keys())
+        results = {t: {} for t in thresholds}
+
+        for threshold in thresholds:
+            entries = fc_metrics[threshold]
+            region_config_subject_data = defaultdict(
+                lambda: defaultdict(lambda: defaultdict(list))
+            )
+
+            for entry in entries:
+                subject_id = entry["metadata"]["subject"]
+                session = entry["metadata"]["session"]
+                sub_run = entry["metadata"]["sub_run"]
+                data_type = entry["metadata"]["type"]
+
+                if session_filter is not None and session != session_filter:
+                    continue
+
+                if metric_name in entry["metrics"].get("local_metrics", {}):
+                    values_dict = entry["metrics"]["local_metrics"][metric_name]
+                elif metric_name in entry["metrics"].get("global_metrics", {}):
+                    values_dict = {
+                        "global": entry["metrics"]["global_metrics"][metric_name]
+                    }
+                else:
+                    continue
+
+                config_key = (session, sub_run, data_type)
+                for region, value in values_dict.items():
+                    region_config_subject_data[region][config_key][
+                        subject_id
+                    ].append(value)
+
+            for region, config_data in region_config_subject_data.items():
+                ss_num, df_num = 0.0, 0.0
+                ss_pop, df_pop = 0.0, 0.0
+
+                for config_key, subject_data in config_data.items():
+                    all_subjects = sorted(list(subject_data.keys()))
+                    m = len(all_subjects)
+                    if m < 2:
+                        continue
+
+                    all_mca_runs = set()
+                    for subj_data in subject_data.values():
+                        all_mca_runs.update(range(len(subj_data)))
+                    n_mca_runs = len(all_mca_runs)
+                    if n_mca_runs < 2:
+                        continue
+
+                    X = np.full((n_mca_runs, m), np.nan)
+                    for j, subj in enumerate(all_subjects):
+                        for i, mca_val in enumerate(subject_data[subj]):
+                            X[i, j] = mca_val
+
+                    for j in range(m):
+                        valid_vals = X[:, j][~np.isnan(X[:, j])]
+                        if len(valid_vals) > 1:
+                            var_j = np.var(valid_vals, ddof=1)
+                            df_j = len(valid_vals) - 1
+                            ss_num += var_j * df_j
+                            df_num += df_j
+
+                    for i in range(n_mca_runs):
+                        valid_vals = X[i, :][~np.isnan(X[i, :])]
+                        if len(valid_vals) > 1:
+                            var_i = np.var(valid_vals, ddof=1)
+                            df_i = len(valid_vals) - 1
+                            ss_pop += var_i * df_i
+                            df_pop += df_i
+
+                pooled_sigma_num = np.sqrt(ss_num / df_num) if df_num > 0 else 0.0
+                pooled_sigma_pop = np.sqrt(ss_pop / df_pop) if df_pop > 0 else 0.0
+                npvr = (
+                    pooled_sigma_num / pooled_sigma_pop
+                    if pooled_sigma_pop != 0
+                    else np.nan
+                )
+
+                results[threshold][region] = {
+                    "pooled_sigma_num": pooled_sigma_num,
+                    "pooled_sigma_pop": pooled_sigma_pop,
+                    "npvr": npvr,
+                }
+
+        return results
+
+
+    def create_npvr_nifti(npvr_dict, atlas_img):
+        """Maps regional NPVR values to the Schaefer atlas."""
+        atlas_data = atlas_img.get_fdata()
+        npvr_map_data = np.zeros_like(atlas_data)
+
+        for region_str, data in npvr_dict.items():
+            if region_str == "global":
+                continue
+            region_id = int(region_str) + 1
+            if 1 <= region_id <= 100:
+                npvr_map_data[atlas_data == region_id] = data["npvr"]
+
+        return nib.Nifti1Image(npvr_map_data, atlas_img.affine)
+
+
+    def plot_npvr_brain_grid(fc_metrics, atlas_img):
+        # Automatically extract all thresholds
+        thresholds_list = sorted(fc_metrics.keys())
+
+        # Automatically extract metrics from the first entry
+        first_entry = fc_metrics[thresholds_list[0]][0]
+        metrics_list = []
+
+        if "local_metrics" in first_entry["metrics"]:
+            metrics_list.extend(first_entry["metrics"]["local_metrics"].keys())
+
+        vmin, vmax = 0.0, 1.0
+        n_metrics = len(metrics_list)
+        n_thresholds = len(thresholds_list)
+
+        # Create one figure per metric
+        figures = []
+
+        for metric_idx, metric_name in enumerate(metrics_list):
+            # Calculate NPVR for this metric across all thresholds once (optimization)
+            npvr_results = calculate_npvr_per_region(fc_metrics, metric_name)
+
+            # Create figure for this metric
+            fig = plt.figure(figsize=(15, 5 * n_thresholds))
+
+            # Calculate layout
+            left_margin = 0.15
+            right_margin = 0.90
+            top_margin = 0.92
+            bottom_margin = 0.05
+
+            # Create GridSpec for this metric (rows = thresholds)
+            gs = fig.add_gridspec(
+                n_thresholds, 3, width_ratios=[1, 1, 1], wspace=0.1, hspace=0.3
+            )
+
+            # Plot each threshold as a row
+            for i, thresh in enumerate(thresholds_list):
+                if thresh not in npvr_results:
+                    continue
+
+                npvr_img = create_npvr_nifti(npvr_results[thresh], atlas_img)
+
+                # Add threshold label on the left (y-axis label)
+                ax_label = fig.add_subplot(gs[i, 0])
+                ax_label.text(
+                    0.0,
+                    0.5,
+                    f"Threshold = {thresh}",
+                    ha="right",
+                    va="center",
+                    fontsize=20,
+                    fontweight="bold",
+                    transform=ax_label.transAxes,
+                )
+                ax_label.axis("off")
+
+                # Sagittal slice
+                ax_sag = fig.add_subplot(gs[i, 0])
+                plotting.plot_stat_map(
+                    npvr_img,
+                    display_mode="x",
+                    cut_coords=[2],
+                    axes=ax_sag,
+                    colorbar=False,
+                    cmap="Reds",
+                    vmin=vmin,
+                    vmax=vmax,
+                    black_bg=False,
+                )
+                ax_sag.set_title("")
+
+                # Coronal slice
+                ax_cor = fig.add_subplot(gs[i, 1])
+                plotting.plot_stat_map(
+                    npvr_img,
+                    display_mode="y",
+                    cut_coords=[0],
+                    axes=ax_cor,
+                    colorbar=False,
+                    cmap="Reds",
+                    vmin=vmin,
+                    vmax=vmax,
+                    black_bg=False,
+                )
+                ax_cor.set_title("")
+
+                # Axial slice
+                ax_axi = fig.add_subplot(gs[i, 2])
+                plotting.plot_stat_map(
+                    npvr_img,
+                    display_mode="z",
+                    cut_coords=[0],
+                    axes=ax_axi,
+                    colorbar=False,
+                    cmap="Reds",
+                    vmin=vmin,
+                    vmax=vmax,
+                    black_bg=False,
+                )
+                ax_axi.set_title("")
+
+            # Adjust layout
+            fig.subplots_adjust(
+                left=left_margin,
+                right=right_margin,
+                top=top_margin,
+                bottom=bottom_margin,
+                wspace=0.1,
+                hspace=0.3,
+            )
+
+            # Add metric as the main title
+            fig.suptitle(
+                metric_name.replace("_", " ").title(),
+                fontsize=24,
+                fontweight="bold",
+                y=0.98,
+            )
+
+            # Add colorbar
+            cax = fig.add_axes([0.92, 0.1, 0.02, 0.8])
+            sm = plt.cm.ScalarMappable(
+                cmap="Reds", norm=plt.Normalize(vmin=vmin, vmax=vmax)
+            )
+            sm.set_array([])
+            fig.colorbar(sm, cax=cax, label="NPVR")
+
+            figures.append(fig)
+
+        return figures
+
+
+    figures = plot_npvr_brain_grid(graph_metrics, brain_maps_img)
+    for _fig in figures:
+        _fig.savefig(
+            figures_output_path / "npvr_across_brain_regions.png",
+            bbox_inches="tight",
+        )
+        plt.show()
     return
 
 
