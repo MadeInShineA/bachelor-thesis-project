@@ -122,6 +122,8 @@ printf '%s\n' "${SUBJECTS[@]}" | parallel -j "${N_SUBS_IN_PARALLEL}" --joblog "/
     -v "${LICENSE_FILE}:/opt/freesurfer/license.txt:ro" \
     madeinshinea/fuzzy-fmriprep:25.2.5 /data/ /out participant \
     --skull-strip-fixed-seed \
+    --omp-nthreads 1 \
+    --random-seed 42 \
     --participant-label {} \
     --skip-bids-validation \
     --md-only-boilerplate \
