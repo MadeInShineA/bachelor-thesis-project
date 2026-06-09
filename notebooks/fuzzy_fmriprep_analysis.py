@@ -69,6 +69,69 @@ def _():
     )
 
 
+@app.cell
+def _(mo):
+    rerun_checkbox = mo.ui.checkbox(
+        value=False, label="Rerun the FC matrices and Graph metrics"
+    )
+
+    CONFOUND_COLUMNS = [
+        "trans_x",
+        "trans_y",
+        "trans_z",
+        "rot_x",
+        "rot_y",
+        "rot_z",
+        "global_signal",
+        "csf",
+        "white_matter",
+        "a_comp_cor_00",
+        "a_comp_cor_01",
+        "a_comp_cor_02",
+        "a_comp_cor_03",
+        "a_comp_cor_04",
+        "a_comp_cor_05",
+    ]
+
+    preset = mo.ui.radio(
+        options={
+            "Motion Only (6)": [
+                "trans_x",
+                "trans_y",
+                "trans_z",
+                "rot_x",
+                "rot_y",
+                "rot_z",
+            ],
+            "Motion + Physiology (9)": [
+                "trans_x",
+                "trans_y",
+                "trans_z",
+                "rot_x",
+                "rot_y",
+                "rot_z",
+                "csf",
+                "white_matter",
+                "global_signal",
+            ],
+            "All Available": CONFOUND_COLUMNS,
+        },
+        value="All Available",
+        label="Confounds used",
+    )
+    return CONFOUND_COLUMNS, preset, rerun_checkbox
+
+
+@app.cell
+def _(CONFOUND_COLUMNS, mo, preset, rerun_checkbox):
+    confounds = mo.ui.multiselect(
+        options=CONFOUND_COLUMNS, value=preset.value, label="Fine-tune Confounds"
+    )
+
+    mo.vstack([preset, confounds, rerun_checkbox])
+    return (confounds,)
+
+
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
@@ -85,9 +148,9 @@ def _(mo):
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(Path):
-    data_path = Path("/home/cbi-biomark/olivier.amacker/derivatives/fmriprep")
+    data_path = Path("/home/cbi-biomark/olivier.amacker/derivatives/fmriprep/v1")
 
     data_path
     return (data_path,)
@@ -107,10 +170,12 @@ def _(Path):
 
     version = "v2"
 
+    voxel_metrics_output_path = output_path / version / "voxel-metrics"
     fc_matrices_output_path = output_path / version / "fc-matrices"
     figures_output_path = output_path / version / "figures"
     graph_metrics_output_path = output_path / version / "graph-metrics"
 
+    voxel_metrics_output_path.mkdir(parents=True, exist_ok=True)
     fc_matrices_output_path.mkdir(parents=True, exist_ok=True)
     figures_output_path.mkdir(parents=True, exist_ok=True)
     graph_metrics_output_path.mkdir(parents=True, exist_ok=True)
@@ -120,6 +185,7 @@ def _(Path):
         fc_matrices_output_path,
         figures_output_path,
         graph_metrics_output_path,
+        voxel_metrics_output_path,
     )
 
 
@@ -398,6 +464,7 @@ def _(
     delayed,
     fetch_atlas_schaefer_2018,
     json,
+    nib,
     np,
     process_single_bold,
     re,
@@ -507,28 +574,11 @@ def _(
 
 
     class FuzzyFmriprepAnalysis:
-        CONFOUND_COLUMNS = [
-            "trans_x",
-            "trans_y",
-            "trans_z",
-            "rot_x",
-            "rot_y",
-            "rot_z",
-            "global_signal",
-            "csf",
-            "white_matter",
-            "a_comp_cor_00",
-            "a_comp_cor_01",
-            "a_comp_cor_02",
-            "a_comp_cor_03",
-            "a_comp_cor_04",
-            "a_comp_cor_05",
-        ]
-
         FRAMWEWISE_DISPLACEMENT_THRESHOLD = 0.2
 
-        def __init__(self, subjects: list):
+        def __init__(self, subjects: list, confound_columns):
             self.subjects = subjects
+            self.confound_columns = confound_columns
             self.atlas = fetch_atlas_schaefer_2018(
                 n_rois=100, yeo_networks=7, resolution_mm=2
             )
@@ -538,11 +588,32 @@ def _(
                 kind="correlation", standardize="zscore_sample"
             )
 
+        def calculate_voxel_metrics(self, output_dir: Path) -> dict:
+            res = {}
+
+            for subject in self.subjects:
+                for preproc_bold in subject.preproc_bold_paths:
+                    # Extract the data from the bold file
+                    bold_image = nib.load(preproc_bold["bold.nii.gz"])
+                    bold_data = bold_image.get_fdata()
+
+                    affine = bold_image.affine
+                    shape_3d = bold_data.shape[:3]
+
+                    # Average the bold_data over time
+                    voxel_data = np.stack(
+                        [np.mean(d, axis=-1) for d in bold_data], axis=0
+                    )
+
+                    print(voxel_data.shape[0])
+                    return
+            return res
+
         def save_metadata(self, output_dir: Path) -> None:
             output_dir.mkdir(parents=True, exist_ok=True)
 
             metadata = {
-                "confound_columns": self.CONFOUND_COLUMNS,
+                "confound_columns": self.confound_columns,
                 # "framewise_deplacement_threshold": self.FRAMWEWISE_DISPLACEMENT_THRESHOLD,
             }
 
@@ -573,7 +644,7 @@ def _(
                             subject.id,
                             subject.run,
                             self.brain_maps,
-                            self.CONFOUND_COLUMNS,
+                            self.confound_columns,
                             self.FRAMWEWISE_DISPLACEMENT_THRESHOLD,
                             output_dir,
                         )
@@ -739,6 +810,7 @@ def _(mo):
 def _(
     FuzzyFmriprepAnalysis,
     FuzzyFmriprepSub,
+    confounds,
     get_output_paths_from_parent_path,
     subject_paths,
 ):
@@ -803,7 +875,9 @@ def _(
         fuzzy_fmriprep_subjects.append(fuzzy_fmriprep_subject)
 
     print(f"Created {len(fuzzy_fmriprep_subjects)} subjects")
-    fuzzy_fmriprep_analysis = FuzzyFmriprepAnalysis(fuzzy_fmriprep_subjects)
+    fuzzy_fmriprep_analysis = FuzzyFmriprepAnalysis(
+        fuzzy_fmriprep_subjects, confounds.value
+    )
 
     fuzzy_fmriprep_subjects
     return (fuzzy_fmriprep_analysis,)
@@ -818,22 +892,22 @@ def _(mo):
 
 
 @app.cell
-def _(fc_matrices_output_path, fuzzy_fmriprep_analysis):
+def _(fuzzy_fmriprep_analysis, voxel_metrics_output_path):
+    fuzzy_fmriprep_analysis.calculate_voxel_metrics(voxel_metrics_output_path)
+    return
+
+
+@app.cell
+def _(fc_matrices_output_path, fuzzy_fmriprep_analysis, rerun_checkbox):
     fc_matrices = fuzzy_fmriprep_analysis.load_fc_matrices(fc_matrices_output_path)
 
-    if not fc_matrices:
+    if not fc_matrices or rerun_checkbox.value:
         fc_matrices = fuzzy_fmriprep_analysis.generate_fc_matrices(
             fc_matrices_output_path,
         )
 
     fc_matrices
     return (fc_matrices,)
-
-
-@app.cell
-def _(fc_matrices_output_path, fuzzy_fmriprep_analysis):
-    fuzzy_fmriprep_analysis.save_metadata(fc_matrices_output_path)
-    return
 
 
 @app.cell(hide_code=True)
@@ -1069,12 +1143,17 @@ def _(mo):
 
 
 @app.cell
-def _(fuzzy_fmriprep_analysis, graph_metrics_output_path, thresholded_data):
+def _(
+    fuzzy_fmriprep_analysis,
+    graph_metrics_output_path,
+    rerun_checkbox,
+    thresholded_data,
+):
     graph_metrics = fuzzy_fmriprep_analysis.load_graph_metrics(
         thresholded_data.keys(), graph_metrics_output_path
     )
 
-    if not any(graph_metrics.values()):
+    if not any(graph_metrics.values()) or rerun_checkbox.value:
         graph_metrics = fuzzy_fmriprep_analysis.compute_graphs_metrics(
             thresholded_data, graph_metrics_output_path
         )
@@ -2145,6 +2224,14 @@ def _(
             bbox_inches="tight",
         )
         plt.show()
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    ## Analyse MDD biomarkers
+    """)
     return
 
 
