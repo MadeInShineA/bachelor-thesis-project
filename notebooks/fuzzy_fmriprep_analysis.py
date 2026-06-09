@@ -150,7 +150,7 @@ def _(mo):
 
 @app.cell(hide_code=True)
 def _(Path):
-    data_path = Path("/home/cbi-biomark/olivier.amacker/derivatives/fmriprep/v1")
+    data_path = Path("/home/cbi-biomark/olivier.amacker/derivatives/fmriprep/v2")
 
     data_path
     return (data_path,)
@@ -168,7 +168,7 @@ def _(mo):
 def _(Path):
     output_path = Path("./res/fuzzy-fmriprep-analysis/")
 
-    version = "v2"
+    version = "v3"
 
     voxel_metrics_output_path = output_path / version / "voxel-metrics"
     fc_matrices_output_path = output_path / version / "fc-matrices"
@@ -185,7 +185,6 @@ def _(Path):
         fc_matrices_output_path,
         figures_output_path,
         graph_metrics_output_path,
-        voxel_metrics_output_path,
     )
 
 
@@ -892,8 +891,8 @@ def _(mo):
 
 
 @app.cell
-def _(fuzzy_fmriprep_analysis, voxel_metrics_output_path):
-    fuzzy_fmriprep_analysis.calculate_voxel_metrics(voxel_metrics_output_path)
+def _():
+    #fuzzy_fmriprep_analysis.calculate_voxel_metrics(voxel_metrics_output_path)
     return
 
 
