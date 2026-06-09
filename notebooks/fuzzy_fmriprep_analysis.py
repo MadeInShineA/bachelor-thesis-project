@@ -39,7 +39,6 @@ def _():
     import nibabel as nib
     from nilearn import plotting
 
-
     import matplotlib.style
 
     matplotlib.style.use("default")
@@ -192,6 +191,7 @@ def _(
     Path,
     json,
     np,
+    nx,
     pl,
     signal,
     warnings,
@@ -335,7 +335,46 @@ def _(
             "with-confound": with_confound_correlation,
         }
 
-    return (process_single_bold,)
+
+    def compute_graph_metrics_for_one_entry(entry):
+
+        matrix = entry["matrix"]
+        metadata = entry["metadata"]
+
+        graph = nx.from_numpy_array(matrix)
+
+        # Here we remove the FC matrix diagonal (self loops)
+        graph.remove_edges_from(nx.selfloop_edges(graph))
+
+        # Local metrics
+        degree_centrality = nx.degree_centrality(graph)
+        clustering_coefficient = nx.clustering(graph)
+        betweenness_centrality = nx.betweenness_centrality(graph)
+        eigenvector_centrality = nx.eigenvector_centrality(graph, max_iter=1000)
+
+        # Global metrics
+        largest_cc = max(nx.connected_components(graph), key=len)
+        subgraph = graph.subgraph(largest_cc)
+        avg_shortest_path = nx.average_shortest_path_length(subgraph)
+        # small_world = nx.sigma(graph, niter=1, nrand=5)
+
+        return {
+            "metadata": metadata,
+            "metrics": {
+                "local_metrics": {
+                    "degree_centrality": degree_centrality,
+                    "clustering_coefficient": clustering_coefficient,
+                    "betweenness_centrality": betweenness_centrality,
+                    "eigenvector_centrality": eigenvector_centrality,
+                },
+                "global_metrics": {
+                    "average_shortest_path_length": avg_shortest_path,
+                    # "small_worldness": small_world,
+                },
+            },
+        }
+
+    return compute_graph_metrics_for_one_entry, process_single_bold
 
 
 @app.cell(hide_code=True)
@@ -354,12 +393,12 @@ def _(
     ConnectivityMeasure,
     Parallel,
     Path,
+    compute_graph_metrics_for_one_entry,
     defaultdict,
     delayed,
     fetch_atlas_schaefer_2018,
     json,
     np,
-    nx,
     process_single_bold,
     re,
 ):
@@ -612,47 +651,12 @@ def _(
             for _threshold, _entries in thresholded_data.items():
                 print(f"\nProcessing threshold: {_threshold}")
 
-                for _entry in _entries:
-                    matrix = _entry["matrix"]
-                    metadata = _entry["metadata"]
+                results = Parallel(n_jobs=-1, backend="loky")(
+                    delayed(compute_graph_metrics_for_one_entry)(entry)
+                    for entry in _entries
+                )
 
-                    graph = nx.from_numpy_array(matrix)
-
-                    # Here we remove the FC matrix diagonal (self loops)
-                    graph.remove_edges_from(nx.selfloop_edges(graph))
-
-                    # Local metrics
-                    degree_centrality = nx.degree_centrality(graph)
-                    clustering_coefficient = nx.clustering(graph)
-                    betweenness_centrality = nx.betweenness_centrality(graph)
-                    eigenvector_centrality = nx.eigenvector_centrality(
-                        graph, max_iter=1000
-                    )
-
-                    # Global metrics
-                    largest_cc = max(nx.connected_components(graph), key=len)
-                    subgraph = graph.subgraph(largest_cc)
-                    avg_shortest_path = nx.average_shortest_path_length(subgraph)
-
-                    # small_world = nx.sigma(graph, niter=1, nrand=10)
-
-                    graph_metrics[_threshold].append(
-                        {
-                            "metadata": metadata,
-                            "metrics": {
-                                "local_metrics": {
-                                    "degree_centrality": degree_centrality,
-                                    "clustering_coefficient": clustering_coefficient,
-                                    "betweenness_centrality": betweenness_centrality,
-                                    "eigenvector_centrality": eigenvector_centrality,
-                                },
-                                "global_metrics": {
-                                    "average_shortest_path_length": avg_shortest_path,
-                                    # "small_worldness": small_world,
-                                },
-                            },
-                        }
-                    )
+                graph_metrics[_threshold] = results
 
                 graph_metrics_threshold_path = (
                     graph_metrics_output_path / f"threshold-{_threshold}.json"
@@ -1074,11 +1078,6 @@ def _(fuzzy_fmriprep_analysis, graph_metrics_output_path, thresholded_data):
         graph_metrics = fuzzy_fmriprep_analysis.compute_graphs_metrics(
             thresholded_data, graph_metrics_output_path
         )
-
-    first_threshold = list(thresholded_data.keys())[0]
-    first_metric = graph_metrics[first_threshold][0]
-
-    first_metric
     return (graph_metrics,)
 
 
@@ -2141,7 +2140,8 @@ def _(
     figures = plot_npvr_brain_grid(graph_metrics, brain_maps_img)
     for values in figures:
         values["figure"].savefig(
-            figures_output_path / f"npvr_across_brain_regions_{values["metric"]}.png",
+            figures_output_path
+            / f"npvr_across_brain_regions_{values['metric']}.png",
             bbox_inches="tight",
         )
         plt.show()
