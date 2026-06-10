@@ -127,7 +127,7 @@ printf '%s\n' "${SUBJECTS[@]}" | parallel -j "${N_SUBS_IN_PARALLEL}" --joblog "/
     --participant-label {} \
     --skip-bids-validation \
     --md-only-boilerplate \
-    --fs-no-reconall \
+    --cifti-output 91k
     --output-spaces MNI152NLin2009cAsym:res-2 \
     --stop-on-first-crash \
     -w /work
