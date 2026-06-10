@@ -170,7 +170,7 @@ def _():
 
 
 @app.function
-def get_run_paths_from_data_path(data_path: Path) -> list(Path):
+def get_run_paths_from_data_path(data_path: Path) -> list[Path]:
     run_paths = [run for run in data_path.iterdir() if run.is_dir()]
 
     return run_paths
@@ -192,7 +192,7 @@ def _():
 
 
 @app.function
-def get_run_paths_from_run_paths(run_paths: list(Path)) -> list(Path):
+def get_subject_paths_from_run_paths(run_paths: list[Path]) -> list[Path]:
     subject_paths = [
         subject_path
         for subject_paths in run_paths
@@ -205,7 +205,7 @@ def get_run_paths_from_run_paths(run_paths: list(Path)) -> list(Path):
 
 @app.cell
 def _(run_paths):
-    subject_paths = get_run_paths_from_run_paths(run_paths)
+    subject_paths = get_subject_paths_from_run_paths(run_paths)
     subject_paths
     return (subject_paths,)
 
@@ -229,7 +229,7 @@ def _():
 @app.cell(hide_code=True)
 def _():
     mo.md(r"""
-    Here, we define functions to process a bold file and save an FC matric one at a time, to be used in parallel
+    Here, we define functions to be used in parallel
     """)
     return
 
@@ -291,7 +291,6 @@ def process_single_bold(
     subject_run: str,
     brain_maps,
     confound_columns: list,
-    framewise_displacement_threshold: float,
     output_dir: Path,
 ) -> dict:
 
@@ -423,14 +422,14 @@ def _():
     mo.md(r"""
     Now we will create 2 classes:
 
-    - The `FuzzyFmriprepSub` class which will represent a fuzzy fMRIPrep subject
-    - The `FuzzyFmriprepAnalysis` with the different connectivity analysis functions and settings
+    - The `FuzzyFmriprepGraphMetricsSub` class which will represent a fuzzy fMRIPrep subject
+    - The `FuzzyFmriprepGraphMetricsAnalysis` with the different connectivity analysis functions and settings
     """)
     return
 
 
 @app.class_definition
-class FuzzyFmriprepSub:
+class FuzzyFmriprepGraphMetricsSub:
     def __init__(
         self,
         path: Path,
@@ -536,83 +535,20 @@ class FuzzyFmriprepSub:
 
 
 class FuzzyFmriprepAnalysis:
-    def __init__(self, subjects: list, confound_columns):
+    def __init__(self, subjects: list):
         self.subjects = subjects
-        self.confound_columns = confound_columns
-        self.atlas = fetch_atlas_schaefer_2018(
-            n_rois=100, yeo_networks=7, resolution_mm=2
-        )
-        self.brain_maps = self.atlas["maps"]
-        self.roi_labels = self.atlas["labels"]
-        self.connectivity_measures = ConnectivityMeasure(
-            kind="correlation", standardize="zscore_sample"
-        )
 
-    def save_metadata(self, output_dir: Path) -> None:
+    def save_metadata(self, confound_columns: list, output_dir: Path) -> None:
         output_dir.mkdir(parents=True, exist_ok=True)
 
         metadata = {
-            "confound_columns": self.confound_columns,
+            "confound_columns": confound_columns,
         }
 
         metadata_path = output_dir / "metadata.json"
 
         with open(metadata_path, "w") as f:
             json.dump(metadata, f, indent=4)
-
-    def generate_fc_matrices(self, output_dir: Path, max_workers=None) -> dict:
-
-        self.save_metadata(output_dir)
-
-        res = defaultdict(
-            lambda: defaultdict(
-                lambda: defaultdict(
-                    lambda: defaultdict(lambda: defaultdict(dict))
-                )
-            )
-        )
-
-        tasks = []
-        for subject in self.subjects:
-            for preproc_bold in subject.preproc_bold_paths:
-                tasks.append(
-                    (
-                        self.connectivity_measures,
-                        preproc_bold,
-                        subject.id,
-                        subject.run,
-                        self.brain_maps,
-                        self.confound_columns,
-                        self.FRAMWEWISE_DISPLACEMENT_THRESHOLD,
-                        output_dir,
-                    )
-                )
-
-        if max_workers is None:
-            max_workers = len(tasks)
-
-        print(
-            f"Starting parallel processing of {len(tasks)} tasks with {max_workers} workers."
-        )
-
-        results = Parallel(n_jobs=max_workers, backend="loky")(
-            delayed(process_single_bold)(*task) for task in tasks
-        )
-
-        for result in results:
-            res[result["subject_id"]][result["subject_run"]][
-                result["session_name"]
-            ][result["run_name"]]["without-confound"] = result[
-                "without-confound"
-            ]
-            res[result["subject_id"]][result["subject_run"]][
-                result["session_name"]
-            ][result["run_name"]]["with-confound"] = result["with-confound"]
-            print(
-                f"Completed {result['subject_id']} | {result['session_name']} | {result['run_name']}"
-            )
-
-        return res
 
     def load_fc_matrices(self, input_dir: Path) -> dict:
 
@@ -650,6 +586,80 @@ class FuzzyFmriprepAnalysis:
 
         return res
 
+
+@app.class_definition
+class FuzzyFmriprepGraphMetricsAnalysis(FuzzyFmriprepAnalysis):
+    def __init__(
+        self,
+        subjects: list[FuzzyFmriprepGraphMetricsSub],
+        confound_columns: list,
+    ):
+        super().__init__(subjects)
+
+        self.confound_columns = confound_columns
+
+        self.atlas = fetch_atlas_schaefer_2018(
+            n_rois=100, yeo_networks=7, resolution_mm=2
+        )
+        self.brain_maps = self.atlas["maps"]
+        self.roi_labels = self.atlas["labels"]
+        self.connectivity_measures = ConnectivityMeasure(
+            kind="correlation", standardize="zscore_sample"
+        )
+
+    def generate_fc_matrices(self, output_dir: Path, max_workers=None) -> dict:
+
+        self.save_metadata(self.confound_columns, output_dir)
+
+        res = defaultdict(
+            lambda: defaultdict(
+                lambda: defaultdict(
+                    lambda: defaultdict(lambda: defaultdict(dict))
+                )
+            )
+        )
+
+        tasks = []
+        for subject in self.subjects:
+            for preproc_bold in subject.preproc_bold_paths:
+                tasks.append(
+                    (
+                        self.connectivity_measures,
+                        preproc_bold,
+                        subject.id,
+                        subject.run,
+                        self.brain_maps,
+                        self.confound_columns,
+                        output_dir,
+                    )
+                )
+
+        if max_workers is None:
+            max_workers = len(tasks)
+
+        print(
+            f"Starting parallel processing of {len(tasks)} tasks with {max_workers} workers."
+        )
+
+        results = Parallel(n_jobs=max_workers, backend="loky")(
+            delayed(process_single_bold)(*task) for task in tasks
+        )
+
+        for result in results:
+            res[result["subject_id"]][result["subject_run"]][
+                result["session_name"]
+            ][result["run_name"]]["without-confound"] = result[
+                "without-confound"
+            ]
+            res[result["subject_id"]][result["subject_run"]][
+                result["session_name"]
+            ][result["run_name"]]["with-confound"] = result["with-confound"]
+            print(
+                f"Completed {result['subject_id']} | {result['session_name']} | {result['run_name']}"
+            )
+
+        return res
+
     def compute_graphs_metrics(
         self, thresholded_data, graph_metrics_output_path
     ):
@@ -658,21 +668,21 @@ class FuzzyFmriprepAnalysis:
         }
 
         for threshold, entries in thresholded_data.items():
-            print(f"\nProcessing threshold: {_threshold}")
+            print(f"\nProcessing threshold: {threshold}")
 
             results = Parallel(n_jobs=-1, backend="loky")(
                 delayed(compute_graph_metrics_for_one_entry)(entry)
                 for entry in entries
             )
 
-            graph_metrics[_threshold] = results
+            graph_metrics[threshold] = results
 
             graph_metrics_threshold_path = (
-                graph_metrics_output_path / f"threshold-{_threshold}.json"
+                graph_metrics_output_path / f"threshold-{threshold}.json"
             )
 
             with open(graph_metrics_threshold_path, "w") as f:
-                json.dump(graph_metrics[_threshold], f, indent=4)
+                json.dump(graph_metrics[threshold], f, indent=4)
         return graph_metrics
 
     def load_graph_metrics(self, thresholds, graph_metrics_input_path):
@@ -702,7 +712,7 @@ class FuzzyFmriprepAnalysis:
 @app.cell(hide_code=True)
 def _():
     mo.md(r"""
-    We define a utility function that will be used to transform the different subject paths into `FuzzyFmriprepSub`
+    We define a utility function that will be used to transform the different subject paths into `FuzzyFmriprepGraphMetricsSub`
     """)
     return
 
@@ -730,15 +740,15 @@ def get_output_paths_from_parent_path(
 @app.cell(hide_code=True)
 def _():
     mo.md(r"""
-    Finally convert the `Path` to `FuzzyFmriprepSub`
+    Finally convert the `Path` to `FuzzyFmriprepGraphMetricsSub`
     """)
     return
 
 
 @app.function
-def create_fmriprep_subjects(subject_paths: list(Path)) -> list(
-    FuzzyFmriprepSub
-):
+def create_fmriprep_subjects(subject_class, subject_paths: list[Path]) -> list[
+    subject_class
+    ]:
 
     fuzzy_fmriprep_subjects = []
 
@@ -754,6 +764,9 @@ def create_fmriprep_subjects(subject_paths: list(Path)) -> list(
         anat_paths = []
         func_paths = []
         fmap_paths = []
+
+        top_level_anat = subject_path / "anat"
+        has_top_level_anat = top_level_anat.is_dir()
 
         for subject_dir_path in subject_dir_paths:
             dir_name = subject_dir_path.name
@@ -784,13 +797,14 @@ def create_fmriprep_subjects(subject_paths: list(Path)) -> list(
                 fmap_path = output_paths["fmap"]
                 func_path = output_paths["func"]
 
-                anat_paths.append(anat_path)
+                if not has_top_level_anat:
+                    anat_paths.append(anat_path)
                 fmap_paths.append(fmap_path)
                 func_paths.append(func_path)
 
         if not anat_paths or not func_paths or not fmap_paths:
             continue
-        fuzzy_fmriprep_subject = FuzzyFmriprepSub(
+        fuzzy_fmriprep_subject = subject_class(
             path=subject_path,
             figures_path=figures_path,
             anat_paths=anat_paths,
@@ -804,15 +818,16 @@ def create_fmriprep_subjects(subject_paths: list(Path)) -> list(
 
 @app.cell
 def _(confounds, subject_paths):
-    fuzzy_fmriprep_subjects = create_fmriprep_subjects(subject_paths)
+    fuzzy_fmriprep_subjects = create_fmriprep_subjects(
+        FuzzyFmriprepGraphMetricsSub, subject_paths
+    )
 
     print(f"Created {len(fuzzy_fmriprep_subjects)} subjects")
 
-    fuzzy_fmriprep_analysis = FuzzyFmriprepAnalysis(
+
+    fuzzy_fmriprep_analysis = FuzzyFmriprepGraphMetricsAnalysis(
         fuzzy_fmriprep_subjects, confounds.value
     )
-
-    fuzzy_fmriprep_subjects
     return (fuzzy_fmriprep_analysis,)
 
 
@@ -830,7 +845,7 @@ def _(fc_matrices_output_path, fuzzy_fmriprep_analysis, rerun_checkbox):
 
     if not fc_matrices or rerun_checkbox.value:
         fc_matrices = fuzzy_fmriprep_analysis.generate_fc_matrices(
-            fc_matrices_output_path,
+            fc_matrices_output_path
         )
     return (fc_matrices,)
 
