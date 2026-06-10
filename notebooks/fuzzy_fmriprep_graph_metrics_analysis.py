@@ -168,7 +168,7 @@ def _(mo):
 def _(Path):
     output_path = Path("./res/fuzzy-fmriprep-analysis/")
 
-    version = "v1"
+    version = "v3"
 
     voxel_metrics_output_path = output_path / version / "voxel-metrics"
     fc_matrices_output_path = output_path / version / "fc-matrices"
