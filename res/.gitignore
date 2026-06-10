@@ -5,10 +5,10 @@ fuzzy-fmriprep-analysis/*
 
 !fuzzy-fmriprep-analysis/*/
 
-fuzzy-fmriprep-analysis/*/*
+fuzzy-fmriprep-analysis/*/*/*
 
-!fuzzy-fmriprep-analysis/*/fc-matrices/
-!fuzzy-fmriprep-analysis/*/figures/
+!fuzzy-fmriprep-analysis/*/*/fc-matrices/
+!fuzzy-fmriprep-analysis/*/*/figures/
 
-fuzzy-fmriprep-analysis/*/fc-matrices/*
-!fuzzy-fmriprep-analysis/*/fc-matrices/metadata.json
+fuzzy-fmriprep-analysis/*/*/fc-matrices/*
+!fuzzy-fmriprep-analysis/*/*/fc-matrices/metadata.json

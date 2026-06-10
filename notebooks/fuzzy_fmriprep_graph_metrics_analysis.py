@@ -166,7 +166,7 @@ def _(mo):
 
 @app.cell
 def _(Path):
-    output_path = Path("./res/fuzzy-fmriprep-analysis/")
+    output_path = Path("./res/fuzzy-fmriprep-analysis/graph-metrics-analysis/")
 
     version = "v3"
 
@@ -799,7 +799,7 @@ def _(
     get_output_paths_from_parent_path,
     subject_paths,
 ):
-    def create_friprep_subjects(subject_paths: list(Path)) -> list(
+    def create_fmriprep_subjects(subject_paths: list(Path)) -> list(
         FuzzyFmriprepSub
     ):
 
@@ -865,7 +865,7 @@ def _(
         return fuzzy_fmriprep_subjects
 
 
-    fuzzy_fmriprep_subjects = create_friprep_subjects(subject_paths)
+    fuzzy_fmriprep_subjects = create_fmriprep_subjects(subject_paths)
 
     print(f"Created {len(fuzzy_fmriprep_subjects)} subjects")
 
