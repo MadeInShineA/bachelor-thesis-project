@@ -7,9 +7,9 @@ app = marimo.App(width="medium")
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    # Fuzzy fMRIPrep analysis
+    # Fuzzy fMRIPrep Graph Metrics Analysis
 
-    The goal of this notebook is to analyse the different output obtained through the fuzzy-fmriprep preprocessing
+    The goal of this notebook is to analyse different graph metrics obtained from the output of fuzzy-fmriprep preprocessing
     """)
     return
 
@@ -168,7 +168,7 @@ def _(mo):
 def _(Path):
     output_path = Path("./res/fuzzy-fmriprep-analysis/")
 
-    version = "v3"
+    version = "v1"
 
     voxel_metrics_output_path = output_path / version / "voxel-metrics"
     fc_matrices_output_path = output_path / version / "fc-matrices"
@@ -197,9 +197,14 @@ def _(mo):
 
 
 @app.cell
-def _(data_path):
-    run_paths = [run for run in data_path.iterdir() if run.is_dir()]
+def _(Path, data_path):
+    def get_run_paths_from_data_path(data_path: Path) -> list(Path):
+        run_paths = [run for run in data_path.iterdir() if run.is_dir()]
 
+        return run_paths
+
+
+    run_paths = get_run_paths_from_data_path(data_path)
     run_paths
     return (run_paths,)
 
@@ -213,14 +218,19 @@ def _(mo):
 
 
 @app.cell
-def _(run_paths):
-    subject_paths = [
-        subject_path
-        for subject_paths in run_paths
-        for subject_path in subject_paths.iterdir()
-        if subject_path.is_dir() and "sub" in subject_path.name
-    ]
+def _(Path, run_paths):
+    def get_run_paths_from_run_paths(run_paths: list(Path)) -> list(Path):
+        subject_paths = [
+            subject_path
+            for subject_paths in run_paths
+            for subject_path in subject_paths.iterdir()
+            if subject_path.is_dir() and "sub" in subject_path.name
+        ]
 
+        return subject_paths
+
+
+    subject_paths = get_run_paths_from_run_paths(run_paths)
     subject_paths
     return (subject_paths,)
 
@@ -463,7 +473,6 @@ def _(
     delayed,
     fetch_atlas_schaefer_2018,
     json,
-    nib,
     np,
     process_single_bold,
     re,
@@ -573,8 +582,6 @@ def _(
 
 
     class FuzzyFmriprepAnalysis:
-        FRAMWEWISE_DISPLACEMENT_THRESHOLD = 0.2
-
         def __init__(self, subjects: list, confound_columns):
             self.subjects = subjects
             self.confound_columns = confound_columns
@@ -587,33 +594,11 @@ def _(
                 kind="correlation", standardize="zscore_sample"
             )
 
-        def calculate_voxel_metrics(self, output_dir: Path) -> dict:
-            res = {}
-
-            for subject in self.subjects:
-                for preproc_bold in subject.preproc_bold_paths:
-                    # Extract the data from the bold file
-                    bold_image = nib.load(preproc_bold["bold.nii.gz"])
-                    bold_data = bold_image.get_fdata()
-
-                    affine = bold_image.affine
-                    shape_3d = bold_data.shape[:3]
-
-                    # Average the bold_data over time
-                    voxel_data = np.stack(
-                        [np.mean(d, axis=-1) for d in bold_data], axis=0
-                    )
-
-                    print(voxel_data.shape[0])
-                    return
-            return res
-
         def save_metadata(self, output_dir: Path) -> None:
             output_dir.mkdir(parents=True, exist_ok=True)
 
             metadata = {
                 "confound_columns": self.confound_columns,
-                # "framewise_deplacement_threshold": self.FRAMWEWISE_DISPLACEMENT_THRESHOLD,
             }
 
             metadata_path = output_dir / "metadata.json"
@@ -718,12 +703,12 @@ def _(
                 threshold: [] for threshold in thresholded_data.keys()
             }
 
-            for _threshold, _entries in thresholded_data.items():
+            for threshold, entries in thresholded_data.items():
                 print(f"\nProcessing threshold: {_threshold}")
 
                 results = Parallel(n_jobs=-1, backend="loky")(
                     delayed(compute_graph_metrics_for_one_entry)(entry)
-                    for entry in _entries
+                    for entry in entries
                 )
 
                 graph_metrics[_threshold] = results
@@ -809,71 +794,81 @@ def _(mo):
 def _(
     FuzzyFmriprepAnalysis,
     FuzzyFmriprepSub,
+    Path,
     confounds,
     get_output_paths_from_parent_path,
     subject_paths,
 ):
-    fuzzy_fmriprep_subjects = []
+    def create_friprep_subjects(subject_paths: list(Path)) -> list(
+        FuzzyFmriprepSub
+    ):
 
-    for subject_path in subject_paths:
-        subject_dir_paths = [
-            subject_dir
-            for subject_dir in subject_path.iterdir()
-            if subject_dir.is_dir()
-        ]
+        fuzzy_fmriprep_subjects = []
 
-        figures_path = None
+        for subject_path in subject_paths:
+            subject_dir_paths = [
+                subject_dir
+                for subject_dir in subject_path.iterdir()
+                if subject_dir.is_dir()
+            ]
 
-        anat_paths = []
-        func_paths = []
-        fmap_paths = []
+            figures_path = None
 
-        for subject_dir_path in subject_dir_paths:
-            dir_name = subject_dir_path.name
+            anat_paths = []
+            func_paths = []
+            fmap_paths = []
 
-            if dir_name == "figures":
-                figures_path = subject_dir_path
+            for subject_dir_path in subject_dir_paths:
+                dir_name = subject_dir_path.name
 
-            elif dir_name == "anat":
-                anat_paths.append(subject_dir_path)
+                if dir_name == "figures":
+                    figures_path = subject_dir_path
 
-            elif "ses-" in dir_name and not "ses-multi" in dir_name:
-                output_paths = get_output_paths_from_parent_path(
-                    subject_dir_path, ["anat", "fmap", "func"]
-                )
+                elif dir_name == "anat":
+                    anat_paths.append(subject_dir_path)
 
-                missing_directories = []
-                for key, value in output_paths.items():
-                    if value is None:
-                        missing_directories.append(key)
-
-                if len(missing_directories) > 0:
-                    print(
-                        f"Skipping {subject_dir_path} since the following directories are missing: {missing_directories}"
+                elif "ses-" in dir_name and not "ses-multi" in dir_name:
+                    output_paths = get_output_paths_from_parent_path(
+                        subject_dir_path, ["anat", "fmap", "func"]
                     )
-                    continue
 
-                anat_path = output_paths["anat"]
-                fmap_path = output_paths["fmap"]
-                func_path = output_paths["func"]
+                    missing_directories = []
+                    for key, value in output_paths.items():
+                        if value is None:
+                            missing_directories.append(key)
 
-                anat_paths.append(anat_path)
-                fmap_paths.append(fmap_path)
-                func_paths.append(func_path)
+                    if len(missing_directories) > 0:
+                        print(
+                            f"Skipping {subject_dir_path} since the following directories are missing: {missing_directories}"
+                        )
+                        continue
 
-        if not anat_paths or not func_paths or not fmap_paths:
-            continue
-        fuzzy_fmriprep_subject = FuzzyFmriprepSub(
-            path=subject_path,
-            figures_path=figures_path,
-            anat_paths=anat_paths,
-            fmap_paths=fmap_paths,
-            func_paths=func_paths,
-        )
+                    anat_path = output_paths["anat"]
+                    fmap_path = output_paths["fmap"]
+                    func_path = output_paths["func"]
 
-        fuzzy_fmriprep_subjects.append(fuzzy_fmriprep_subject)
+                    anat_paths.append(anat_path)
+                    fmap_paths.append(fmap_path)
+                    func_paths.append(func_path)
+
+            if not anat_paths or not func_paths or not fmap_paths:
+                continue
+            fuzzy_fmriprep_subject = FuzzyFmriprepSub(
+                path=subject_path,
+                figures_path=figures_path,
+                anat_paths=anat_paths,
+                fmap_paths=fmap_paths,
+                func_paths=func_paths,
+            )
+
+            fuzzy_fmriprep_subjects.append(fuzzy_fmriprep_subject)
+        return fuzzy_fmriprep_subjects
+
+
+    fuzzy_fmriprep_subjects = create_friprep_subjects(subject_paths)
 
     print(f"Created {len(fuzzy_fmriprep_subjects)} subjects")
+
     fuzzy_fmriprep_analysis = FuzzyFmriprepAnalysis(
         fuzzy_fmriprep_subjects, confounds.value
     )
@@ -891,12 +886,6 @@ def _(mo):
 
 
 @app.cell
-def _():
-    #fuzzy_fmriprep_analysis.calculate_voxel_metrics(voxel_metrics_output_path)
-    return
-
-
-@app.cell
 def _(fc_matrices_output_path, fuzzy_fmriprep_analysis, rerun_checkbox):
     fc_matrices = fuzzy_fmriprep_analysis.load_fc_matrices(fc_matrices_output_path)
 
@@ -904,15 +893,13 @@ def _(fc_matrices_output_path, fuzzy_fmriprep_analysis, rerun_checkbox):
         fc_matrices = fuzzy_fmriprep_analysis.generate_fc_matrices(
             fc_matrices_output_path,
         )
-
-    fc_matrices
     return (fc_matrices,)
 
 
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    ## Analyse the FC matrices
+    ## Analyse the FC matrices via graph metrics
     """)
     return
 
@@ -927,74 +914,34 @@ def _(mo):
 
 @app.cell
 def _(fc_matrices, plt, sns):
-    total_matrices = 0
+    def plot_fc_matrices(fc_matrices: dict) -> None:
+        for subject, run_values in fc_matrices.items():
+            for run, session_values in run_values.items():
+                for session, sub_run_values in session_values.items():
+                    for sub_run, type_values in sub_run_values.items():
+                        for type, fc_matrix in type_values.items():
+                            plt.figure(figsize=(8, 6))
 
-    subject_matrices = {
-        subject: {"with-confound": [], "without-confound": []}
-        for subject in fc_matrices.keys()
-    }
+                            # This plot code was generated by Qwen3.6-Plus
 
-    for _subject, _run_values in fc_matrices.items():
-        for _run, _session_values in _run_values.items():
-            for _session, _sub_run_values in _session_values.items():
-                for _sub_run, _type_values in _sub_run_values.items():
-                    for _type, _fc_matrix in _type_values.items():
-                        subject_matrices[_subject][_type].append(_fc_matrix)
-                        total_matrices += 1
+                            sns.heatmap(
+                                fc_matrix,
+                                cmap="RdBu_r",
+                                vmin=-1,
+                                vmax=1,
+                                square=True,
+                                cbar_kws={"shrink": 0.8},
+                                xticklabels=False,
+                                yticklabels=False,
+                            )
 
-                        plt.figure(figsize=(8, 6))
-
-                        # This plot code was generated by Qwen3.6-Plus
-
-                        sns.heatmap(
-                            _fc_matrix,
-                            cmap="RdBu_r",
-                            vmin=-1,
-                            vmax=1,
-                            square=True,
-                            cbar_kws={"shrink": 0.8},
-                            xticklabels=False,
-                            yticklabels=False,
-                        )
-
-                        plt.title(
-                            f"Functional Connectivity Matrix of {_subject} {_run} {_session} {_sub_run} ({_type})"
-                        )
-                        plt.show()
-    print(f"Total FC matrices: {total_matrices}")
-    return (subject_matrices,)
+                            plt.title(
+                                f"Functional Connectivity Matrix of {subject} {run} {session} {sub_run} ({type})"
+                            )
+                            plt.show()
 
 
-@app.cell(hide_code=True)
-def _(mo):
-    mo.md(r"""
-    And then plot the average of each patient matrices based on it's type (with or without confound)
-    """)
-    return
-
-
-@app.cell
-def _(fc_matrices, np, plt, sns, subject_matrices):
-    for _subject, _type_values in subject_matrices.items():
-        for _type, _fc_matrices in _type_values.items():
-            if len(fc_matrices) > 0:
-                mean_fc_matrix = np.mean(_fc_matrices, axis=0)
-
-                plt.figure(figsize=(8, 6))
-                sns.heatmap(
-                    mean_fc_matrix,
-                    cmap="RdBu_r",
-                    vmin=-1,
-                    vmax=1,
-                    square=True,
-                    cbar_kws={"shrink": 0.8},
-                    xticklabels=False,
-                    yticklabels=False,
-                )
-                plt.title(
-                    f"Mean Functional Connectivity Matrix of {_subject} ({_type})"
-                )
-                plt.show()
+    plot_fc_matrices(fc_matrices)
     return
 
 
@@ -1023,33 +970,35 @@ def _(mo):
 
 @app.cell
 def _(fc_matrices):
-    thresholded_data = {0.05: [], 0.1: [], 0.2: [], 0.3: [], 0.4: [], 0.5: []}
+    def apply_threshold_to_fc_matrices(fc_matrices: dict) -> dict:
+        thresholded_data = {0.05: [], 0.1: [], 0.2: [], 0.3: [], 0.4: [], 0.5: []}
 
-    for _subject, _run_values in fc_matrices.items():
-        for _run, _session_values in _run_values.items():
-            for _session, _sub_run_values in _session_values.items():
-                for _sub_run, _type_values in _sub_run_values.items():
-                    for _type, _fc_matrix in _type_values.items():
-                        for _threshold in thresholded_data.keys():
-                            binary_matrix = (abs(_fc_matrix) >= _threshold).astype(
-                                int
-                            )
+        for subject, run_values in fc_matrices.items():
+            for run, session_values in run_values.items():
+                for session, sub_run_values in session_values.items():
+                    for sub_run, type_values in sub_run_values.items():
+                        for type, fc_matrix in type_values.items():
+                            for threshold in thresholded_data.keys():
+                                binary_matrix = (
+                                    abs(fc_matrix) >= threshold
+                                ).astype(int)
 
-                            _entry = {
-                                "matrix": binary_matrix,
-                                "metadata": {
-                                    "subject": _subject,
-                                    "run": _run,
-                                    "session": _session,
-                                    "sub_run": _sub_run,
-                                    "type": _type,
-                                },
-                            }
+                                entry = {
+                                    "matrix": binary_matrix,
+                                    "metadata": {
+                                        "subject": subject,
+                                        "run": run,
+                                        "session": session,
+                                        "sub_run": sub_run,
+                                        "type": type,
+                                    },
+                                }
 
-                            thresholded_data[_threshold].append(_entry)
+                                thresholded_data[threshold].append(entry)
+        return thresholded_data
 
 
-    thresholded_data
+    thresholded_data = apply_threshold_to_fc_matrices(fc_matrices)
     return (thresholded_data,)
 
 
@@ -1063,65 +1012,69 @@ def _(mo):
 
 @app.cell
 def _(batched, figures_output_path, plt, sns, thresholded_data):
-    for _threshold, entries in thresholded_data.items():
-        for without_confound, with_confound in batched(entries[:2], n=2):
-            # This plot code was generated by Qwen3.6-Plus
+    def plot_thresholds(thresholded_data: dict) -> dict:
+        for threshold, entries in thresholded_data.items():
+            for without_confound, with_confound in batched(entries[:2], n=2):
+                # This plot code was generated by Qwen3.6-Plus
 
-            _fig, _axes = plt.subplots(1, 2, figsize=(12, 6))
+                fig, axes = plt.subplots(1, 2, figsize=(12, 6))
 
-            sns.heatmap(
-                without_confound["matrix"],
-                vmin=0,
-                vmax=1,
-                square=True,
-                xticklabels=False,
-                yticklabels=False,
-                cmap="Greys",
-                cbar=False,
-                ax=_axes[0],
-            )
-            _axes[0].set_title(
-                f"Type: {without_confound['metadata']['type']}",
-                fontsize=12,
-                fontweight="bold",
-            )
+                sns.heatmap(
+                    without_confound["matrix"],
+                    vmin=0,
+                    vmax=1,
+                    square=True,
+                    xticklabels=False,
+                    yticklabels=False,
+                    cmap="Greys_r",
+                    cbar=False,
+                    ax=axes[0],
+                )
+                axes[0].set_title(
+                    f"Type: {without_confound['metadata']['type']}",
+                    fontsize=12,
+                    fontweight="bold",
+                )
 
-            sns.heatmap(
-                with_confound["matrix"],
-                vmin=0,
-                vmax=1,
-                square=True,
-                xticklabels=False,
-                yticklabels=False,
-                cmap="Greys",
-                cbar=False,
-                ax=_axes[1],
-            )
-            _axes[1].set_title(
-                f"Type: {with_confound['metadata']['type']}",
-                fontsize=12,
-                fontweight="bold",
-            )
+                sns.heatmap(
+                    with_confound["matrix"],
+                    vmin=0,
+                    vmax=1,
+                    square=True,
+                    xticklabels=False,
+                    yticklabels=False,
+                    cmap="Greys_r",
+                    cbar=False,
+                    ax=axes[1],
+                )
+                axes[1].set_title(
+                    f"Type: {with_confound['metadata']['type']}",
+                    fontsize=12,
+                    fontweight="bold",
+                )
 
-            _meta_shared = without_confound["metadata"]
+                meta_shared = without_confound["metadata"]
 
-            _fig.suptitle(
-                f"Threshold: {_threshold}\n"
-                f"Sub: {_meta_shared['subject']} | Run: {_meta_shared['run']} | Session: {_meta_shared['session']} | Subrun: {_meta_shared['sub_run']}\n"
-                f"White = 0 | Black = 1",
-                fontsize=14,
-                y=1.05,
-            )
+                fig.suptitle(
+                    f"Threshold: {threshold}\n"
+                    f"Sub: {meta_shared['subject']} | Run: {meta_shared['run']} | Session: {meta_shared['session']} | Subrun: {meta_shared['sub_run']}\n"
+                    f"Black = 0 | White = 1",
+                    fontsize=14,
+                    y=1.05,
+                )
 
-            plt.tight_layout()
+                plt.tight_layout()
 
-            _fig.savefig(
-                figures_output_path
-                / f"binary_fc_matrices-threshold-{_threshold}.png",
-                bbox_inches="tight",
-            )
+                fig.savefig(
+                    figures_output_path
+                    / f"binary_fc_matrices-threshold-{threshold}.png",
+                    bbox_inches="tight",
+                )
 
-            plt.show()
+                plt.show()
+
+
+    plot_thresholds(thresholded_data)
     return
 
 
@@ -2223,14 +2176,6 @@ def _(
             bbox_inches="tight",
         )
         plt.show()
-    return
-
-
-@app.cell(hide_code=True)
-def _(mo):
-    mo.md(r"""
-    ## Analyse MDD biomarkers
-    """)
     return
 
 
