@@ -121,7 +121,7 @@ def _():
     return
 
 
-@app.cell(hide_code=True)
+@app.cell
 def _():
     data_path = Path("/home/cbi-biomark/olivier.amacker/derivatives/fmriprep/v2")
 
