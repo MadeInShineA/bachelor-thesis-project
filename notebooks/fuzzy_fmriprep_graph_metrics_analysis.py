@@ -746,9 +746,9 @@ def _():
 
 
 @app.function
-def create_fmriprep_subjects(subject_class, subject_paths: list[Path]) -> list[
-    subject_class
-    ]:
+def create_fmriprep_subjects(
+    subject_class, subject_paths: list[Path]
+) -> list[subject_class]:
 
     fuzzy_fmriprep_subjects = []
 
