@@ -1,0 +1,22 @@
+{
+    "confound_columns": [
+        "trans_x",
+        "trans_y",
+        "trans_z",
+        "rot_x",
+        "rot_y",
+        "rot_z",
+        "global_signal",
+        "csf",
+        "white_matter",
+        "a_comp_cor_00",
+        "a_comp_cor_01",
+        "a_comp_cor_02",
+        "a_comp_cor_03",
+        "a_comp_cor_04",
+        "a_comp_cor_05"
+    ],
+    "filtered_out_confound_columns": [
+        "global_signal"
+    ]
+}

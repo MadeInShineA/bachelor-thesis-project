@@ -4,13 +4,26 @@ __generated_with = "0.23.8"
 app = marimo.App(width="medium")
 
 with app.setup:
+    import re
+    import warnings
+    import json
+
     import marimo as mo
+    import numpy as np
+    from nilearn import signal
     from pathlib import Path
+    from collections import defaultdict
     import polars as pl
 
     from nilearn.maskers import NiftiLabelsMasker
     from nilearn.connectome import ConnectivityMeasure
+    from nilearn import signal
+
     from joblib import Parallel, delayed
+
+    import nibabel as nib
+    import matplotlib.pyplot as plt
+    from nilearn import plotting
 
     from fuzzy_fmriprep_graph_metrics_analysis import (
         get_run_paths_from_data_path,
@@ -22,6 +35,8 @@ with app.setup:
         get_output_paths_from_parent_path,
         create_fmriprep_subjects,
     )
+
+    from nilearn.datasets import fetch_atlas_schaefer_2018
 
 
 @app.cell(hide_code=True)
@@ -52,13 +67,13 @@ def _():
 
 @app.cell
 def _():
-    data_path = Path("/home/cbi-biomark/olivier.amacker/derivatives/fmriprep/v2")
+    data_path = Path("/home/cbi-biomark/olivier.amacker/derivatives/fmriprep/v3")
     return (data_path,)
 
 
 @app.cell
 def _():
-    output_path = Path("./res/fuzzy-fmriprep-analysis/fc_matrices_analysis/")
+    output_path = Path("./res/fuzzy-fmriprep-analysis/fc-matrices-analysis/")
 
     version = "v1"
 
@@ -78,7 +93,7 @@ def _():
         figures_output_path,
         graph_metrics_output_path,
     )
-    return
+    return fc_matrices_output_path, output_path, version
 
 
 @app.cell(hide_code=True)
@@ -107,128 +122,125 @@ def _():
     return
 
 
-@app.cell
-def _(re):
-    class FuzzyFmriprepFCMatricesSub:
-        def __init__(
-            self,
-            path: Path,
-            figures_path: Path,
-            anat_paths: list[Path],
-            fmap_paths: list[Path],
-            func_paths: list[Path],
-        ) -> None:
-            self.path = path
-            self.figures_path = figures_path
-            self.anat_paths = anat_paths
-            self.fmap_paths = fmap_paths
-            self.func_paths = func_paths
+@app.class_definition
+class FuzzyFmriprepFCMatricesSub:
+    def __init__(
+        self,
+        path: Path,
+        figures_path: Path,
+        anat_paths: list[Path],
+        fmap_paths: list[Path],
+        func_paths: list[Path],
+    ) -> None:
+        self.path = path
+        self.figures_path = figures_path
+        self.anat_paths = anat_paths
+        self.fmap_paths = fmap_paths
+        self.func_paths = func_paths
 
-            self.set_id()
-            self.set_run()
-            self.set_preproc_bold_paths()
+        self.set_id()
+        self.set_run()
+        self.set_preproc_bold_paths()
 
-        def set_id(self):
-            self.id = self.path.name
+    def set_id(self):
+        self.id = self.path.name
 
-        def set_run(self):
-            self.run = self.path.parent.name
+    def set_run(self):
+        self.run = self.path.parent.name
 
-        def set_preproc_bold_paths(self):
-            res = []
+    def set_preproc_bold_paths(self):
+        res = []
 
-            for func_path in self.func_paths:
-                dtseries_paths = []
-                json_paths = []
-                confounds_paths = []
+        for func_path in self.func_paths:
+            dtseries_paths = []
+            json_paths = []
+            confounds_paths = []
 
-                for file_path in func_path.iterdir():
-                    file_name = file_path.name
+            for file_path in func_path.iterdir():
+                file_name = file_path.name
 
-                    # Find CIFTI dtseries files (91k density)
-                    if "space-fsLR_den-91k_bold.dtseries.nii" in file_name:
-                        if (
-                            "dir-ap" in file_name.lower()
-                            or "-ap_" in file_name.lower()
-                            or "dir-" not in file_name.lower()
-                        ):
-                            dtseries_paths.append(file_path)
-
-                    # Find corresponding CIFTI JSON files
-                    elif "space-fsLR_den-91k_bold.json" in file_name:
-                        if (
-                            "dir-ap" in file_name.lower()
-                            or "-ap_" in file_name.lower()
-                            or "dir-" not in file_name.lower()
-                        ):
-                            json_paths.append(file_path)
-
-                    # Find confounds files
-                    elif "desc-confounds_timeseries.tsv" in file_name:
-                        confounds_paths.append(file_path)
-
-                for dtseries_path in dtseries_paths:
-                    file_name = dtseries_path.name
-
-                    # Derive matching JSON name
-                    matching_json_name = file_name.replace("dtseries.nii", "json")
-
-                    # Derive matching confound name
-                    matching_confound_name = re.sub(
-                        r"_space-fsLR_den-\d+k_bold\.dtseries\.nii$",
-                        "_desc-confounds_timeseries.tsv",
-                        file_name,
-                    )
-
-                    # Extract run and session for metadata
-                    run_match = re.search(r"_run-(\d+)", file_name)
-                    run_name = (
-                        f"run-{run_match.group(1)}" if run_match else "run-single"
-                    )
-
-                    # Kept your specific session regex, but made it slightly more robust
-                    session_match = re.search(r"_ses-(SFHARP00\d)", file_name)
-                    session_name = (
-                        session_match.group(1) if session_match else "ses-1"
-                    )
-
-                    # Find matching paths
-                    matching_json_path = next(
-                        (p for p in json_paths if p.name == matching_json_name),
-                        None,
-                    )
-                    matching_confound_path = next(
-                        (
-                            p
-                            for p in confounds_paths
-                            if p.name == matching_confound_name
-                        ),
-                        None,
-                    )
-
+                # Find CIFTI dtseries files (91k density)
+                if "space-fsLR_den-91k_bold.dtseries.nii" in file_name:
                     if (
-                        matching_json_path is not None
-                        and matching_confound_path is not None
+                        "dir-ap" in file_name.lower()
+                        or "-ap_" in file_name.lower()
+                        or "dir-" not in file_name.lower()
                     ):
-                        res.append(
-                            {
-                                "session_name": session_name,
-                                "run_name": run_name,
-                                "bold.dtseries.nii": dtseries_path,
-                                "bold.json": matching_json_path,
-                                "confounds_timeseries.tsv": matching_confound_path,
-                            }
-                        )
-                    else:
-                        print(
-                            f"Warning: Could not find matching json or confounds for {file_name}"
-                        )
-                        print(f"  Looked for JSON: {matching_json_name}")
-                        print(f"  Looked for Confounds: {matching_confound_name}")
+                        dtseries_paths.append(file_path)
 
-            self.preproc_bold_paths = res
+                # Find corresponding CIFTI JSON files
+                elif "space-fsLR_den-91k_bold.json" in file_name:
+                    if (
+                        "dir-ap" in file_name.lower()
+                        or "-ap_" in file_name.lower()
+                        or "dir-" not in file_name.lower()
+                    ):
+                        json_paths.append(file_path)
 
-    return (FuzzyFmriprepFCMatricesSub,)
+                # Find confounds files
+                elif "desc-confounds_timeseries.tsv" in file_name:
+                    confounds_paths.append(file_path)
+
+            for dtseries_path in dtseries_paths:
+                file_name = dtseries_path.name
+
+                # Derive matching JSON name
+                matching_json_name = file_name.replace("dtseries.nii", "json")
+
+                # Derive matching confound name
+                matching_confound_name = re.sub(
+                    r"_space-fsLR_den-\d+k_bold\.dtseries\.nii$",
+                    "_desc-confounds_timeseries.tsv",
+                    file_name,
+                )
+
+                # Extract run and session for metadata
+                run_match = re.search(r"_run-(\d+)", file_name)
+                run_name = (
+                    f"run-{run_match.group(1)}" if run_match else "run-single"
+                )
+
+                # Kept your specific session regex, but made it slightly more robust
+                session_match = re.search(r"_ses-(SFHARP00\d)", file_name)
+                session_name = (
+                    session_match.group(1) if session_match else "ses-1"
+                )
+
+                # Find matching paths
+                matching_json_path = next(
+                    (p for p in json_paths if p.name == matching_json_name),
+                    None,
+                )
+                matching_confound_path = next(
+                    (
+                        p
+                        for p in confounds_paths
+                        if p.name == matching_confound_name
+                    ),
+                    None,
+                )
+
+                if (
+                    matching_json_path is not None
+                    and matching_confound_path is not None
+                ):
+                    res.append(
+                        {
+                            "session_name": session_name,
+                            "run_name": run_name,
+                            "bold.dtseries.nii": dtseries_path,
+                            "bold.json": matching_json_path,
+                            "confounds_timeseries.tsv": matching_confound_path,
+                        }
+                    )
+                else:
+                    print(
+                        f"Warning: Could not find matching json or confounds for {file_name}"
+                    )
+                    print(f"  Looked for JSON: {matching_json_name}")
+                    print(f"  Looked for Confounds: {matching_confound_name}")
+
+        self.preproc_bold_paths = res
 
 
 @app.cell(hide_code=True)
@@ -240,13 +252,13 @@ def _():
 
 
 @app.cell
-def _(FuzzyFmriprepFCMatricesSub, data_path):
+def _(data_path):
     run_paths = get_run_paths_from_data_path(data_path)
     subject_paths = get_subject_paths_from_run_paths(run_paths)
     fmriprep_subjects = create_fmriprep_subjects(
         FuzzyFmriprepFCMatricesSub, subject_paths
     )
-    return
+    return (fmriprep_subjects,)
 
 
 @app.cell(hide_code=True)
@@ -259,105 +271,102 @@ def _():
     return
 
 
-@app.cell
-def _(json, signal, warnings):
-    def process_single_bold(
-        connectivity_measure: ConnectivityMeasure,
-        preproc_bold: dict,
-        subject_id: str,
-        subject_run: str,
-        brain_maps,
-        confound_columns: list,
-        confounds_to_filter_out: list,
-        output_dir: Path,
-    ) -> dict:
+@app.function
+def process_single_bold(
+    connectivity_measure: ConnectivityMeasure,
+    preproc_bold: dict,
+    subject_id: str,
+    subject_run: str,
+    brain_maps,
+    confound_columns: list,
+    confounds_to_filter_out: list,
+    output_dir: Path,
+) -> dict:
 
-        # Disable the future release warning
-        warnings.filterwarnings(
-            "ignore",
-            message=".*From release 0.14.0, confounds will be standardized.*",
-        )
+    # Disable the future release warning
+    warnings.filterwarnings(
+        "ignore",
+        message=".*From release 0.14.0, confounds will be standardized.*",
+    )
 
-        session_name = preproc_bold["session_name"]
-        run_name = preproc_bold["run_name"]
-        bold_nii_gz_path = preproc_bold["bold.nii.gz"]
-        bold_json_path = preproc_bold["bold.json"]
-        confounds_path = preproc_bold["confounds_timeseries.tsv"]
+    session_name = preproc_bold["session_name"]
+    run_name = preproc_bold["run_name"]
+    bold_nii_gz_path = preproc_bold["bold.nii.gz"]
+    bold_json_path = preproc_bold["bold.json"]
+    confounds_path = preproc_bold["confounds_timeseries.tsv"]
 
-        all_confounds = get_confounds(confounds_path, confound_columns).to_pandas()
+    all_confounds = get_confounds(confounds_path, confound_columns).to_pandas()
 
-        filtered_confounds_columns = [
-            col for col in confound_columns if col not in confounds_to_filter_out
-        ]
+    filtered_confounds_columns = [
+        col for col in confound_columns if col not in confounds_to_filter_out
+    ]
 
-        filtered_confounds = get_confounds(
-            confounds_path, filtered_confounds_columns
-        ).to_pandas()
+    filtered_confounds = get_confounds(
+        confounds_path, filtered_confounds_columns
+    ).to_pandas()
 
-        repetition_time = None
+    repetition_time = None
 
-        with open(bold_json_path, "r") as f:
-            repetition_time = json.load(f)["RepetitionTime"]
+    with open(bold_json_path, "r") as f:
+        repetition_time = json.load(f)["RepetitionTime"]
 
-        # Generate the FC matrices all the confounds
+    # Generate the FC matrices all the confounds
 
-        raw_masker = get_masker(repetition_time, brain_maps)
-        raw_ts = raw_masker.fit_transform(str(bold_nii_gz_path))
+    raw_masker = get_masker(repetition_time, brain_maps)
+    raw_ts = raw_masker.fit_transform(str(bold_nii_gz_path))
 
-        with_all_confounds_ts = signal.clean(
-            raw_ts,
-            confounds=all_confounds,
-            standardize="zscore_sample",
-            standardize_confounds=True,
-        )
+    with_all_confounds_ts = signal.clean(
+        raw_ts,
+        confounds=all_confounds,
+        standardize="zscore_sample",
+        standardize_confounds=True,
+    )
 
-        with_all_confounds_correlation = connectivity_measure.fit_transform(
-            [with_all_confounds_ts]
-        )[0]
+    with_all_confounds_correlation = connectivity_measure.fit_transform(
+        [with_all_confounds_ts]
+    )[0]
 
-        save_fc_matrix(
-            with_all_confounds_correlation,
-            subject_id,
-            subject_run,
-            session_name,
-            run_name,
-            "with-all-confounds",
-            output_dir,
-        )
+    save_fc_matrix(
+        with_all_confounds_correlation,
+        subject_id,
+        subject_run,
+        session_name,
+        run_name,
+        "with-all-confounds",
+        output_dir,
+    )
 
-        # Generate for only the filtered confounds
+    # Generate for only the filtered confounds
 
-        filtered_confounds_ts = signal.clean(
-            raw_ts,
-            confounds=filtered_confounds,
-            standardize="zscore_sample",
-            standardize_confounds=True,
-        )
+    filtered_confounds_ts = signal.clean(
+        raw_ts,
+        confounds=filtered_confounds,
+        standardize="zscore_sample",
+        standardize_confounds=True,
+    )
 
-        filtered_confounds_correlation = connectivity_measure.fit_transform(
-            [filtered_confounds_ts]
-        )[0]
+    filtered_confounds_correlation = connectivity_measure.fit_transform(
+        [filtered_confounds_ts]
+    )[0]
 
-        save_fc_matrix(
-            filtered_confounds_correlation,
-            subject_id,
-            subject_run,
-            session_name,
-            run_name,
-            "with-filtered-confounds",
-            output_dir,
-        )
+    save_fc_matrix(
+        filtered_confounds_correlation,
+        subject_id,
+        subject_run,
+        session_name,
+        run_name,
+        "with-filtered-confounds",
+        output_dir,
+    )
 
-        return {
-            "subject_id": subject_id,
-            "subject_run": subject_run,
-            "session_name": session_name,
-            "run_name": run_name,
-            "with-all-confounds": with_all_confounds_correlation,
-            "with-filtered-confounds": filtered_confounds_correlation,
-        }
-
-    return
+    return {
+        "subject_id": subject_id,
+        "subject_run": subject_run,
+        "session_name": session_name,
+        "run_name": run_name,
+        "with_all_confounds": with_all_confounds_correlation,
+        "with_filtered_confounds": filtered_confounds_correlation,
+    }
 
 
 @app.cell(hide_code=True)
@@ -373,11 +382,11 @@ def _():
 
 
 @app.cell
-def _(FuzzyFmriprepGraphMetricsSub, defaultdict):
+def _(confound_to_filter_out):
     class FuzzyFmriprepFCMatricesAnalysis(FuzzyFmriprepAnalysis):
         def __init__(
             self,
-            subjects: list[FuzzyFmriprepGraphMetricsSub],
+            subjects: list[FuzzyFmriprepFCMatricesSub],
             confound_columns: list,
             confound_to_filter_out: list,
         ):
@@ -397,11 +406,29 @@ def _(FuzzyFmriprepGraphMetricsSub, defaultdict):
             )
             """
 
-        def generate_fc_matrices(
-            self, parallel_function, output_dir: Path, max_workers=None
-        ) -> dict:
+        def save_metadata(
+            self,
+            confound_columns: list,
+            confound_to_filter_out: list,
+            output_dir: Path,
+        ) -> None:
+            output_dir.mkdir(parents=True, exist_ok=True)
 
-            self.save_metadata(output_dir)
+            metadata = {
+                "confound_columns": confound_columns,
+                "filtered_out_confound_columns": confound_to_filter_out,
+            }
+
+            metadata_path = output_dir / "metadata.json"
+
+            with open(metadata_path, "w") as f:
+                json.dump(metadata, f, indent=4)
+
+        def generate_fc_matrices(self, output_dir: Path, max_workers=None) -> dict:
+
+            self.save_metadata(
+                self.confound_columns, confound_to_filter_out, output_dir
+            )
 
             res = defaultdict(
                 lambda: defaultdict(
@@ -430,29 +457,1331 @@ def _(FuzzyFmriprepGraphMetricsSub, defaultdict):
             if max_workers is None:
                 max_workers = len(tasks)
 
+            print(tasks)
+
             print(
                 f"Starting parallel processing of {len(tasks)} tasks with {max_workers} workers."
             )
 
             results = Parallel(n_jobs=max_workers, backend="loky")(
-                delayed(parallel_function)(*task) for task in tasks
+                delayed(process_single_bold)(*task) for task in tasks
             )
 
             for result in results:
-                res[result["subject_id"]][result["subject_run"]][
-                    result["session_name"]
-                ][result["run_name"]]["without-confound"] = result[
-                    "without-confound"
-                ]
-                res[result["subject_id"]][result["subject_run"]][
-                    result["session_name"]
-                ][result["run_name"]]["with-confound"] = result["with-confound"]
-                print(
-                    f"Completed {result['subject_id']} | {result['session_name']} | {result['run_name']}"
-                )
+                with_all_confounds_entry = {
+                    "metadata": {
+                        "subject": result["subject_id"],
+                        "run": result["subject_run"],
+                        "session": result["session_name"],
+                        "sub_run": result["run_name"],
+                        "type": "with_all_confounds",
+                    },
+                    "matrix": result["with_all_confounds"],
+                }
+
+                res.append(with_all_confounds_entry)
+
+                with_filtered_confounds_entry = {
+                    "metadata": {
+                        "subject": result["subject_id"],
+                        "run": result["subject_run"],
+                        "session": result["session_name"],
+                        "sub_run": result["run_name"],
+                        "type": "with_filtered_confounds",
+                    },
+                    "matrix": result["with_filtered_confounds"],
+                }
+
+                res.append(with_filtered_confounds_entry)
 
             return res
 
+        def compute_fc_matrices_npvr(self, fc_matrices: dict) -> dict:
+            pass
+
+    return (FuzzyFmriprepFCMatricesAnalysis,)
+
+
+@app.cell
+def _():
+    confound_columns = [
+        "trans_x",
+        "trans_y",
+        "trans_z",
+        "rot_x",
+        "rot_y",
+        "rot_z",
+        "global_signal",
+        "csf",
+        "white_matter",
+        "a_comp_cor_00",
+        "a_comp_cor_01",
+        "a_comp_cor_02",
+        "a_comp_cor_03",
+        "a_comp_cor_04",
+        "a_comp_cor_05",
+    ]
+
+    confound_to_filter_out = ["global_signal"]
+    return confound_columns, confound_to_filter_out
+
+
+@app.cell(hide_code=True)
+def _():
+    mo.md(r"""
+    ## Analyze the FC matrices previously obtained (graph metrics run 3 with Schaefer 2018 parcellation)
+    """)
+    return
+
+
+@app.cell(hide_code=True)
+def _():
+    mo.md(r"""
+    We define the output path for the figures of this section
+    """)
+    return
+
+
+@app.cell
+def _(output_path, version):
+    previous_matrices_figures_output_path = (
+        output_path / version / "figures" / "previous-matrices"
+    )
+
+    previous_matrices_figures_output_path.mkdir(parents=True, exist_ok=True)
+    return (previous_matrices_figures_output_path,)
+
+
+@app.cell(hide_code=True)
+def _():
+    mo.md(r"""
+    ### Load and transform the previously obtained FC matrices
+
+    Here we load the matrices from the already existing file, and transform them to fit this notebook flow
+    """)
+    return
+
+
+@app.cell
+def _():
+    temp_fc_matrices_output_path = (
+        Path("./res/fuzzy-fmriprep-analysis/graph-metrics-analysis/")
+        / "v3"
+        / "fc-matrices"
+    )
+    temp_fc_matrices_output_path
+    return (temp_fc_matrices_output_path,)
+
+
+@app.cell
+def _(
+    FuzzyFmriprepFCMatricesAnalysis,
+    confound_columns,
+    confound_to_filter_out,
+    fmriprep_subjects,
+):
+    fuzzy_fmriprep_analysis = FuzzyFmriprepFCMatricesAnalysis(
+        fmriprep_subjects, confound_columns, confound_to_filter_out
+    )
+    return (fuzzy_fmriprep_analysis,)
+
+
+@app.cell
+def _(
+    fc_matrices_output_path,
+    fuzzy_fmriprep_analysis,
+    temp_fc_matrices_output_path,
+):
+    fc_matrices = fuzzy_fmriprep_analysis.load_fc_matrices(
+        temp_fc_matrices_output_path
+    )
+
+
+    if not fc_matrices:
+        fc_matrices = fuzzy_fmriprep_analysis.generate_fc_matrices(
+            fc_matrices_output_path
+        )
+    return (fc_matrices,)
+
+
+@app.cell
+def _(fc_matrices):
+    cleaned_fc_matrices = []
+
+    for subject, run_values in fc_matrices.items():
+        for run, session_values in run_values.items():
+            for session, sub_run_values in session_values.items():
+                for sub_run, type_values in sub_run_values.items():
+                    for type, fc_matrix in type_values.items():
+                        if type == "with-confound":
+                            type = "with_all_confounds"
+                        elif type == "without-confound":
+                            type = "with_filtered_confounds"
+
+                        entry = {
+                            "matrix": fc_matrix,
+                            "metadata": {
+                                "subject": subject,
+                                "run": run,
+                                "session": session,
+                                "sub_run": sub_run,
+                                "type": type,
+                            },
+                        }
+
+                        cleaned_fc_matrices.append(entry)
+    return (cleaned_fc_matrices,)
+
+
+@app.cell
+def _(cleaned_fc_matrices):
+    cleaned_fc_matrices
+    return
+
+
+@app.cell(hide_code=True)
+def _():
+    mo.md(r"""
+    ### Plot the NPVR change per FC matrix edge
+    """)
+    return
+
+
+@app.cell(hide_code=True)
+def _():
+    mo.md(r"""
+    Please note that all the following code was generated by Qwen3.7-Plus
+    """)
+    return
+
+
+@app.function
+def calculate_npvr_per_edge(fc_matrices, session_filter=None):
+    results = {}
+
+    # We will now key this dictionary by edge_id (e.g., "edge_0_1")
+    edge_config_subject_data = defaultdict(
+        lambda: defaultdict(lambda: defaultdict(dict))
+    )
+
+    for entry in fc_matrices:
+        metadata = entry.get("metadata", {})
+        subject_id = metadata.get("subject")
+        mca_run = metadata.get("run")
+        session = metadata.get("session")
+        sub_run = metadata.get("sub_run")
+        data_type = metadata.get("type")
+
+        if session_filter is not None and session != session_filter:
+            continue
+
+        matrix = entry.get("matrix")
+        if matrix is None:
+            continue
+
+        matrix = np.array(matrix)
+        if matrix.ndim != 2 or matrix.shape[0] != matrix.shape[1]:
+            continue
+
+        n = matrix.shape[0]
+
+        row_idx, col_idx = np.triu_indices(n, k=1)
+        edge_values = matrix[row_idx, col_idx]
+
+        config_key = (session, sub_run, data_type)
+
+        edge_ids = [f"edge_{i}_{j}" for i, j in zip(row_idx, col_idx)]
+
+        for edge_id, value in zip(edge_ids, edge_values):
+            if not np.isnan(value):
+                edge_config_subject_data[edge_id][config_key][subject_id][
+                    mca_run
+                ] = value
+
+    for edge_id, config_data in edge_config_subject_data.items():
+        ss_num, df_num = 0.0, 0.0
+        ss_pop, df_pop = 0.0, 0.0
+
+        for config_key, subject_data in config_data.items():
+            all_subjects = sorted(list(subject_data.keys()))
+            m = len(all_subjects)
+            if m < 2:
+                continue
+
+            all_mca_runs = set()
+            for subj_data in subject_data.values():
+                all_mca_runs.update(subj_data.keys())
+
+            all_mca_runs = sorted(list(all_mca_runs))
+            n_mca_runs = len(all_mca_runs)
+            if n_mca_runs < 2:
+                continue
+
+            X = np.full((n_mca_runs, m), np.nan)
+            run_to_idx = {run: i for i, run in enumerate(all_mca_runs)}
+
+            for j, subj in enumerate(all_subjects):
+                subj_mca_values = subject_data[subj]
+                for run, mca_val in subj_mca_values.items():
+                    X[run_to_idx[run], j] = mca_val
+
+            # Calculate subject-wise variance (within-subject, numerator)
+            for j in range(m):
+                valid_vals = X[:, j][~np.isnan(X[:, j])]
+                if len(valid_vals) > 1:
+                    var_j = np.var(valid_vals, ddof=1)
+                    df_j = len(valid_vals) - 1
+                    ss_num += var_j * df_j
+                    df_num += df_j
+
+            # Calculate run-wise variance (between-subject, denominator)
+            for i in range(n_mca_runs):
+                valid_vals = X[i, :][~np.isnan(X[i, :])]
+                if len(valid_vals) > 1:
+                    var_i = np.var(valid_vals, ddof=1)
+                    df_i = len(valid_vals) - 1
+                    ss_pop += var_i * df_i
+                    df_pop += df_i
+
+        pooled_sigma_num = np.sqrt(ss_num / df_num) if df_num > 0 else 0.0
+        pooled_sigma_pop = np.sqrt(ss_pop / df_pop) if df_pop > 0 else 0.0
+
+        npvr = (
+            pooled_sigma_num / pooled_sigma_pop
+            if pooled_sigma_pop != 0
+            else np.nan
+        )
+
+        results[edge_id] = {
+            "pooled_sigma_num": pooled_sigma_num,
+            "pooled_sigma_pop": pooled_sigma_pop,
+            "npvr": npvr,
+        }
+
+    return results
+
+
+@app.cell
+def _(cleaned_fc_matrices):
+    npvr_per_edge = calculate_npvr_per_edge(cleaned_fc_matrices)
+    return (npvr_per_edge,)
+
+
+@app.cell
+def _():
+    def edge_dict_to_matrix(edge_npvr_dict, n_nodes=100):
+        """Converts the edge dictionary back into a full 100x100 symmetric matrix."""
+        adj_matrix = np.zeros((n_nodes, n_nodes))
+        row_idx, col_idx = np.triu_indices(n_nodes, k=1)
+
+        # Extract values in the exact same order they were created
+        edge_ids = [f"edge_{i}_{j}" for i, j in zip(row_idx, col_idx)]
+        values = [
+            edge_npvr_dict[eid]["npvr"]
+            for eid in edge_ids
+            if eid in edge_npvr_dict
+        ]
+
+        # Fill upper triangle
+        adj_matrix[row_idx[: len(values)], col_idx[: len(values)]] = values
+        # Mirror to lower triangle to make it symmetric
+        adj_matrix = adj_matrix + adj_matrix.T
+
+        return adj_matrix
+
+
+    def plot_edge_npvr_matrix(edge_npvr_dict, output_path: Path, n_nodes=100):
+        """Creates a 2D connectivity matrix heatmap showing edge-wise NPVR."""
+        adj_matrix = edge_dict_to_matrix(edge_npvr_dict, n_nodes)
+
+        fig = plt.figure(figsize=(12, 10))
+
+        # plot_matrix is perfect for edge-wise data.
+        plotting.plot_matrix(
+            adj_matrix,
+            cmap="RdYlGn_r",
+            vmin=0,
+            vmax=np.nanmax(adj_matrix),  # Auto-scale to max NPVR
+            figure=fig,
+            title="Edge-wise NPVR Connectivity Matrix",
+            reorder=False,
+        )
+
+        fig.savefig(output_path)
+        return fig
+
+    return (plot_edge_npvr_matrix,)
+
+
+@app.cell
+def _(
+    npvr_per_edge,
+    plot_edge_npvr_matrix,
+    previous_matrices_figures_output_path,
+):
+    plot_edge_npvr_matrix(
+        npvr_per_edge, previous_matrices_figures_output_path / "npvr_heatmap.png"
+    )
+    return
+
+
+@app.function
+def plot_edge_npvr_scatter(edge_npvr_dict, output_path: Path):
+    """Creates a clean scatter plot of all edges."""
+    # 1. Extract and sort data
+    valid_data = [
+        (edge, data["npvr"])
+        for edge, data in edge_npvr_dict.items()
+        if not np.isnan(data["npvr"])
+    ]
+    valid_data.sort(key=lambda x: x[1], reverse=True)
+    edges = [item[0] for item in valid_data]
+    npvr_values = [item[1] for item in valid_data]
+    n_edges = len(edges)
+
+    # 2. Create figure
+    fig = plt.figure(figsize=(14, 10))
+    ax_scatter = fig.add_subplot(111)
+    y_pos = np.arange(n_edges)
+
+    # Color gradient
+    norm = plt.Normalize(min(npvr_values), max(npvr_values))
+    cmap = plt.cm.RdYlGn_r
+    colors = cmap(norm(npvr_values))
+
+    # Plot points
+    ax_scatter.scatter(
+        npvr_values, y_pos, c=colors, s=15, alpha=0.6, edgecolors="none"
+    )
+    ax_scatter.invert_yaxis()
+
+    ax_scatter.set_xlabel("NPVR Value", fontsize=14)
+    ax_scatter.set_ylabel("Edge Rank", fontsize=14)
+    ax_scatter.set_title(
+        f"Distribution of all {n_edges} Edges", fontsize=16, fontweight="bold"
+    )
+    ax_scatter.grid(axis="x", linestyle="--", alpha=0.6)
+
+    # Add median line
+    median_val = np.median(npvr_values)
+    ax_scatter.axvline(
+        x=median_val, color="black", linestyle="-", linewidth=2, alpha=0.7
+    )
+    ax_scatter.text(
+        median_val,
+        n_edges * 0.05,
+        f"Median ({median_val:.3f})",
+        fontsize=12,
+        va="bottom",
+        ha="left",
+        bbox=dict(facecolor="white", edgecolor="black", alpha=0.8),
+    )
+
+    fig.savefig(output_path)
+
+    return fig
+
+
+@app.cell
+def _(npvr_per_edge, previous_matrices_figures_output_path):
+    plot_edge_npvr_scatter(
+        npvr_per_edge, previous_matrices_figures_output_path / "npvr_scatter.png"
+    )
+    return
+
+
+@app.function
+def plot_edge_npvr_table(edge_npvr_dict, output_path: Path, n_extremes=20):
+    """
+    Creates a standalone table listing the most and least reliable edges.
+    Minimized padding for a compact layout.
+    """
+    # 1. Extract and sort data
+    valid_data = [
+        (edge, data["npvr"])
+        for edge, data in edge_npvr_dict.items()
+        if not np.isnan(data["npvr"])
+    ]
+    valid_data.sort(key=lambda x: x[1], reverse=True)
+    edges = [item[0] for item in valid_data]
+    npvr_values = [item[1] for item in valid_data]
+    n_edges = len(edges)
+
+    # Safeguard
+    n_extremes = min(n_extremes, n_edges // 2)
+
+    # 2. TIGHTER FIGURE SIZING
+    # Reduced height per row from 0.35 to 0.28
+    total_table_rows = (n_extremes * 2) + 2
+    fig_height = max(6, total_table_rows * 0.28)
+    fig = plt.figure(figsize=(10, fig_height))
+
+    ax_table = fig.add_subplot(111)
+    ax_table.axis("off")
+
+    # 3. Prepare table data
+    table_data = []
+    for i in range(n_extremes):
+        table_data.append([f"Top {i + 1}", edges[i], f"{npvr_values[i]:.4f}"])
+
+    table_data.append(["", "...", ""])  # Spacer
+
+    for i in range(n_edges - n_extremes, n_edges):
+        rank_from_bottom = n_edges - i
+        table_data.append(
+            [f"Bottom {rank_from_bottom}", edges[i], f"{npvr_values[i]:.4f}"]
+        )
+
+    # 4. Create and format the table
+    table = ax_table.table(
+        cellText=table_data,
+        colLabels=["Rank", "Edge ID", "NPVR"],
+        loc="center",
+        cellLoc="center",
+    )
+
+    table.auto_set_font_size(False)
+    table.set_fontsize(10)  # Slightly smaller font to fit better
+    table.scale(1, 1.3)  # Reduced from 1.4 to 1.3
+
+    # Helper for text contrast
+    def get_text_color(bg_color):
+        r, g, b = bg_color[:3]
+        luminance = 0.299 * r + 0.587 * g + 0.114 * b
+        return "white" if luminance < 0.5 else "black"
+
+    # Apply colors
+    norm = plt.Normalize(min(npvr_values), max(npvr_values))
+    cmap = plt.cm.RdYlGn_r
+
+    for (row, col), cell in table.get_celld().items():
+        if row == 0:  # Header
+            cell.set_facecolor("#404040")
+            cell.set_text_props(color="white", fontweight="bold", fontsize=11)
+        elif 1 <= row <= n_extremes:  # Top rows
+            bg_color = cmap(norm(npvr_values[row - 1]))
+            cell.set_facecolor(bg_color)
+            cell.set_text_props(
+                color=get_text_color(bg_color), fontweight="bold"
+            )
+        elif row == n_extremes + 1:  # Spacer
+            cell.set_facecolor("white")
+        elif row > n_extremes + 1:  # Bottom rows
+            original_idx = n_edges - 1 - (row - (n_extremes + 2))
+            bg_color = cmap(norm(npvr_values[original_idx]))
+            cell.set_facecolor(bg_color)
+            cell.set_text_props(
+                color=get_text_color(bg_color), fontweight="bold"
+            )
+
+    # Reduced title padding from 30 to 10
+    ax_table.set_title(
+        f"Top & Bottom {n_extremes} Edges by NPVR",
+        fontweight="bold",
+        fontsize=14,
+        pad=10,
+    )
+
+    # Tight layout to minimize whitespace
+    plt.tight_layout()
+
+    fig.savefig(output_path)
+    return fig
+
+
+@app.cell
+def _(npvr_per_edge, previous_matrices_figures_output_path):
+    plot_edge_npvr_table(
+        npvr_per_edge,
+        previous_matrices_figures_output_path / "npvr_table.png",
+        n_extremes=20,
+    )
+    return
+
+
+@app.function
+def plot_edge_npvr_histogram(edge_npvr_dict, output_path: Path):
+    """
+    Creates a histogram of edge-wise NPVR values.
+    Bars are colored by their NPVR value (Red = High, Green = Low).
+    """
+    # 1. Extract valid NPVR values
+    npvr_values = np.array(
+        [
+            data["npvr"]
+            for data in edge_npvr_dict.values()
+            if not np.isnan(data["npvr"])
+        ]
+    )
+
+    if len(npvr_values) == 0:
+        raise ValueError("No valid NPVR values found in the dictionary.")
+
+    # 2. Create figure
+    fig, ax = plt.subplots(figsize=(12, 7))
+
+    # 3. Plot histogram
+    n_bins = 50
+    counts, bins, patches = ax.hist(
+        npvr_values, bins=n_bins, edgecolor="black", alpha=0.9
+    )
+
+    # 4. Color each bar based on its bin center (matching the scatter plot)
+    cmap = plt.cm.RdYlGn_r
+    norm = plt.Normalize(npvr_values.min(), npvr_values.max())
+
+    for patch, left_edge in zip(patches, bins[:-1]):
+        center = left_edge + (bins[1] - bins[0]) / 2
+        color = cmap(norm(center))
+        patch.set_facecolor(color)
+
+    # 5. Add statistical lines (Mean and Median)
+    mean_val = np.mean(npvr_values)
+    median_val = np.median(npvr_values)
+
+    ax.axvline(
+        x=mean_val,
+        color="blue",
+        linestyle="--",
+        linewidth=2,
+        alpha=0.8,
+        label=f"Mean ({mean_val:.3f})",
+    )
+    ax.axvline(
+        x=median_val,
+        color="purple",
+        linestyle=":",
+        linewidth=2,
+        alpha=0.8,
+        label=f"Median ({median_val:.3f})",
+    )
+
+    # 6. Formatting
+    ax.set_xlabel("NPVR Value", fontsize=14)
+    ax.set_ylabel("Number of Edges", fontsize=14)
+    ax.set_title(
+        f"Distribution of Edge-wise NPVR (N = {len(npvr_values):,} Edges) \n Min: {npvr_values.min():.4f} | Max: {npvr_values.max():.4f}",
+        fontsize=16,
+        fontweight="bold",
+        pad=15,
+    )
+
+    ax.legend(fontsize=11, loc="upper right")
+    ax.grid(axis="y", linestyle="--", alpha=0.6)
+
+    plt.tight_layout()
+
+    fig.savefig(output_path)
+
+    return fig
+
+
+@app.cell
+def _(npvr_per_edge, previous_matrices_figures_output_path):
+    plot_edge_npvr_histogram(
+        npvr_per_edge, previous_matrices_figures_output_path / "npvr_histogram.png"
+    )
+    return
+
+
+@app.cell(hide_code=True)
+def _():
+    mo.md(r"""
+    ### Plot the NPVR changes bewteen the `with_all_confounds` and `with_filtered_confounds ` FC matrices edge
+    """)
+    return
+
+
+@app.cell(hide_code=True)
+def _():
+    mo.md(r"""
+    Please note that all the following code was generated by Qwen3.7-Plus
+    """)
+    return
+
+
+@app.function
+def calculate_delta_npvr_per_edge(fc_matrices, session_filter=None):
+    """
+    Calculates NPVR separately for 'with_all_confounds' and 'with_filtered_confounds',
+    then returns the difference (Delta = Filtered - All) for each edge.
+    """
+    results = {}
+
+    # Group data by data_type first to calculate variance independently
+    # Structure: data_type -> edge_id -> config_key -> subject_id -> mca_run
+    edge_data = defaultdict(
+        lambda: defaultdict(lambda: defaultdict(lambda: defaultdict(dict)))
+    )
+
+    for entry in fc_matrices:
+        metadata = entry.get("metadata", {})
+        subject_id = metadata.get("subject")
+        mca_run = metadata.get("run")
+        session = metadata.get("session")
+        sub_run = metadata.get("sub_run")
+        data_type = metadata.get("type")
+
+        if data_type not in ["with_all_confounds", "with_filtered_confounds"]:
+            continue
+        if session_filter is not None and session != session_filter:
+            continue
+
+        matrix = entry.get("matrix")
+        if matrix is None:
+            continue
+
+        matrix = np.array(matrix)
+        if matrix.ndim != 2 or matrix.shape[0] != matrix.shape[1]:
+            continue
+
+        n = matrix.shape[0]
+        row_idx, col_idx = np.triu_indices(n, k=1)
+        edge_values = matrix[row_idx, col_idx]
+
+        # config_key no longer includes data_type, as we separated it in the outer loop
+        config_key = (session, sub_run)
+        edge_ids = [f"edge_{i}_{j}" for i, j in zip(row_idx, col_idx)]
+
+        for edge_id, value in zip(edge_ids, edge_values):
+            if not np.isnan(value):
+                edge_data[data_type][edge_id][config_key][subject_id][
+                    mca_run
+                ] = value
+
+    # Calculate NPVR independently for each confound strategy
+    npvr_by_type = {"with_all_confounds": {}, "with_filtered_confounds": {}}
+
+    for data_type in ["with_all_confounds", "with_filtered_confounds"]:
+        type_data = edge_data[data_type]
+        for edge_id, config_data in type_data.items():
+            ss_num, df_num = 0.0, 0.0
+            ss_pop, df_pop = 0.0, 0.0
+
+            for config_key, subject_data in config_data.items():
+                all_subjects = sorted(list(subject_data.keys()))
+                m = len(all_subjects)
+                if m < 2:
+                    continue
+
+                all_mca_runs = set()
+                for subj_data in subject_data.values():
+                    all_mca_runs.update(subj_data.keys())
+                all_mca_runs = sorted(list(all_mca_runs))
+                n_mca_runs = len(all_mca_runs)
+                if n_mca_runs < 2:
+                    continue
+
+                X = np.full((n_mca_runs, m), np.nan)
+                run_to_idx = {run: i for i, run in enumerate(all_mca_runs)}
+
+                for j, subj in enumerate(all_subjects):
+                    for run, mca_val in subject_data[subj].items():
+                        X[run_to_idx[run], j] = mca_val
+
+                for j in range(m):
+                    valid_vals = X[:, j][~np.isnan(X[:, j])]
+                    if len(valid_vals) > 1:
+                        ss_num += np.var(valid_vals, ddof=1) * (
+                            len(valid_vals) - 1
+                        )
+                        df_num += len(valid_vals) - 1
+
+                for i in range(n_mca_runs):
+                    valid_vals = X[i, :][~np.isnan(X[i, :])]
+                    if len(valid_vals) > 1:
+                        ss_pop += np.var(valid_vals, ddof=1) * (
+                            len(valid_vals) - 1
+                        )
+                        df_pop += len(valid_vals) - 1
+
+            pooled_sigma_num = np.sqrt(ss_num / df_num) if df_num > 0 else 0.0
+            pooled_sigma_pop = np.sqrt(ss_pop / df_pop) if df_pop > 0 else 0.0
+            npvr = (
+                pooled_sigma_num / pooled_sigma_pop
+                if pooled_sigma_pop != 0
+                else np.nan
+            )
+
+            npvr_by_type[data_type][edge_id] = npvr
+
+    # Calculate the difference (Delta NPVR)
+    all_edges = set(npvr_by_type["with_all_confounds"].keys()).union(
+        set(npvr_by_type["with_filtered_confounds"].keys())
+    )
+
+    for edge_id in all_edges:
+        npvr_all = npvr_by_type["with_all_confounds"].get(edge_id, np.nan)
+        npvr_filt = npvr_by_type["with_filtered_confounds"].get(
+            edge_id, np.nan
+        )
+
+        # Delta = All - Filtered
+        delta_npvr = (
+            npvr_all - npvr_filt
+            if not (np.isnan(npvr_filt) or np.isnan(npvr_all))
+            else np.nan
+        )
+
+        results[edge_id] = {
+            "delta_npvr": delta_npvr,
+            "npvr_all": npvr_all,
+            "npvr_filtered": npvr_filt,
+        }
+
+    return results
+
+
+@app.cell
+def _(cleaned_fc_matrices):
+    delta_npvr_per_edge = calculate_delta_npvr_per_edge(cleaned_fc_matrices)
+    return (delta_npvr_per_edge,)
+
+
+@app.function
+def edge_dict_to_matrix(edge_delta_npvr_dict, n_nodes=100):
+    """Converts the delta dictionary back into a full 100x100 symmetric matrix."""
+    adj_matrix = np.zeros((n_nodes, n_nodes))
+    row_idx, col_idx = np.triu_indices(n_nodes, k=1)
+
+    edge_ids = [f"edge_{i}_{j}" for i, j in zip(row_idx, col_idx)]
+    # Extract the delta_npvr values
+    values = [
+        edge_delta_npvr_dict[eid]["delta_npvr"]
+        for eid in edge_ids
+        if eid in edge_delta_npvr_dict
+    ]
+
+    adj_matrix[row_idx[: len(values)], col_idx[: len(values)]] = values
+    adj_matrix = adj_matrix + adj_matrix.T
+
+    return adj_matrix
+
+
+@app.cell
+def _(edge_dict_to_matrix2):
+    def plot_edge_delta_npvr_matrix(edge_delta_npvr_dict, output_path: Path, n_nodes=100):
+        """Creates a 2D connectivity matrix heatmap showing edge-wise Delta NPVR."""
+        adj_matrix = edge_dict_to_matrix2(edge_delta_npvr_dict, n_nodes)
+        fig = plt.figure(figsize=(12, 10))
+
+        # Symmetric color limits around 0 for diverging colormap
+        max_abs_val = np.nanmax(np.abs(adj_matrix))
+        if np.isnan(max_abs_val) or max_abs_val == 0:
+            max_abs_val = 1.0
+
+        plotting.plot_matrix(
+            adj_matrix,
+            cmap="RdYlGn_r",
+            vmin=-max_abs_val,
+            vmax=max_abs_val,
+            figure=fig,
+            title="Edge-wise Delta NPVR Connectivity Matrix\n(Red = NPVR Increased/Worse | Blue = NPVR Decreased/Better)",
+            reorder=False,
+        )
+
+        fig.savefig(output_path)
+        return fig
+
+    return (plot_edge_delta_npvr_matrix,)
+
+
+@app.cell
+def _(
+    delta_npvr_per_edge,
+    plot_edge_delta_npvr_matrix,
+    previous_matrices_figures_output_path,
+):
+    plot_edge_delta_npvr_matrix(delta_npvr_per_edge, previous_matrices_figures_output_path / "npvr_delta_heatmap.png")
+    return
+
+
+@app.function
+def plot_edge_delta_npvr_scatter(edge_delta_npvr_dict, output_path: Path):
+    """Creates a clean scatter plot of all edges by Delta NPVR."""
+    valid_data = [
+        (edge, data["delta_npvr"])
+        for edge, data in edge_delta_npvr_dict.items()
+        if not np.isnan(data["delta_npvr"])
+    ]
+    valid_data.sort(key=lambda x: x[1], reverse=True)
+    edges = [item[0] for item in valid_data]
+    npvr_values = [item[1] for item in valid_data]
+    n_edges = len(edges)
+
+    fig = plt.figure(figsize=(14, 10))
+    ax_scatter = fig.add_subplot(111)
+    y_pos = np.arange(n_edges)
+
+    # Symmetric normalization around 0
+    max_abs = max(abs(min(npvr_values)), abs(max(npvr_values)))
+    if max_abs == 0:
+        max_abs = 1.0
+    norm = plt.Normalize(-max_abs, max_abs)
+    colors = plt.cm.RdYlGn_r(norm(npvr_values))
+
+    ax_scatter.scatter(
+        npvr_values, y_pos, c=colors, s=15, alpha=0.6, edgecolors="none"
+    )
+    ax_scatter.invert_yaxis()
+
+    ax_scatter.set_xlabel("Delta NPVR Value (Filtered - All)", fontsize=14)
+    ax_scatter.set_ylabel("Edge Rank", fontsize=14)
+    ax_scatter.set_title(
+        f"Distribution of all {n_edges} Edges by Delta NPVR\n(Red = NPVR Increased | Blue = NPVR Decreased)",
+        fontsize=16,
+        fontweight="bold",
+    )
+    ax_scatter.grid(axis="x", linestyle="--", alpha=0.6)
+
+    # Add zero line and median line
+    ax_scatter.axvline(
+        x=0, color="black", linestyle="-", linewidth=2, alpha=0.7
+    )
+    median_val = np.median(npvr_values)
+    ax_scatter.axvline(
+        x=median_val, color="gray", linestyle="--", linewidth=1.5, alpha=0.7
+    )
+    ax_scatter.text(
+        median_val,
+        n_edges * 0.05,
+        f"Median ({median_val:+.3f})",
+        fontsize=12,
+        va="bottom",
+        ha="left",
+        bbox=dict(facecolor="white", edgecolor="black", alpha=0.8),
+    )
+
+    fig.savefig(output_path)
+
+    return fig
+
+
+@app.cell
+def _(delta_npvr_per_edge, previous_matrices_figures_output_path):
+    plot_edge_delta_npvr_scatter(delta_npvr_per_edge, previous_matrices_figures_output_path / "npvr_delta_scatter.png")
+    return
+
+
+@app.function
+def plot_edge_delta_npvr_table(edge_delta_npvr_dict, output_path: Path, n_extremes=20):
+    """Creates a standalone table listing the edges with the largest increase/decrease in NPVR."""
+    valid_data = [
+        (edge, data["delta_npvr"])
+        for edge, data in edge_delta_npvr_dict.items()
+        if not np.isnan(data["delta_npvr"])
+    ]
+    valid_data.sort(key=lambda x: x[1], reverse=True)
+    edges = [item[0] for item in valid_data]
+    npvr_values = [item[1] for item in valid_data]
+    n_edges = len(edges)
+
+    n_extremes = min(n_extremes, n_edges // 2)
+    fig_height = max(6, ((n_extremes * 2) + 2) * 0.28)
+    fig = plt.figure(figsize=(10, fig_height))
+
+    ax_table = fig.add_subplot(111)
+    ax_table.axis("off")
+
+    table_data = []
+    for i in range(n_extremes):
+        # Added +/- formatting and context labels
+        table_data.append([f"Top {i + 1}", edges[i], f"{npvr_values[i]:+.4f}"])
+
+    table_data.append(["", "...", ""])
+
+    for i in range(n_edges - n_extremes, n_edges):
+        rank_from_bottom = n_edges - i
+        table_data.append(
+            [
+                f"Bottom {rank_from_bottom}",
+                edges[i],
+                f"{npvr_values[i]:+.4f}",
+            ]
+        )
+
+    table = ax_table.table(
+        cellText=table_data,
+        colLabels=["Rank", "Edge ID", "Delta NPVR"],
+        loc="center",
+        cellLoc="center",
+    )
+
+    table.auto_set_font_size(False)
+    table.set_fontsize(10)
+    table.scale(1, 1.3)
+
+    def get_text_color(bg_color):
+        r, g, b = bg_color[:3]
+        luminance = 0.299 * r + 0.587 * g + 0.114 * b
+        return "white" if luminance < 0.5 else "black"
+
+    # Symmetric normalization around 0
+    max_abs = max(abs(min(npvr_values)), abs(max(npvr_values)))
+    if max_abs == 0:
+        max_abs = 1.0
+    norm = plt.Normalize(-max_abs, max_abs)
+    cmap = plt.cm.RdYlGn_r
+
+    for (row, col), cell in table.get_celld().items():
+        if row == 0:
+            cell.set_facecolor("#404040")
+            cell.set_text_props(color="white", fontweight="bold", fontsize=11)
+        elif 1 <= row <= n_extremes:
+            bg_color = cmap(norm(npvr_values[row - 1]))
+            cell.set_facecolor(bg_color)
+            cell.set_text_props(
+                color=get_text_color(bg_color), fontweight="bold"
+            )
+        elif row == n_extremes + 1:
+            cell.set_facecolor("white")
+        elif row > n_extremes + 1:
+            original_idx = n_edges - 1 - (row - (n_extremes + 2))
+            bg_color = cmap(norm(npvr_values[original_idx]))
+            cell.set_facecolor(bg_color)
+            cell.set_text_props(
+                color=get_text_color(bg_color), fontweight="bold"
+            )
+
+    ax_table.set_title(
+        f"Top & Bottom {n_extremes} Edges by Delta NPVR\n(Filtered - All Confounds)",
+        fontweight="bold",
+        fontsize=14,
+        pad=10,
+    )
+    plt.tight_layout()
+
+    fig.savefig(output_path)
+
+    return fig
+
+
+@app.cell
+def _(delta_npvr_per_edge, previous_matrices_figures_output_path):
+    plot_edge_delta_npvr_table(delta_npvr_per_edge, previous_matrices_figures_output_path / "npvr_delta_table.png")
+    return
+
+
+@app.function
+def plot_edge_delta_npvr_histogram(edge_delta_npvr_dict, output_path: Path):
+    """Creates a histogram of edge-wise Delta NPVR values."""
+    npvr_values = np.array(
+        [
+            data["delta_npvr"]
+            for data in edge_delta_npvr_dict.values()
+            if not np.isnan(data["delta_npvr"])
+        ]
+    )
+
+    if len(npvr_values) == 0:
+        raise ValueError("No valid Delta NPVR values found in the dictionary.")
+
+    fig, ax = plt.subplots(figsize=(12, 7))
+
+    n_bins = 50
+    counts, bins, patches = ax.hist(
+        npvr_values, bins=n_bins, edgecolor="black", alpha=0.9
+    )
+
+    # Symmetric normalization around 0
+    max_abs = max(abs(npvr_values.min()), abs(npvr_values.max()))
+    if max_abs == 0:
+        max_abs = 1.0
+    norm = plt.Normalize(-max_abs, max_abs)
+    cmap = plt.cm.RdYlGn_r
+
+    for patch, left_edge in zip(patches, bins[:-1]):
+        center = left_edge + (bins[1] - bins[0]) / 2
+        color = cmap(norm(center))
+        patch.set_facecolor(color)
+
+    mean_val = np.mean(npvr_values)
+    median_val = np.median(npvr_values)
+
+    ax.axvline(
+        x=mean_val,
+        color="blue",
+        linestyle="--",
+        linewidth=2,
+        alpha=0.8,
+        label=f"Mean ({mean_val:+.3f})",
+    )
+    ax.axvline(
+        x=median_val,
+        color="purple",
+        linestyle=":",
+        linewidth=2,
+        alpha=0.8,
+        label=f"Median ({median_val:+.3f})",
+    )
+
+    ax.set_xlabel("Delta NPVR Value (Filtered - All)", fontsize=14)
+    ax.set_ylabel("Number of Edges", fontsize=14)
+    ax.set_title(
+        f"Distribution of Edge-wise Delta NPVR (N = {len(npvr_values):,} Edges) \n Min: {npvr_values.min():+.4f} | Max: {npvr_values.max():+.4f}",
+        fontsize=16,
+        fontweight="bold",
+        pad=15,
+    )
+
+    ax.legend(fontsize=11, loc="upper right")
+    ax.grid(axis="y", linestyle="--", alpha=0.6)
+
+    plt.tight_layout()
+
+    fig.savefig(output_path)
+
+    return fig
+
+
+@app.cell
+def _(delta_npvr_per_edge, previous_matrices_figures_output_path):
+    plot_edge_delta_npvr_histogram(delta_npvr_per_edge, previous_matrices_figures_output_path / "npvr_delta_histogram.png")
+    return
+
+
+@app.cell(hide_code=True)
+def _():
+    mo.md(r"""
+    ### PLot the NPVR values across the different brain regions
+    """)
+    return
+
+
+@app.cell
+def _():
+    def create_npvr_nifti(npvr_dict, atlas_img):
+        """Maps regional NPVR values to the Schaefer atlas."""
+        atlas_data = atlas_img.get_fdata()
+        npvr_map_data = np.zeros_like(atlas_data)
+
+        for region_str, data in npvr_dict.items():
+            if region_str == "global":
+                continue
+            region_id = int(region_str) + 1
+            if 1 <= region_id <= 100:
+                npvr_map_data[atlas_data == region_id] = data["npvr"]
+
+        return nib.Nifti1Image(npvr_map_data, atlas_img.affine)
+
+
+    def plot_edge_npvr_as_regional_map(
+        edge_npvr_data, atlas_img, output_path: Path, agg_method="sum", vmin=0.0, vmax=None
+    ):
+        """
+        Aggregates edge-wise NPVR to nodes (by summing/averaging rows/columns)
+        and plots it as a regional brain map using your working create_npvr_nifti function.
+
+        Parameters:
+        - edge_npvr_data: dict of edge NPVR values.
+        - atlas_img: Nifti1Image (e.g., Schaefer atlas).
+        - agg_method: 'sum' (Node Strength) or 'mean' (Average Edge NPVR).
+        - vmin, vmax: Colorbar limits. If vmax is None, it auto-scales to the highest node value.
+        """
+        if not edge_npvr_data:
+            print("No data to plot.")
+            return None
+
+        # Check if data is nested (thresholds) or flat
+        first_key = next(iter(edge_npvr_data))
+        is_nested = "npvr" not in edge_npvr_data[first_key]
+
+        if is_nested:
+            thresholds_list = sorted(edge_npvr_data.keys())
+        else:
+            thresholds_list = [None]
+            edge_npvr_data = {None: edge_npvr_data}
+
+        # Get number of nodes from atlas
+        coords = plotting.find_parcellation_cut_coords(atlas_img)
+        n_nodes = len(coords)
+        n_thresholds = len(thresholds_list)
+
+        # Auto-scale vmax if not provided
+        if vmax is None:
+            global_max = 0.0
+            for thresh, edge_dict in edge_npvr_data.items():
+                adj_matrix = np.zeros((n_nodes, n_nodes))
+                for edge_id, data in edge_dict.items():
+                    match = re.match(r"edge_(\d+)_(\d+)", edge_id)
+                    if match:
+                        u, v = int(match.group(1)), int(match.group(2))
+                        val = data.get("npvr", 0)
+                        if not np.isnan(val):
+                            adj_matrix[u, v] = val
+                            adj_matrix[v, u] = val
+
+                node_vals = (
+                    np.sum(adj_matrix, axis=1)
+                    if agg_method == "sum"
+                    else np.mean(adj_matrix, axis=1)
+                )
+                current_max = np.nanmax(node_vals)
+                if current_max > global_max:
+                    global_max = current_max
+            vmax = global_max if global_max > 0 else 1.0
+
+        # Create figure (Using 4 columns to fix the text overlap bug from your original code)
+        fig = plt.figure(figsize=(15, 5 * n_thresholds))
+        gs = fig.add_gridspec(
+            n_thresholds, 4, width_ratios=[0.5, 1, 1, 1], wspace=0.05, hspace=0.3
+        )
+
+        for i, thresh in enumerate(thresholds_list):
+            edge_dict = edge_npvr_data[thresh]
+
+            # 1. Rebuild the full N x N adjacency matrix
+            adj_matrix = np.zeros((n_nodes, n_nodes))
+            for edge_id, data in edge_dict.items():
+                match = re.match(r"edge_(\d+)_(\d+)", edge_id)
+                if match:
+                    u, v = int(match.group(1)), int(match.group(2))
+                    npvr_val = data.get("npvr", 0)
+                    if not np.isnan(npvr_val):
+                        adj_matrix[u, v] = npvr_val
+                        adj_matrix[v, u] = npvr_val
+
+            # 2. Collapse matrix to nodes using "line or column" (Row sum/mean)
+            if agg_method == "sum":
+                node_npvr_values = np.sum(adj_matrix, axis=1)
+                agg_label = "Sum (Node Strength)"
+            elif agg_method == "mean":
+                node_npvr_values = np.mean(adj_matrix, axis=1)
+                agg_label = "Mean"
+            elif agg_method == "median":
+                node_npvr_values = np.median(adj_matrix, axis=1)
+                agg_label = "Median"
+
+            # 3. Convert the 1D array into the dictionary format expected by create_npvr_nifti
+            # create_npvr_nifti expects keys like "0", "1", ... and values like {"npvr": 0.5}
+            node_dict = {
+                str(idx): {"npvr": val} for idx, val in enumerate(node_npvr_values)
+            }
+
+            # 4. Use your working function to create the Nifti image!
+            npvr_img = create_npvr_nifti(node_dict, atlas_img)
+
+            # --- PLOTTING (Identical style to your original plot) ---
+
+            # Column 0: Row Label
+            ax_label = fig.add_subplot(gs[i, 0])
+            label_text = (
+                f"Threshold = {thresh}" if thresh is not None else "Edge NPVR"
+            )
+            ax_label.text(
+                1.0,
+                0.5,
+                f"{label_text}\n({agg_label})",
+                ha="right",
+                va="center",
+                fontsize=16,
+                fontweight="bold",
+                transform=ax_label.transAxes,
+            )
+            ax_label.axis("off")
+
+            # Column 1: Sagittal slice
+            ax_sag = fig.add_subplot(gs[i, 1])
+            plotting.plot_stat_map(
+                npvr_img,
+                display_mode="x",
+                cut_coords=[2],
+                axes=ax_sag,
+                colorbar=False,
+                cmap="RdYlGn_r",
+                vmin=vmin,
+                vmax=vmax,
+                black_bg=False,
+            )
+            ax_sag.set_title("")
+
+            # Column 2: Coronal slice
+            ax_cor = fig.add_subplot(gs[i, 2])
+            plotting.plot_stat_map(
+                npvr_img,
+                display_mode="y",
+                cut_coords=[0],
+                axes=ax_cor,
+                colorbar=False,
+                cmap="RdYlGn_r",
+                vmin=vmin,
+                vmax=vmax,
+                black_bg=False,
+            )
+            ax_cor.set_title("")
+
+            # Column 3: Axial slice
+            ax_axi = fig.add_subplot(gs[i, 3])
+            plotting.plot_stat_map(
+                npvr_img,
+                display_mode="z",
+                cut_coords=[0],
+                axes=ax_axi,
+                colorbar=False,
+                cmap="RdYlGn_r",
+                vmin=vmin,
+                vmax=vmax,
+                black_bg=False,
+            )
+            ax_axi.set_title("")
+
+        # Adjust layout and add titles/colorbar
+        fig.subplots_adjust(left=0.05, right=0.90, top=0.92, bottom=0.05)
+        fig.suptitle(
+            "Edge-wise NPVR mapped to Regions",
+            fontsize=24,
+            fontweight="bold",
+            y=0.98,
+        )
+
+        cax = fig.add_axes([0.92, 0.1, 0.02, 0.8])
+        sm = plt.cm.ScalarMappable(
+            cmap="RdYlGn_r", norm=plt.Normalize(vmin=vmin, vmax=vmax)
+        )
+        sm.set_array([])
+        fig.colorbar(sm, cax=cax, label="Aggregated NPVR")
+
+        fig.savefig(output_path)
+
+        return fig
+
+    return (plot_edge_npvr_as_regional_map,)
+
+
+@app.cell
+def _(
+    npvr_per_edge,
+    plot_edge_npvr_as_regional_map,
+    previous_matrices_figures_output_path,
+):
+    atlas = fetch_atlas_schaefer_2018(n_rois=100, yeo_networks=7, resolution_mm=2)
+    brain_maps = atlas["maps"]
+
+    brain_maps_img = nib.load(brain_maps)
+
+
+    plot_edge_npvr_as_regional_map(
+        npvr_per_edge,
+        brain_maps_img,
+        previous_matrices_figures_output_path / "npvr_regional_mean_map.png",
+        agg_method="mean",
+    )
+    return (brain_maps_img,)
+
+
+@app.cell
+def _(
+    brain_maps_img,
+    npvr_per_edge,
+    plot_edge_npvr_as_regional_map,
+    previous_matrices_figures_output_path,
+):
+    plot_edge_npvr_as_regional_map(
+        npvr_per_edge,
+        brain_maps_img,
+        previous_matrices_figures_output_path / "npvr_regional_median_map.png",
+        agg_method="median",
+    )
     return
 
 
