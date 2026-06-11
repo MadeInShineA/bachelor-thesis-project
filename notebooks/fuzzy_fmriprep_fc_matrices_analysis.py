@@ -1239,7 +1239,7 @@ def _(cleaned_fc_matrices):
 
 
 @app.function
-def edge_dict_to_matrix(edge_delta_npvr_dict, n_nodes=100):
+def delta_edge_dict_to_matrix(edge_delta_npvr_dict, n_nodes=100):
     """Converts the delta dictionary back into a full 100x100 symmetric matrix."""
     adj_matrix = np.zeros((n_nodes, n_nodes))
     row_idx, col_idx = np.triu_indices(n_nodes, k=1)
@@ -1258,40 +1258,33 @@ def edge_dict_to_matrix(edge_delta_npvr_dict, n_nodes=100):
     return adj_matrix
 
 
-@app.cell
-def _(edge_dict_to_matrix2):
-    def plot_edge_delta_npvr_matrix(edge_delta_npvr_dict, output_path: Path, n_nodes=100):
-        """Creates a 2D connectivity matrix heatmap showing edge-wise Delta NPVR."""
-        adj_matrix = edge_dict_to_matrix2(edge_delta_npvr_dict, n_nodes)
-        fig = plt.figure(figsize=(12, 10))
+@app.function
+def plot_edge_delta_npvr_matrix(edge_delta_npvr_dict, output_path: Path, n_nodes=100):
+    """Creates a 2D connectivity matrix heatmap showing edge-wise Delta NPVR."""
+    adj_matrix = delta_edge_dict_to_matrix(edge_delta_npvr_dict, n_nodes)
+    fig = plt.figure(figsize=(12, 10))
 
-        # Symmetric color limits around 0 for diverging colormap
-        max_abs_val = np.nanmax(np.abs(adj_matrix))
-        if np.isnan(max_abs_val) or max_abs_val == 0:
-            max_abs_val = 1.0
+    # Symmetric color limits around 0 for diverging colormap
+    max_abs_val = np.nanmax(np.abs(adj_matrix))
+    if np.isnan(max_abs_val) or max_abs_val == 0:
+        max_abs_val = 1.0
 
-        plotting.plot_matrix(
-            adj_matrix,
-            cmap="RdYlGn_r",
-            vmin=-max_abs_val,
-            vmax=max_abs_val,
-            figure=fig,
-            title="Edge-wise Delta NPVR Connectivity Matrix\n(Red = NPVR Increased/Worse | Blue = NPVR Decreased/Better)",
-            reorder=False,
-        )
+    plotting.plot_matrix(
+        adj_matrix,
+        cmap="RdYlGn_r",
+        vmin=-max_abs_val,
+        vmax=max_abs_val,
+        figure=fig,
+        title="Edge-wise Delta NPVR Connectivity Matrix\n(Red = NPVR Increased/Worse | Blue = NPVR Decreased/Better)",
+        reorder=False,
+    )
 
-        fig.savefig(output_path)
-        return fig
-
-    return (plot_edge_delta_npvr_matrix,)
+    fig.savefig(output_path)
+    return fig
 
 
 @app.cell
-def _(
-    delta_npvr_per_edge,
-    plot_edge_delta_npvr_matrix,
-    previous_matrices_figures_output_path,
-):
+def _(delta_npvr_per_edge, previous_matrices_figures_output_path):
     plot_edge_delta_npvr_matrix(delta_npvr_per_edge, previous_matrices_figures_output_path / "npvr_delta_heatmap.png")
     return
 
