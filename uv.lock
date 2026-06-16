@@ -48,7 +48,7 @@ requires-dist = [
     { name = "networkx", specifier = "==3.6.1" },
     { name = "nilearn", specifier = "==0.13.1" },
     { name = "numpy", specifier = "==2.4.6" },
-    { name = "pcafeat", git = "https://github.com/Ayumu722/pca-based-feature-extraction" },
+    { name = "pcafeat", git = "https://github.com/MadeInShineA/pca-based-feature-extraction" },
     { name = "plotly", specifier = "==6.7.0" },
     { name = "polars", specifier = "==1.41.2" },
     { name = "pyarrow", specifier = "==24.0.0" },
@@ -668,7 +668,7 @@ wheels = [
 [[package]]
 name = "pcafeat"
 version = "1.1.0"
-source = { git = "https://github.com/Ayumu722/pca-based-feature-extraction#76d0819c23235a8b63f8ba58a66176c7c37130be" }
+source = { git = "https://github.com/MadeInShineA/pca-based-feature-extraction#c90274743319aedcb9708abae19461abf8eb4b7b" }
 dependencies = [
     { name = "joblib" },
     { name = "matplotlib" },
