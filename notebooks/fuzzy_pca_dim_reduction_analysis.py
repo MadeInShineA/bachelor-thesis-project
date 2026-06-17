@@ -4,6 +4,8 @@ __generated_with = "0.23.8"
 app = marimo.App(width="medium")
 
 with app.setup:
+    import os
+    from typing import Callable
     import marimo as mo
     from pathlib import Path
     import polars as pl
@@ -213,7 +215,21 @@ def _(harmonized_srbp_fc_matrices_df):
 @app.cell(hide_code=True)
 def _():
     mo.md(r"""
-    ### Compute and plot the PCA feature selection
+    ## Compute and plot the PCA feature selection for the whole dataset
+    """)
+    return
+
+
+@app.cell(hide_code=True)
+def _():
+    mo.md(r"""
+    Calculate the differente PCA and T test features for the following metrics:
+            - Mental Depressive Disorder (MDD) vs Healthy Control (HC)
+            - Age
+            - Bdi
+            - Sex
+            - Site
+            - Mean FD
     """)
     return
 
@@ -226,63 +242,69 @@ def _():
     return
 
 
-@app.cell
-def _(DataFrame, function):
-    def calculate_features(
-        target_str: str,
-        target_filters: function,
-        harmonized_fc_matrices_df: DataFrame,
-        plot_dir: str,
-        ttest_dir,
-        ttest_output_prefix: str,
-    ) -> tuple:
-        harmonized_fc_matrices_pandas_df = harmonized_fc_matrices_df.to_pandas()
+@app.function
+def calculate_features(
+    target_str: str,
+    target_filters: Callable,
+    harmonized_fc_matrices_df: pl.DataFrame,
+    plot_dir: str,
+    ttest_dir,
+    ttest_output_prefix: str,
+) -> dict:
+    harmonized_fc_matrices_pandas_df = harmonized_fc_matrices_df.to_pandas()
 
-        target_col = harmonized_fc_matrices_pandas_df[target_str]
+    target_col = harmonized_fc_matrices_pandas_df[target_str]
 
-        filtered_df = harmonized_fc_matrices_pandas_df[target_filters(target_col)]
+    filtered_df = harmonized_fc_matrices_pandas_df[target_filters(target_col)]
 
-        target = filtered_df[target_str]
+    target = filtered_df[target_str]
 
-        harmonized_fc_matrix_pandas_df = filtered_df[
-            "harmonized_fc_matrix"
-        ].to_frame()
+    harmonized_fc_matrix_pandas_df = filtered_df[
+        "harmonized_fc_matrix"
+    ].to_frame()
 
-        col_name = harmonized_fc_matrix_pandas_df.columns[0]
+    col_name = harmonized_fc_matrix_pandas_df.columns[0]
 
-        df_X_train = pd.DataFrame(
-            harmonized_fc_matrix_pandas_df[col_name].tolist(),
-            index=harmonized_fc_matrix_pandas_df.index,
-        )
+    df_X_train = pd.DataFrame(
+        harmonized_fc_matrix_pandas_df[col_name].tolist(),
+        index=harmonized_fc_matrix_pandas_df.index,
+    )
 
-        (cons, cons_pc) = select_pca_features(
+    (cons, cons_pc) = select_pca_features(
+        df_X_train=df_X_train,
+        target=target,
+        method_pick_pca="fdr_bh",
+        method_pick_con="fdr_bh",
+        fig_dir=plot_dir,
+        fig_plot=True,
+    )
+
+    if target.nunique() == 2:
+        (
+            selected_indices,
+            t_statistics,
+            p_values,
+        ) = select_ttest_features(
             df_X_train=df_X_train,
             target=target,
-            method_pick_pca="fdr_bh",
-            method_pick_con="fdr_bh",
-            fig_dir=plot_dir,
-            fig_plot=True,
+            output_dir=ttest_dir,
+            output_prefix=ttest_output_prefix,
+            save_results=True,
         )
 
-        if target.nunique() == 2:
-            (
-                selected_indices,
-                t_statistics,
-                p_values,
-            ) = select_ttest_features(
-                df_X_train=df_X_train,
-                target=target,
-                output_dir=ttest_dir,
-                output_prefix=ttest_output_prefix,
-                save_results=True,
-            )
+        return {
+            "cons": cons,
+            "cons_pc": cons_pc,
+            "selected_indices": selected_indices,
+            "t_statistics": t_statistics,
+            "p_values": p_values,
+        }
 
-            return cons, cons_pc, selected_indices, t_statistics, p_values
-
-        else:
-            return cons, cons_pc
-
-    return (calculate_features,)
+    else:
+        return {
+            "cons": cons,
+            "cons_pc": cons_pc,
+        }
 
 
 @app.cell(hide_code=True)
@@ -302,41 +324,98 @@ def _():
 
 
 @app.function
-def plot_p_values(p_values):
+def plot_p_values(p_values, metric_name: str):
+    # Combine both plots into a single figure (1 row, 2 columns)
+    fig, (ax_hist, ax_qq) = plt.subplots(1, 2, figsize=(12, 5))
 
-    fig, ax = plt.subplots(figsize=(8, 5))
-    ax.hist(p_values, bins=50, color="skyblue", edgecolor="black")
-    ax.set_xlabel("Raw p-value")
-    ax.set_ylabel("Frequency")
-    ax.set_title("Distribution of raw p-values")
-    ax.axvline(0.05, color="red", linestyle="--", label="p=0.05")
-    ax.legend()
-    plt.tight_layout()
-    plt.show()
+    # --- 1. Histogram ---
+    ax_hist.hist(p_values, bins=50, color="skyblue", edgecolor="black")
+    ax_hist.set_xlabel("Raw p-value")
+    ax_hist.set_ylabel("Frequency")
+
+    ax_hist.set_title(f"Distribution of raw p-values\n[{metric_name}]")
+    ax_hist.axvline(0.05, color="red", linestyle="--", label="p=0.05")
+    ax_hist.legend()
 
     # --- 2. QQ Plot ---
-    fig, ax = plt.subplots(figsize=(6, 6))
     sorted_p = np.sort(p_values)
     expected_p = np.linspace(1 / len(p_values), 1, len(p_values))
 
-    ax.scatter(
+    ax_qq.scatter(
         -np.log10(expected_p),
         -np.log10(sorted_p + 1e-300),
         alpha=0.5,
         color="purple",
         s=10,
+        label=f"Observed ({metric_name})",
     )
     max_val = max(-np.log10(expected_p))
-    ax.plot(
+    ax_qq.plot(
         [0, max_val], [0, max_val], "r--", label="Null hypothesis (Uniform)"
     )
 
-    ax.set_xlabel("Expected -log10(p-value)")
-    ax.set_ylabel("Observed -log10(p-value)")
-    ax.set_title("QQ Plot of p-values")
-    ax.legend()
+    ax_qq.set_xlabel("Expected -log10(p-value)")
+    ax_qq.set_ylabel("Observed -log10(p-value)")
+
+    ax_qq.set_title(f"QQ Plot of p-values\n[{metric_name}]")
+    ax_qq.legend()
+
     plt.tight_layout()
-    plt.show()
+
+    return fig
+
+
+@app.function
+def calculate_metrics(
+    df: pd.DataFrame,
+    metric_dict: dict[str, dict],
+    plot_dir: str,
+    ttest_dir: str,
+):
+
+    res = {"results": {}}
+    ui_elements = []
+
+    for metric, config in metric_dict.items():
+        results = calculate_features(
+            target_str=metric,
+            target_filters=config["filter_function"],
+            harmonized_fc_matrices_df=df,
+            plot_dir=plot_dir,
+            ttest_dir=ttest_dir,
+            ttest_output_prefix=config["prefix"],
+        )
+
+        image_path = os.path.join(plot_dir, f"{metric}.png")
+        metric_image = mo.image(src=image_path)
+
+        if "p_values" in results:
+            p_value_plot = plot_p_values(
+                results["p_values"], metric_name=metric
+            )
+            plot_section = mo.hstack(
+                [metric_image, p_value_plot],
+                justify="center",
+                align="center",
+                gap=2,
+                widths=[1, 2],
+            )
+        else:
+            plot_section = metric_image
+
+        metric_ui = mo.vstack(
+            [
+                mo.md(f"### Results for metric: `{metric}`"),
+                plot_section,
+                mo.md("---"),
+            ]
+        )
+
+        ui_elements.append(metric_ui)
+        res["results"][metric] = results
+
+    res["ui"] = mo.vstack(ui_elements, gap=3)
+    return res
 
 
 @app.cell(hide_code=True)
@@ -353,351 +432,68 @@ def _():
     return
 
 
-@app.cell(hide_code=True)
+@app.cell
 def _():
-    mo.md(r"""
-    ### PCA and T test features the for MDD vs HC metric
-    """)
-    return
+    plot_dir = "./res/pca-dim-reduction/srbp/plots/"
+    ttest_dir = "./res/pca-dim-reduction/srbp/t-tests/"
+    return plot_dir, ttest_dir
 
 
 @app.cell
 def _():
-    plot_dir = "./res/pca-dim-reduction/plots/"
-    t_test_dir = "./res/pca-dim-reduction/t-tests/"
-    return plot_dir, t_test_dir
+    metric_dict = {
+        "diag": {
+            "prefix": "ttest_diag",
+            "filter_function": lambda target_col: (
+                (target_col != -1000)
+                & pd.notna(target_col)
+                & ((target_col == 0) | (target_col == 2))
+            ),
+        },
+        "bdi": {
+            "prefix": "ttest_bdi",
+            "filter_function": lambda target_col: (
+                (target_col != -1000) & pd.notna(target_col)
+            ),
+        },
+        "age": {
+            "prefix": "ttest_age",
+            "filter_function": lambda target_col: (
+                (target_col != -1000) & pd.notna(target_col)
+            ),
+        },
+        "sex": {
+            "prefix": "ttest_sex",
+            "filter_function": lambda target_col: (
+                (target_col != -1000) & pd.notna(target_col)
+            ),
+        },
+        "site": {
+            "prefix": "ttest_site",
+            "filter_function": lambda target_col: pd.notna(target_col),
+        },
+        "meanFD": {
+            "prefix": "ttest_meanFD",
+            "filter_function": lambda target_col: pd.notna(target_col),
+        },
+    }
+    return (metric_dict,)
 
 
 @app.cell
-def _():
-    diag_target_str = "diag"
-    return (diag_target_str,)
-
-
-@app.cell
-def _():
-    mdd_vs_hc_ttest_output_prefix = "ttest_mdd_vs_hc"
-    return (mdd_vs_hc_ttest_output_prefix,)
-
-
-@app.function
-def mdd_vs_hc_target_filter(target_col):
-    return (
-        (target_col != -1000)
-        & pd.notna(target_col)
-        & ((target_col == 0) | (target_col == 2))
+def _(harmonized_srbp_fc_matrices_df, metric_dict, plot_dir, ttest_dir):
+    srbp_results = calculate_metrics(
+        df=harmonized_srbp_fc_matrices_df,
+        metric_dict=metric_dict,
+        plot_dir=plot_dir,
+        ttest_dir=ttest_dir,
     )
+    return (srbp_results,)
 
 
 @app.cell
-def _(
-    calculate_features,
-    diag_target_str,
-    harmonized_srbp_fc_matrices_df,
-    mdd_vs_hc_ttest_output_prefix,
-    plot_dir,
-    t_test_dir,
-):
-    (
-        mdd_vs_hc_cons,
-        mdd_vs_hc_cons_pc,
-        mdd_vs_hc_selected_indices,
-        mdd_vs_hc_t_statistics,
-        mdd_vs_hc_p_values,
-    ) = calculate_features(
-        diag_target_str,
-        mdd_vs_hc_target_filter,
-        harmonized_srbp_fc_matrices_df,
-        plot_dir,
-        t_test_dir,
-        mdd_vs_hc_ttest_output_prefix,
-    )
-    return (mdd_vs_hc_p_values,)
-
-
-@app.cell
-def _(diag_target_str, plot_dir):
-    mo.image(src=plot_dir + diag_target_str + ".png")
-    return
-
-
-@app.cell
-def _(mdd_vs_hc_p_values):
-    plot_p_values(mdd_vs_hc_p_values)
-    return
-
-
-@app.cell(hide_code=True)
-def _():
-    mo.md(r"""
-    ### PCA features for the age metric
-    """)
-    return
-
-
-@app.cell
-def _():
-    age_target_str = "age"
-    return (age_target_str,)
-
-
-@app.cell
-def _():
-    age_ttest_output_prefix = "ttest_age"
-    return (age_ttest_output_prefix,)
-
-
-@app.function
-def age_target_filter(target_col):
-    return (target_col != -1000) & pd.notna(target_col)
-
-
-@app.cell
-def _(
-    age_target_str,
-    age_ttest_output_prefix,
-    calculate_features,
-    harmonized_srbp_fc_matrices_df,
-    plot_dir,
-    t_test_dir,
-):
-    age_cons, age_cons_pc = calculate_features(
-        age_target_str,
-        age_target_filter,
-        harmonized_srbp_fc_matrices_df,
-        plot_dir,
-        t_test_dir,
-        age_ttest_output_prefix,
-    )
-    return
-
-
-@app.cell
-def _(age_target_str, plot_dir):
-    mo.image(src=plot_dir + age_target_str + ".png")
-    return
-
-
-@app.cell(hide_code=True)
-def _():
-    mo.md(r"""
-    ### PCA features for the BDI metric
-    """)
-    return
-
-
-@app.cell
-def _():
-    bdi_target_str = "bdi"
-    return (bdi_target_str,)
-
-
-@app.cell
-def _():
-    bdi_ttest_output_prefix = "ttest_bdi"
-    return (bdi_ttest_output_prefix,)
-
-
-@app.function
-def bdi_target_filter(target_col):
-    return (target_col != -1000) & pd.notna(target_col)
-
-
-@app.cell
-def _(
-    bdi_target_str,
-    bdi_ttest_output_prefix,
-    calculate_features,
-    harmonized_srbp_fc_matrices_df,
-    plot_dir,
-    t_test_dir,
-):
-    bdi_cons, bdi_cons_pc = calculate_features(
-        bdi_target_str,
-        bdi_target_filter,
-        harmonized_srbp_fc_matrices_df,
-        plot_dir,
-        t_test_dir,
-        bdi_ttest_output_prefix,
-    )
-    return
-
-
-@app.cell
-def _(bdi_target_str, plot_dir):
-    mo.image(src=plot_dir + bdi_target_str + ".png")
-    return
-
-
-@app.cell(hide_code=True)
-def _():
-    mo.md(r"""
-    ### PCA and T test features the sex metric
-    """)
-    return
-
-
-@app.cell
-def _():
-    sex_target_str = "sex"
-    return (sex_target_str,)
-
-
-@app.cell
-def _():
-    sex_ttest_output_prefix = "ttest_sex"
-    return (sex_ttest_output_prefix,)
-
-
-@app.function
-def sex_target_filter(target_col):
-    return (target_col != -1000) & pd.notna(target_col)
-
-
-@app.cell
-def _(
-    calculate_features,
-    harmonized_srbp_fc_matrices_df,
-    plot_dir,
-    sex_target_str,
-    sex_ttest_output_prefix,
-    t_test_dir,
-):
-    sex_cons, sex_cons_pc, sex_selected_indices, sex_t_statistics, sex_p_values = (
-        calculate_features(
-            sex_target_str,
-            sex_target_filter,
-            harmonized_srbp_fc_matrices_df,
-            plot_dir,
-            t_test_dir,
-            sex_ttest_output_prefix,
-        )
-    )
-    return (sex_p_values,)
-
-
-@app.cell
-def _(plot_dir, sex_target_str):
-    mo.image(src=plot_dir + sex_target_str + ".png")
-    return
-
-
-@app.cell
-def _(sex_p_values):
-    plot_p_values(sex_p_values)
-    return
-
-
-@app.cell(hide_code=True)
-def _():
-    mo.md(r"""
-    ### PCA features the site metric
-    """)
-    return
-
-
-@app.cell
-def _():
-    site_target_str = "site"
-    return (site_target_str,)
-
-
-@app.cell
-def _():
-    site_ttest_output_prefix = "ttest_site"
-    return (site_ttest_output_prefix,)
-
-
-@app.function
-def site_target_filter(target_col):
-    return pd.notna(target_col)
-
-
-@app.cell
-def _(
-    calculate_features,
-    harmonized_srbp_fc_matrices_df,
-    plot_dir,
-    site_target_str,
-    site_ttest_output_prefix,
-    t_test_dir,
-):
-    (
-        site_cons,
-        site_cons_pc,
-    ) = calculate_features(
-        site_target_str,
-        site_target_filter,
-        harmonized_srbp_fc_matrices_df,
-        plot_dir,
-        t_test_dir,
-        site_ttest_output_prefix,
-    )
-    return
-
-
-@app.cell
-def _(plot_dir, site_target_str):
-    mo.image(src=plot_dir + site_target_str + ".png")
-    return
-
-
-@app.cell(hide_code=True)
-def _():
-    mo.md(r"""
-    ### PCA features the FD metric
-    """)
-    return
-
-
-@app.cell
-def _():
-    fd_target_str = "meanFD"
-    return (fd_target_str,)
-
-
-@app.cell
-def _():
-    fd_ttest_output_prefix = "ttest_fd"
-    return (fd_ttest_output_prefix,)
-
-
-@app.function
-def fd_target_filter(target_col):
-    return pd.notna(target_col)
-
-
-@app.cell
-def _(
-    calculate_features,
-    fd_target_str,
-    fd_ttest_output_prefix,
-    harmonized_srbp_fc_matrices_df,
-    plot_dir,
-    t_test_dir,
-):
-    (
-        fd_cons,
-        fd_cons_pc,
-    ) = calculate_features(
-        fd_target_str,
-        fd_target_filter,
-        harmonized_srbp_fc_matrices_df,
-        plot_dir,
-        t_test_dir,
-        fd_ttest_output_prefix,
-    )
-    return
-
-
-@app.cell
-def _(fd_target_str, plot_dir):
-    mo.image(src=plot_dir + fd_target_str + ".png")
-    return
-
-
-@app.cell
-def _():
+def _(srbp_results):
+    srbp_results["ui"]
     return
 
 
