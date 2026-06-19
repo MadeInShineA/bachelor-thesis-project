@@ -1,0 +1,34 @@
+{
+    "pc_index_0_based": 69,
+    "pc_number_1_based": 70,
+    "num_edges": 5,
+    "color_range": {
+        "vmin": -0.0617512597675024,
+        "vmax": 0.0617512597675024
+    },
+    "edge_indices": [
+        1191,
+        19126,
+        54206,
+        72131,
+        95259
+    ],
+    "network_statistics": {
+        "per_network": {
+            "Somatomotor": 4,
+            "Visual2": 3,
+            "Default": 1,
+            "Ventral Attention": 1,
+            "Unknown": 1
+        },
+        "intra_network": {
+            "Visual2": 1,
+            "Somatomotor": 1
+        },
+        "inter_network": {
+            "Default \u2194 Visual2": 1,
+            "Somatomotor \u2194 Ventral Attention": 1,
+            "Somatomotor \u2194 Unknown": 1
+        }
+    }
+}
