@@ -24,6 +24,7 @@ with app.setup:
     import json
     import nibabel as nib
     from nilearn.image import resample_to_img
+    import pickle
 
 
 @app.cell(hide_code=True)
@@ -398,29 +399,52 @@ def calculate_metrics(
     alpha_threshold: float,
     plot_dir: str,
     ttest_dir: str,
+    cache_dir: str,
 ) -> dict:
+    
+    os.makedirs(cache_dir, exist_ok=True)
 
     res = {"results": {}}
     ui_elements = []
 
     for metric, config in metric_dict.items():
-        results = calculate_features(
-            target_str=metric,
-            target_filters=config["filter_function"],
-            harmonized_fc_matrices_df=df,
-            alpha_threshold=alpha_threshold,
-            plot_dir=plot_dir,
-            ttest_dir=ttest_dir,
-            ttest_output_prefix=config["prefix"],
-        )
+        cache_path = os.path.join(cache_dir, f"{metric}_results.pkl")
+
+        if os.path.exists(cache_path):
+            print(f"Loading cached results for metric: {metric}")
+            with open(cache_path, 'rb') as f:
+                results = pickle.load(f)
+        else:
+            print(f"Calculating and caching results for metric: {metric}")
+            results = calculate_features(
+                target_str=metric,
+                target_filters=config["filter_function"],
+                harmonized_fc_matrices_df=df,
+                alpha_threshold=alpha_threshold,
+                plot_dir=plot_dir,
+                ttest_dir=ttest_dir,
+                ttest_output_prefix=config["prefix"],
+            )
+            
+            with open(cache_path, 'wb') as f:
+                pickle.dump(results, f)
+
+      
+        cons = results.get("cons")
+        cons_pc = results.get("cons_pc")
+        
+        is_binary_target = "p_values" in results
+        
+        if is_binary_target:
+            selected_indices = results["selected_indices"]
+            t_statistics = results["t_statistics"]
+            p_values = results["p_values"]
 
         image_path = os.path.join(plot_dir, f"{metric}.png")
         metric_image = mo.image(src=image_path)
 
-        if "p_values" in results:
-            p_value_plot = plot_p_values(
-                results["p_values"], metric_name=metric
-            )
+        if is_binary_target:
+            p_value_plot = plot_p_values(p_values, metric_name=metric)
             plot_section = mo.hstack(
                 [metric_image, p_value_plot],
                 justify="center",
@@ -440,7 +464,19 @@ def calculate_metrics(
         )
 
         ui_elements.append(metric_ui)
-        res["results"][metric] = results
+        
+        res["results"][metric] = {
+            "cons": cons,
+            "cons_pc": cons_pc,
+            "is_binary_target": is_binary_target,
+        }
+        
+        if is_binary_target:
+            res["results"][metric].update({
+                "selected_indices": selected_indices,
+                "t_statistics": t_statistics,
+                "p_values": p_values,
+            })
 
     res["ui"] = mo.vstack(ui_elements, gap=3)
     return res
@@ -464,8 +500,9 @@ def _():
 def _():
     srbp_plot_dir = "./res/pca-dim-reduction/srbp/plots/"
     srbp_ttest_dir = "./res/pca-dim-reduction/srbp/t-tests/"
-    srbp_metadata_dir = "./res/pca-dim-reduction/srbp/metadatas"
-    return srbp_metadata_dir, srbp_plot_dir, srbp_ttest_dir
+    srbp_cache_dir = "./res/pca-dim-reduction/srbp/cache/"
+    srbp_metadata_dir = "./res/pca-dim-reduction/srbp/metadatas/"
+    return srbp_cache_dir, srbp_metadata_dir, srbp_plot_dir, srbp_ttest_dir
 
 
 @app.cell
@@ -511,6 +548,7 @@ def _():
 def _(
     harmonized_srbp_fc_matrices_hc_mdd_df,
     metric_dict,
+    srbp_cache_dir,
     srbp_plot_dir,
     srbp_ttest_dir,
 ):
@@ -520,6 +558,7 @@ def _(
         alpha_threshold=0.05,
         plot_dir=srbp_plot_dir,
         ttest_dir=srbp_ttest_dir,
+        cache_dir=srbp_cache_dir,
     )
 
     srbp_results = srbp_metrics_dict["results"]
@@ -698,18 +737,19 @@ def _():
     # ==========================================
     # Standard Yeo 7-network mapping (adjust if your CSV uses different numbering)
     yeo_number_to_name = {
-        0: "Visual1",
-        1: "Visual2",
-        2: "Somatomotor",
-        3: "Dorsal Attention",
-        4: "Ventral Attention",
-        5: "Limbic",
-        6: "Frontoparietal",
-        7: "Default",
+        0: "Visual",
+        1: "SomatoMotor",
+        2: "DorsalAttention",
+        3: "DefaultMode",
+        4: "Limbic",
+        5: "Salience",
+        6: "PrefrontalControlA",
+        7: "PrefrontalControlB"
     }
 
     # Convert the numbers to names
     cortex_networks_raw = glasser_yeo[network_col].tolist()
+
     cortex_networks_clean = [
         yeo_number_to_name.get(int(val), "Unknown") for val in cortex_networks_raw
     ]
@@ -760,7 +800,7 @@ def _():
 @app.function(hide_code=True)
 def plot_pcs_publication_ready(
     srbp_results: dict,
-    fc_matrices_df, # pl.DataFrame
+    fc_matrices_df,  # pl.DataFrame
     node_coords: np.ndarray,
     pcs_to_plot: list,
     plot_dir: str,
@@ -785,17 +825,17 @@ def plot_pcs_publication_ready(
     # DEFINE COLOR MAP ONCE AT THE TOP
     # ==========================================
     glasser_network_colors = {
-        "Visual1": "#00BFC4",
-        "Visual2": "#0097A7",
-        "Somatomotor": "#F8766D",
-        "Dorsal Attention": "#7CAE00",
-        "Ventral Attention": "#C77CFF",
-        "Limbic": "#FF61C3",
-        "Frontoparietal": "#00BAFF",
-        "Default": "#FFC300",
-        "Subcortical": "#333333",
-        "Cerebellum": "#D2691E",
-        "Unknown": "#000000",
+        "Visual": "#00BFC4",  # Cyan
+        "SomatoMotor": "#F8766D",  # Red
+        "DorsalAttention": "#7CAE00",  # Green
+        "DefaultMode": "#FFC300",  # Yellow/Orange
+        "Limbic": "#FF61C3",  # Pink
+        "Salience": "#C77CFF",  # Purple
+        "PrefrontalControlA": "#00BAFF",  # Light Blue
+        "PrefrontalControlB": "#0097A7",  # Darker Cyan/Teal
+        "Subcortical": "#333333",  # Dark Gray
+        "Cerebellum": "#D2691E",  # Brown/Orange
+        "Unknown": "#000000",  # Black
     }
 
     # 1. Extract Data (Done once for all PCs)
@@ -833,13 +873,14 @@ def plot_pcs_publication_ready(
         if network_assignments is not None:
             # Map each node's network name to its hex color!
             node_colors = [
-                glasser_network_colors.get(str(net), "#000000") 
+                glasser_network_colors.get(str(net), "#000000")
                 for net in network_assignments
             ]
         else:
             # Fallback to hemisphere coloring if no network info is provided
             node_colors = [
-                "#a6cee3" if coord[0] < 0 else "#fb9a99" for coord in node_coords
+                "#a6cee3" if coord[0] < 0 else "#fb9a99"
+                for coord in node_coords
             ]
     elif isinstance(node_colors, list) and len(node_colors) < n_nodes:
         missing = n_nodes - len(node_colors)
@@ -876,7 +917,16 @@ def plot_pcs_publication_ready(
             adj_matrix[i, j] = mean_diff[edge_idx]
             adj_matrix[j, i] = mean_diff[edge_idx]
 
+        # ── hide nodes that aren't part of any drawn edge ──
+        participating = np.zeros(n_nodes, dtype=bool)
+        for edge_idx in edges_to_plot:
+            participating[i_idx[edge_idx]] = True
+            participating[j_idx[edge_idx]] = True
+        node_sizes = np.where(participating, 20, 0)  # 0 = invisible
+        # ──────────────────────────────────────────────────────────
+
         # Initialize stats dictionaries to prevent NameError if network_assignments is None
+        network_node_counts = {}
         network_edge_counts = {}
         intra_network_edges = {}
         inter_network_edges = {}
@@ -884,6 +934,18 @@ def plot_pcs_publication_ready(
         # Network Stats Markdown
         network_stats_md = ""
         if network_assignments is not None:
+            # Count participating nodes per network
+            for node_idx in range(n_nodes):
+                if participating[node_idx]:
+                    net = (
+                        network_assignments[node_idx]
+                        if node_idx < len(network_assignments)
+                        else "Unknown"
+                    )
+                    network_node_counts[net] = (
+                        network_node_counts.get(net, 0) + 1
+                    )
+
             for edge_idx in edges_to_plot:
                 i, j = i_idx[edge_idx], j_idx[edge_idx]
                 net_i = (
@@ -918,7 +980,17 @@ def plot_pcs_publication_ready(
                         inter_network_edges.get(pair_name, 0) + 1
                     )
 
-            network_stats_md = "### FC Edges per Network\n\n"
+            # 1. Nodes Table
+            network_stats_md = "#### Participating Nodes per Network\n\n"
+            network_stats_md += "| Network | Node Count |\n| :--- | :---: |\n"
+            sorted_node_nets = sorted(
+                network_node_counts.items(), key=lambda x: x[1], reverse=True
+            )
+            for net_name, node_count in sorted_node_nets:
+                network_stats_md += f"| {net_name} | {node_count} |\n"
+
+            # 2. Edges Table
+            network_stats_md += "\n#### FC Edges per Network\n\n"
             network_stats_md += "| Network | Total Edges | Intra-Network | % of Total |\n| :--- | :---: | :---: | :---: |\n"
             sorted_networks = sorted(
                 network_edge_counts.items(), key=lambda x: x[1], reverse=True
@@ -928,7 +1000,8 @@ def plot_pcs_publication_ready(
                 percentage = (total_count / (2 * len(edges_to_plot))) * 100
                 network_stats_md += f"| {net_name} | {total_count} | {intra_count} | {percentage:.1f}% |\n"
 
-            network_stats_md += "\n### Top Inter-Network Connections\n\n| Connection Pair | Count |\n| :--- | :---: |\n"
+            # 3. Inter-Network Table
+            network_stats_md += "\n#### Top Inter-Network Connections\n\n| Connection Pair | Count |\n| :--- | :---: |\n"
             sorted_inter = sorted(
                 inter_network_edges.items(), key=lambda x: x[1], reverse=True
             )
@@ -972,7 +1045,7 @@ def plot_pcs_publication_ready(
                 edge_cmap="bwr",
                 edge_vmin=vmin,
                 edge_vmax=vmax,
-                node_size=20,
+                node_size=node_sizes,
                 node_color=node_colors,
                 display_mode=mode,
                 axes=ax,
@@ -982,29 +1055,40 @@ def plot_pcs_publication_ready(
                 edge_threshold=0.01,
             )
 
-        # Legend
+        # ==========================================
+        # LEGEND LOGIC
+        # ==========================================
         if show_legend:
             legend_elements = []
-            unique_nets_in_data = (
-                list(dict.fromkeys(network_assignments))
-                if network_assignments
-                else []
-            )
-            for net_name in unique_nets_in_data:
-                color = glasser_network_colors.get(str(net_name), "#000000")
-                legend_elements.append(
-                    Line2D(
-                        [0],
-                        [0],
-                        marker="o",
-                        color="w",
-                        markerfacecolor=color,
-                        markersize=12,
-                        label=net_name,
-                        markeredgecolor="black",
-                        markeredgewidth=0.5,
-                    )
+
+            # Only include networks that are actually participating in the current PC's plot
+            if network_assignments is not None and network_node_counts:
+                # Sort by node count descending for a cleaner, consistent legend
+                unique_nets_in_plot = sorted(
+                    network_node_counts.keys(),
+                    key=lambda x: network_node_counts[x],
+                    reverse=True,
                 )
+
+                for net_name in unique_nets_in_plot:
+                    color = glasser_network_colors.get(
+                        str(net_name), "#000000"
+                    )
+                    legend_elements.append(
+                        Line2D(
+                            [0],
+                            [0],
+                            marker="o",
+                            color="w",
+                            markerfacecolor=color,
+                            markersize=12,
+                            label=net_name,
+                            markeredgecolor="black",
+                            markeredgewidth=0.5,
+                        )
+                    )
+
+            # Always include the connectivity direction legend elements
             legend_elements.append(
                 Line2D(
                     [0],
@@ -1023,6 +1107,7 @@ def plot_pcs_publication_ready(
                     label="Under-connectivity (MDD < HC)",
                 )
             )
+
             ax_legend.axis("off")
             ax_legend.legend(
                 handles=legend_elements,
@@ -1062,6 +1147,14 @@ def plot_pcs_publication_ready(
             "color_range": {"vmin": float(vmin), "vmax": float(vmax)},
             "edge_indices": [int(e) for e in edges_to_plot],
             "network_statistics": {
+                "nodes_per_network": {
+                    k: int(v)
+                    for k, v in sorted(
+                        network_node_counts.items(),
+                        key=lambda item: item[1],
+                        reverse=True,
+                    )
+                },
                 "per_network": {
                     k: int(v)
                     for k, v in sorted(
@@ -1423,12 +1516,14 @@ def _():
 def _():
     bmb_plot_dir = "./res/pca-dim-reduction/bmb/plots/"
     bmb_ttest_dir = "./res/pca-dim-reduction/bmb/t-tests/"
-    bmb_metadata_dir = "./res/pca-dim-reduction/bmb/metadatas"
-    return bmb_metadata_dir, bmb_plot_dir, bmb_ttest_dir
+    bmb_cache_dir = "./res/pca-dim-reduction/bmb/cache/"
+    bmb_metadata_dir = "./res/pca-dim-reduction/bmb/metadatas/"
+    return bmb_cache_dir, bmb_metadata_dir, bmb_plot_dir, bmb_ttest_dir
 
 
 @app.cell
 def _(
+    bmb_cache_dir,
     bmb_plot_dir,
     bmb_ttest_dir,
     harmonized_bmb_fc_matrices_hc_mdd_df,
@@ -1440,6 +1535,7 @@ def _(
         alpha_threshold=0.05,
         plot_dir=bmb_plot_dir,
         ttest_dir=bmb_ttest_dir,
+        cache_dir=bmb_cache_dir,
     )
 
     bmb_results = bmb_metrics_dict["results"]
@@ -1477,7 +1573,7 @@ def _(
     harmonized_bmb_fc_matrices_hc_mdd_df,
     network_assignments,
 ):
-    bmb_target_pcs_to_plot = [1.0, 60.0]
+    bmb_target_pcs_to_plot = [1.0, 7.0, 60.0]
 
     bmb_pc_plots_results = plot_pcs_publication_ready(
         srbp_results=bmb_results,

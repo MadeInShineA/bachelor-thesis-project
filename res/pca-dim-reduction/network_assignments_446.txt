@@ -1,363 +1,363 @@
-Ventral Attention
-Ventral Attention
-Ventral Attention
-Ventral Attention
-Ventral Attention
-Ventral Attention
-Ventral Attention
-Frontoparietal
-Frontoparietal
-Visual2
-Visual2
-Default
-Ventral Attention
-Dorsal Attention
-Somatomotor
-Ventral Attention
-Ventral Attention
-Ventral Attention
-Ventral Attention
-Ventral Attention
-Ventral Attention
-Ventral Attention
-Ventral Attention
-Frontoparietal
-Default
-Dorsal Attention
-Visual2
-Default
-Somatomotor
-Dorsal Attention
-Dorsal Attention
-Dorsal Attention
-Dorsal Attention
-Dorsal Attention
-Dorsal Attention
-Frontoparietal
-Default
-Default
-Frontoparietal
-Frontoparietal
-Frontoparietal
-Visual2
-Default
-Default
-Visual2
-Visual2
-Visual2
-Visual2
-Visual2
-Visual2
-Frontoparietal
-Frontoparietal
-Frontoparietal
-Frontoparietal
-Frontoparietal
-Frontoparietal
-Default
-Default
-Default
-Default
-Dorsal Attention
-Dorsal Attention
-Somatomotor
-Dorsal Attention
-Dorsal Attention
-Dorsal Attention
-Somatomotor
-Dorsal Attention
-Dorsal Attention
-Dorsal Attention
-Dorsal Attention
-Dorsal Attention
-Somatomotor
-Somatomotor
-Dorsal Attention
-Dorsal Attention
-Somatomotor
-Default
-Somatomotor
-Visual2
-Somatomotor
-Somatomotor
-Somatomotor
-Somatomotor
-Somatomotor
-Somatomotor
-Dorsal Attention
-Limbic
-Somatomotor
-Limbic
-Somatomotor
 Limbic
 Limbic
-Dorsal Attention
-Visual2
-Visual2
-Somatomotor
-Somatomotor
-Frontoparietal
-Frontoparietal
-Frontoparietal
-Frontoparietal
-Frontoparietal
-Frontoparietal
-Default
-Default
-Frontoparietal
-Default
-Default
-Visual1
-Somatomotor
-Default
-Default
-Default
-Frontoparietal
-Visual2
-Visual2
-Limbic
-Ventral Attention
-Visual1
-Ventral Attention
-Limbic
-Dorsal Attention
-Frontoparietal
-Frontoparietal
-Ventral Attention
-Ventral Attention
-Dorsal Attention
-Dorsal Attention
-Dorsal Attention
-Limbic
-Dorsal Attention
-Somatomotor
 Limbic
 Limbic
-Visual2
-Visual2
-Visual2
-Default
-Visual2
-Visual2
-Ventral Attention
-Visual2
-Somatomotor
-Somatomotor
-Visual2
-Default
-Default
-Somatomotor
-Dorsal Attention
-Dorsal Attention
-Ventral Attention
-Ventral Attention
-Ventral Attention
-Ventral Attention
-Ventral Attention
-Visual2
-Ventral Attention
-Ventral Attention
-Ventral Attention
-Dorsal Attention
-Dorsal Attention
-Ventral Attention
-Limbic
-Dorsal Attention
-Limbic
-Default
-Frontoparietal
-Default
-Somatomotor
-Somatomotor
-Limbic
-Frontoparietal
-Frontoparietal
-Frontoparietal
-Dorsal Attention
-Dorsal Attention
-Default
-Somatomotor
-Dorsal Attention
-Ventral Attention
-Visual2
-Ventral Attention
-Ventral Attention
-Ventral Attention
-Ventral Attention
-Ventral Attention
-Frontoparietal
-Frontoparietal
-Visual2
-Visual2
-Dorsal Attention
-Ventral Attention
-Dorsal Attention
-Somatomotor
-Ventral Attention
-Visual2
-Ventral Attention
-Ventral Attention
-Ventral Attention
-Ventral Attention
-Ventral Attention
-Ventral Attention
-Frontoparietal
-Default
-Dorsal Attention
-Dorsal Attention
-Dorsal Attention
-Somatomotor
-Dorsal Attention
-Dorsal Attention
-Dorsal Attention
-Dorsal Attention
-Dorsal Attention
-Dorsal Attention
-Frontoparietal
-Default
-Default
-Frontoparietal
-Frontoparietal
-Frontoparietal
-Visual2
-Default
-Default
-Visual2
-Visual2
-Visual2
-Visual2
-Visual2
-Visual2
-Frontoparietal
-Frontoparietal
-Frontoparietal
-Frontoparietal
-Frontoparietal
-Frontoparietal
-Default
-Somatomotor
-Default
-Default
-Dorsal Attention
-Dorsal Attention
-Dorsal Attention
-Dorsal Attention
-Dorsal Attention
-Dorsal Attention
-Dorsal Attention
-Dorsal Attention
-Dorsal Attention
-Dorsal Attention
-Dorsal Attention
-Dorsal Attention
-Somatomotor
-Dorsal Attention
-Dorsal Attention
-Dorsal Attention
-Dorsal Attention
-Default
-Somatomotor
-Somatomotor
-Somatomotor
-Somatomotor
-Somatomotor
-Somatomotor
-Somatomotor
-Somatomotor
-Dorsal Attention
-Limbic
-Dorsal Attention
-Limbic
-Somatomotor
 Limbic
 Limbic
-Dorsal Attention
-Visual2
-Visual2
-Somatomotor
-Dorsal Attention
-Default
-Frontoparietal
-Frontoparietal
-Frontoparietal
-Frontoparietal
-Frontoparietal
-Default
-Default
-Frontoparietal
-Default
-Default
-Visual1
-Somatomotor
-Dorsal Attention
-Default
-Default
-Default
-Visual2
-Visual2
 Limbic
-Ventral Attention
-Visual1
-Ventral Attention
+PrefrontalControlA
+PrefrontalControlA
+SomatoMotor
+SomatoMotor
+PrefrontalControlB
 Limbic
-Dorsal Attention
-Frontoparietal
-Frontoparietal
-Ventral Attention
-Ventral Attention
-Dorsal Attention
-Dorsal Attention
-Dorsal Attention
-Limbic
-Dorsal Attention
-Dorsal Attention
+DefaultMode
+DorsalAttention
 Limbic
 Limbic
-Visual2
-Visual2
-Visual2
-Frontoparietal
-Default
-Visual2
-Ventral Attention
-Visual2
-Somatomotor
-Somatomotor
-Ventral Attention
-Default
-Default
-Dorsal Attention
-Dorsal Attention
-Dorsal Attention
-Ventral Attention
-Ventral Attention
-Ventral Attention
-Ventral Attention
-Ventral Attention
-Visual2
-Ventral Attention
-Ventral Attention
-Ventral Attention
-Dorsal Attention
-Dorsal Attention
-Ventral Attention
 Limbic
-Dorsal Attention
 Limbic
-Default
-Frontoparietal
-Default
-Dorsal Attention
-Somatomotor
 Limbic
-Frontoparietal
-Frontoparietal
-Frontoparietal
-Dorsal Attention
-Dorsal Attention
-Default
-Somatomotor
-Dorsal Attention
+Limbic
+Limbic
+Limbic
+PrefrontalControlA
+PrefrontalControlB
+DefaultMode
+SomatoMotor
+PrefrontalControlB
+DorsalAttention
+DefaultMode
+DefaultMode
+DefaultMode
+DefaultMode
+DefaultMode
+DefaultMode
+PrefrontalControlA
+PrefrontalControlB
+PrefrontalControlB
+PrefrontalControlA
+PrefrontalControlA
+PrefrontalControlA
+SomatoMotor
+PrefrontalControlB
+PrefrontalControlB
+SomatoMotor
+SomatoMotor
+SomatoMotor
+SomatoMotor
+SomatoMotor
+SomatoMotor
+PrefrontalControlA
+PrefrontalControlA
+PrefrontalControlA
+PrefrontalControlA
+PrefrontalControlA
+PrefrontalControlA
+PrefrontalControlB
+PrefrontalControlB
+PrefrontalControlB
+PrefrontalControlB
+DefaultMode
+DefaultMode
+DorsalAttention
+DefaultMode
+DefaultMode
+DefaultMode
+DorsalAttention
+DefaultMode
+DefaultMode
+DefaultMode
+DefaultMode
+DefaultMode
+DorsalAttention
+DorsalAttention
+DefaultMode
+DefaultMode
+DorsalAttention
+PrefrontalControlB
+DorsalAttention
+SomatoMotor
+DorsalAttention
+DorsalAttention
+DorsalAttention
+DorsalAttention
+DorsalAttention
+DorsalAttention
+DefaultMode
+Salience
+DorsalAttention
+Salience
+DorsalAttention
+Salience
+Salience
+DefaultMode
+SomatoMotor
+SomatoMotor
+DorsalAttention
+DorsalAttention
+PrefrontalControlA
+PrefrontalControlA
+PrefrontalControlA
+PrefrontalControlA
+PrefrontalControlA
+PrefrontalControlA
+PrefrontalControlB
+PrefrontalControlB
+PrefrontalControlA
+PrefrontalControlB
+PrefrontalControlB
+Visual
+DorsalAttention
+PrefrontalControlB
+PrefrontalControlB
+PrefrontalControlB
+PrefrontalControlA
+SomatoMotor
+SomatoMotor
+Salience
+Limbic
+Visual
+Limbic
+Salience
+DefaultMode
+PrefrontalControlA
+PrefrontalControlA
+Limbic
+Limbic
+DefaultMode
+DefaultMode
+DefaultMode
+Salience
+DefaultMode
+DorsalAttention
+Salience
+Salience
+SomatoMotor
+SomatoMotor
+SomatoMotor
+PrefrontalControlB
+SomatoMotor
+SomatoMotor
+Limbic
+SomatoMotor
+DorsalAttention
+DorsalAttention
+SomatoMotor
+PrefrontalControlB
+PrefrontalControlB
+DorsalAttention
+DefaultMode
+DefaultMode
+Limbic
+Limbic
+Limbic
+Limbic
+Limbic
+SomatoMotor
+Limbic
+Limbic
+Limbic
+DefaultMode
+DefaultMode
+Limbic
+Salience
+DefaultMode
+Salience
+PrefrontalControlB
+PrefrontalControlA
+PrefrontalControlB
+DorsalAttention
+DorsalAttention
+Salience
+PrefrontalControlA
+PrefrontalControlA
+PrefrontalControlA
+DefaultMode
+DefaultMode
+PrefrontalControlB
+DorsalAttention
+DefaultMode
+Limbic
+SomatoMotor
+Limbic
+Limbic
+Limbic
+Limbic
+Limbic
+PrefrontalControlA
+PrefrontalControlA
+SomatoMotor
+SomatoMotor
+DefaultMode
+Limbic
+DefaultMode
+DorsalAttention
+Limbic
+SomatoMotor
+Limbic
+Limbic
+Limbic
+Limbic
+Limbic
+Limbic
+PrefrontalControlA
+PrefrontalControlB
+DefaultMode
+DefaultMode
+DefaultMode
+DorsalAttention
+DefaultMode
+DefaultMode
+DefaultMode
+DefaultMode
+DefaultMode
+DefaultMode
+PrefrontalControlA
+PrefrontalControlB
+PrefrontalControlB
+PrefrontalControlA
+PrefrontalControlA
+PrefrontalControlA
+SomatoMotor
+PrefrontalControlB
+PrefrontalControlB
+SomatoMotor
+SomatoMotor
+SomatoMotor
+SomatoMotor
+SomatoMotor
+SomatoMotor
+PrefrontalControlA
+PrefrontalControlA
+PrefrontalControlA
+PrefrontalControlA
+PrefrontalControlA
+PrefrontalControlA
+PrefrontalControlB
+DorsalAttention
+PrefrontalControlB
+PrefrontalControlB
+DefaultMode
+DefaultMode
+DefaultMode
+DefaultMode
+DefaultMode
+DefaultMode
+DefaultMode
+DefaultMode
+DefaultMode
+DefaultMode
+DefaultMode
+DefaultMode
+DorsalAttention
+DefaultMode
+DefaultMode
+DefaultMode
+DefaultMode
+PrefrontalControlB
+DorsalAttention
+DorsalAttention
+DorsalAttention
+DorsalAttention
+DorsalAttention
+DorsalAttention
+DorsalAttention
+DorsalAttention
+DefaultMode
+Salience
+DefaultMode
+Salience
+DorsalAttention
+Salience
+Salience
+DefaultMode
+SomatoMotor
+SomatoMotor
+DorsalAttention
+DefaultMode
+PrefrontalControlB
+PrefrontalControlA
+PrefrontalControlA
+PrefrontalControlA
+PrefrontalControlA
+PrefrontalControlA
+PrefrontalControlB
+PrefrontalControlB
+PrefrontalControlA
+PrefrontalControlB
+PrefrontalControlB
+Visual
+DorsalAttention
+DefaultMode
+PrefrontalControlB
+PrefrontalControlB
+PrefrontalControlB
+SomatoMotor
+SomatoMotor
+Salience
+Limbic
+Visual
+Limbic
+Salience
+DefaultMode
+PrefrontalControlA
+PrefrontalControlA
+Limbic
+Limbic
+DefaultMode
+DefaultMode
+DefaultMode
+Salience
+DefaultMode
+DefaultMode
+Salience
+Salience
+SomatoMotor
+SomatoMotor
+SomatoMotor
+PrefrontalControlA
+PrefrontalControlB
+SomatoMotor
+Limbic
+SomatoMotor
+DorsalAttention
+DorsalAttention
+Limbic
+PrefrontalControlB
+PrefrontalControlB
+DefaultMode
+DefaultMode
+DefaultMode
+Limbic
+Limbic
+Limbic
+Limbic
+Limbic
+SomatoMotor
+Limbic
+Limbic
+Limbic
+DefaultMode
+DefaultMode
+Limbic
+Salience
+DefaultMode
+Salience
+PrefrontalControlB
+PrefrontalControlA
+PrefrontalControlB
+DefaultMode
+DorsalAttention
+Salience
+PrefrontalControlA
+PrefrontalControlA
+PrefrontalControlA
+DefaultMode
+DefaultMode
+PrefrontalControlB
+DorsalAttention
+DefaultMode
 Subcortical
 Subcortical
 Subcortical

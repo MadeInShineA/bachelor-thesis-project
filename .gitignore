@@ -11,3 +11,4 @@ fuzzy-fmriprep*-sub*.e*
 fuzzy-fmriprep-run*.e*
 fuzzy-fmriprep-run*.o*
 .env
+*cache/

@@ -123,31 +123,40 @@
         96811
     ],
     "network_statistics": {
+        "nodes_per_network": {
+            "PrefrontalControlA": 19,
+            "Limbic": 9,
+            "SomatoMotor": 9,
+            "Cerebellum": 6,
+            "Subcortical": 4,
+            "DefaultMode": 3,
+            "PrefrontalControlB": 2
+        },
         "per_network": {
-            "Frontoparietal": 92,
-            "Visual2": 42,
+            "PrefrontalControlA": 92,
+            "SomatoMotor": 42,
             "Subcortical": 39,
-            "Ventral Attention": 20,
+            "Limbic": 20,
             "Cerebellum": 19,
-            "Default": 11,
-            "Dorsal Attention": 5
+            "PrefrontalControlB": 11,
+            "DefaultMode": 5
         },
         "intra_network": {
-            "Frontoparietal": 6,
-            "Visual2": 5
+            "PrefrontalControlA": 6,
+            "SomatoMotor": 5
         },
         "inter_network": {
-            "Frontoparietal \u2194 Subcortical": 26,
-            "Frontoparietal \u2194 Visual2": 18,
-            "Frontoparietal \u2194 Ventral Attention": 14,
-            "Cerebellum \u2194 Frontoparietal": 14,
-            "Ventral Attention \u2194 Visual2": 6,
-            "Dorsal Attention \u2194 Frontoparietal": 5,
+            "PrefrontalControlA \u2194 Subcortical": 26,
+            "PrefrontalControlA \u2194 SomatoMotor": 18,
+            "Limbic \u2194 PrefrontalControlA": 14,
+            "Cerebellum \u2194 PrefrontalControlA": 14,
+            "Limbic \u2194 SomatoMotor": 6,
+            "DefaultMode \u2194 PrefrontalControlA": 5,
             "Cerebellum \u2194 Subcortical": 5,
-            "Default \u2194 Visual2": 4,
-            "Subcortical \u2194 Visual2": 4,
-            "Default \u2194 Subcortical": 4,
-            "Default \u2194 Frontoparietal": 3
+            "PrefrontalControlB \u2194 SomatoMotor": 4,
+            "SomatoMotor \u2194 Subcortical": 4,
+            "PrefrontalControlB \u2194 Subcortical": 4,
+            "PrefrontalControlA \u2194 PrefrontalControlB": 3
         }
     }
 }

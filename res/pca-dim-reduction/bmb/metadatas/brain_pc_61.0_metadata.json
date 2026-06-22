@@ -14,21 +14,28 @@
         53164
     ],
     "network_statistics": {
+        "nodes_per_network": {
+            "DefaultMode": 3,
+            "DorsalAttention": 2,
+            "PrefrontalControlA": 1,
+            "Limbic": 1,
+            "SomatoMotor": 1
+        },
         "per_network": {
-            "Ventral Attention": 3,
-            "Dorsal Attention": 3,
-            "Somatomotor": 2,
-            "Frontoparietal": 1,
-            "Visual2": 1
+            "Limbic": 3,
+            "DefaultMode": 3,
+            "DorsalAttention": 2,
+            "PrefrontalControlA": 1,
+            "SomatoMotor": 1
         },
         "intra_network": {
-            "Dorsal Attention": 1
+            "DefaultMode": 1
         },
         "inter_network": {
-            "Somatomotor \u2194 Ventral Attention": 1,
-            "Frontoparietal \u2194 Ventral Attention": 1,
-            "Dorsal Attention \u2194 Ventral Attention": 1,
-            "Somatomotor \u2194 Visual2": 1
+            "DorsalAttention \u2194 Limbic": 1,
+            "Limbic \u2194 PrefrontalControlA": 1,
+            "DefaultMode \u2194 Limbic": 1,
+            "DorsalAttention \u2194 SomatoMotor": 1
         }
     }
 }
