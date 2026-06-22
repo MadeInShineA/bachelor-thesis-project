@@ -401,7 +401,7 @@ def calculate_metrics(
     ttest_dir: str,
     cache_dir: str,
 ) -> dict:
-    
+
     os.makedirs(cache_dir, exist_ok=True)
 
     res = {"results": {}}
@@ -412,7 +412,7 @@ def calculate_metrics(
 
         if os.path.exists(cache_path):
             print(f"Loading cached results for metric: {metric}")
-            with open(cache_path, 'rb') as f:
+            with open(cache_path, "rb") as f:
                 results = pickle.load(f)
         else:
             print(f"Calculating and caching results for metric: {metric}")
@@ -425,16 +425,15 @@ def calculate_metrics(
                 ttest_dir=ttest_dir,
                 ttest_output_prefix=config["prefix"],
             )
-            
-            with open(cache_path, 'wb') as f:
+
+            with open(cache_path, "wb") as f:
                 pickle.dump(results, f)
 
-      
         cons = results.get("cons")
         cons_pc = results.get("cons_pc")
-        
+
         is_binary_target = "p_values" in results
-        
+
         if is_binary_target:
             selected_indices = results["selected_indices"]
             t_statistics = results["t_statistics"]
@@ -464,19 +463,21 @@ def calculate_metrics(
         )
 
         ui_elements.append(metric_ui)
-        
+
         res["results"][metric] = {
             "cons": cons,
             "cons_pc": cons_pc,
             "is_binary_target": is_binary_target,
         }
-        
+
         if is_binary_target:
-            res["results"][metric].update({
-                "selected_indices": selected_indices,
-                "t_statistics": t_statistics,
-                "p_values": p_values,
-            })
+            res["results"][metric].update(
+                {
+                    "selected_indices": selected_indices,
+                    "t_statistics": t_statistics,
+                    "p_values": p_values,
+                }
+            )
 
     res["ui"] = mo.vstack(ui_elements, gap=3)
     return res
@@ -744,7 +745,7 @@ def _():
         4: "Limbic",
         5: "Salience",
         6: "PrefrontalControlA",
-        7: "PrefrontalControlB"
+        7: "PrefrontalControlB",
     }
 
     # Convert the numbers to names
