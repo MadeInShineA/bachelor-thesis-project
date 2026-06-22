@@ -22,6 +22,8 @@ with app.setup:
     from nilearn import plotting
     from matplotlib.lines import Line2D
     import json
+    import nibabel as nib
+    from nilearn.image import resample_to_img
 
 
 @app.cell(hide_code=True)
@@ -103,8 +105,8 @@ def _():
     with h5py.File(
         "/home/cbi-biomark03/ayumu/HARP/data/preproc_srpb_ts_harmonized/all_data_con_Glasser_GSR1_ortho1_harmonized.mat",
         "r",
-    ) as f:
-        harmonized_srbp_fc_matrices = f["X"][:]
+    ) as _f:
+        harmonized_srbp_fc_matrices = _f["X"][:]
 
     harmonized_srbp_fc_matrices
     return (harmonized_srbp_fc_matrices,)
@@ -620,410 +622,129 @@ def _():
     return
 
 
-@app.cell(hide_code=True)
+@app.cell
 def _():
-    coords_mat_path = "/home/cbi/olivier.amacker/parcelation/VTXTBL_HAL-170829.mat"
-    mat_data = sio.loadmat(coords_mat_path)
+    parcel_folder = "/home/cbi-data34/ayumu/tools/Parcellations/"
+    cortex_file = (
+        f"{parcel_folder}/GlasserYeo/HCP-MMP1_on_MNI152_ICBM2009a_nlin.nii.gz"
+    )
+    subcortex_file = f"{parcel_folder}/Tian-Subcortex-Only/Tian_Subcortex_S4_3T_2009cAsym.nii.gz"
+    cerebellum_file = f"{parcel_folder}/Nettekoven_2023_cerebellar/atl-NettekovenAsym32_space-MNI152NLin6AsymC_dseg.nii"
 
-    # ==========================================
-    # 1. INSPECT THE ROI STRUCTURE
-    # ==========================================
-    roi_data = mat_data["ROI"]
-    print(f"ROI shape: {roi_data.shape}, dtype: {roi_data.dtype}")
+    subcortex_img = nib.load(subcortex_file)
+    cortex_img = nib.load(cortex_file)
+    cerebellum_img = nib.load(cerebellum_file)
 
-    # Look at the actual structure of the first element
-    sample = roi_data[0, 0]
-    print(f"\nFirst element type: {type(sample)}")
-    if hasattr(sample, "dtype") and sample.dtype.names:
-        print(f"Field names: {sample.dtype.names}")
-        for field in sample.dtype.names:
-            print(f"  {field}: {type(sample[field][0, 0])}")
+    # Resample to subcortex space
+    cortex_resampled = resample_to_img(
+        cortex_img, subcortex_img, interpolation="nearest"
+    )
+    cortex_volume = np.round(cortex_resampled.get_fdata()).astype(int)
+    cerebellum_resampled = resample_to_img(
+        cerebellum_img, subcortex_img, interpolation="nearest"
+    )
+    cerebellum_volume = np.round(cerebellum_resampled.get_fdata()).astype(int)
+    subcortex_volume = subcortex_img.get_fdata().astype(int)
 
-    # ==========================================
-    # 2. EXTRACT REGION NAMES (FIXED)
-    # ==========================================
-    region_names = []
-    network_names = []
+    # Split left/right hemisphere for Cortex (adds 180 to left side)
+    affine = cortex_resampled.affine
+    shape = cortex_volume.shape
+    i_coords = np.arange(shape[0])
+    mni_x = affine[0, 0] * i_coords + affine[0, 3]
+    left_hemisphere_mask = mni_x < 0
+    left_mask_3d = left_hemisphere_mask[:, np.newaxis, np.newaxis]
 
-    print("\nExtracting region names from ROI struct...")
-
-    # The ROI is a structured array. Let's find the correct field for region names
-    for i in range(roi_data.shape[1]):
-        item = roi_data[0, i]
-
-        # Try to extract region name from various possible locations
-        region_name = f"Region_{i}"
-        network_name = "Unknown"
-
-        try:
-            # Check if it's a structured array
-            if hasattr(item, "dtype") and item.dtype.names:
-                # Try 'aal' field first (common in Glasser atlases)
-                if "aal" in item.dtype.names:
-                    aal_data = item["aal"][0, 0]
-                    if hasattr(aal_data, "dtype") and aal_data.dtype.names:
-                        # Look for 'lab' or 'str' or 'name' field
-                        for field in ["lab", "str", "name", "label"]:
-                            if field in aal_data.dtype.names:
-                                val = aal_data[field][0, 0]
-                                if hasattr(val, "item"):
-                                    region_name = str(val.item()).strip()
-                                else:
-                                    region_name = str(val).strip()
-                                break
-
-                # Try direct fields
-                if region_name == f"Region_{i}":
-                    for field in ["lab", "str", "name", "label", "aal"]:
-                        if field in item.dtype.names:
-                            val = item[field][0, 0]
-                            if hasattr(val, "item"):
-                                region_name = str(val.item()).strip()
-                            else:
-                                region_name = str(val).strip()
-                            break
-
-            # If still not found, try to access as object array
-            if region_name == f"Region_{i}" and isinstance(item, np.ndarray):
-                # Try to find any string in the structure
-                def find_string_in_struct(obj, depth=0):
-                    if depth > 5:
-                        return None
-                    if isinstance(obj, str) and len(obj) > 0:
-                        return obj
-                    if isinstance(obj, np.ndarray):
-                        if obj.dtype.kind in ["U", "S", "O"]:
-                            for item in obj.flat:
-                                result = find_string_in_struct(item, depth + 1)
-                                if result:
-                                    return result
-                        elif obj.dtype.names:
-                            for field in obj.dtype.names:
-                                result = find_string_in_struct(
-                                    obj[field], depth + 1
-                                )
-                                if result:
-                                    return result
-                    elif hasattr(obj, "dtype") and obj.dtype.names:
-                        for field in obj.dtype.names:
-                            result = find_string_in_struct(obj[field], depth + 1)
-                            if result:
-                                return result
-                    return None
-
-                found_str = find_string_in_struct(item)
-                if found_str:
-                    region_name = found_str
-
-        except Exception as e:
-            pass
-
-        region_names.append(region_name)
-
-    print(f"✓ Extracted {len(region_names)} region names.")
-    print(f"  First 10: {region_names[:10]}")
-    print(f"  Last 10: {region_names[-10:]}")
-
-    # ==========================================
-    # 3. CALCULATE 3D COORDINATES FROM 'MAP'
-    # ==========================================
-    map_data = mat_data["MAP"]
-    print(
-        f"\nCalculating center of mass for 379 regions from 4D map (shape: {map_data.shape})..."
+    cortex_volume_processed = cortex_volume.copy()
+    cortex_mask = cortex_volume > 0
+    left_cortex_mask = cortex_mask & left_mask_3d
+    cortex_volume_processed[left_cortex_mask] = (
+        cortex_volume[left_cortex_mask] + 180
     )
 
-    voxel_coords = []
-    for i in range(379):
-        roi_mask = map_data[:, :, :, i]
-        if np.any(roi_mask):
-            com = center_of_mass(roi_mask)
-            voxel_coords.append(com)
-        else:
-            voxel_coords.append([0, 0, 0])
+    # Combine into single 446-label volume
+    ROI = np.zeros(np.shape(subcortex_volume), dtype=np.int32)
+    ROI[cortex_mask] = cortex_volume_processed[cortex_mask]
+    subcortex_mask = subcortex_volume > 0
+    ROI[subcortex_mask] = subcortex_volume[subcortex_mask] + np.max(ROI)
+    cerebellum_mask = cerebellum_volume > 0
+    ROI[cerebellum_mask] = cerebellum_volume[cerebellum_mask] + np.max(ROI)
 
-    voxel_coords = np.array(voxel_coords)
+    # ==========================================
+    # 2. Calculate 3D MNI Coordinates
+    # ==========================================
+    # We use the affine of the subcortex_img because that's the space we resampled everything to
+    target_affine = subcortex_img.affine
 
-    # Convert to MNI space
-    affine = np.array(
-        [[-2, 0, 0, 90], [0, 2, 0, -126], [0, 0, 2, -72], [0, 0, 0, 1]]
+    labels = np.arange(1, 447)
+    coords_voxel = np.array(center_of_mass(ROI, labels=ROI, index=labels))
+
+    # Convert voxel indices to MNI coordinates (mm)
+    coords_hom = np.hstack([coords_voxel, np.ones((446, 1))])
+    coords_mni = (target_affine @ coords_hom.T).T[:, :3]
+
+    # ==========================================
+    # 3. Get Network Assignments for the Legend
+    # ==========================================
+    # Load the Glasser to Yeo mapping
+    glasser_yeo_file = f"{parcel_folder}/GlasserYeo/Glasser2Yeo.csv"
+    glasser_yeo = pd.read_csv(glasser_yeo_file)
+
+    network_col = (
+        "Yeo7" if "Yeo7" in glasser_yeo.columns else glasser_yeo.columns[1]
     )
 
-    ones = np.ones((voxel_coords.shape[0], 1))
-    vox_homo = np.hstack([voxel_coords, ones])
-    node_coords = np.dot(vox_homo, affine.T)[:, :3]
-    print(f"✓ Calculated MNI coordinates for {len(node_coords)} regions.")
-
-    glasser_to_network = {
-        # Visual1 - Primary/Early Visual
-        "V1": "Visual1",
-        "V2": "Visual1",
-        "V3": "Visual1",
-        "V3A": "Visual1",
-        # Visual2 - Higher-order Visual
-        "V4": "Visual2",
-        "V8": "Visual2",
-        "V6": "Visual2",
-        "V6A": "Visual2",
-        "V7": "Visual2",
-        "V4t": "Visual2",
-        "V3B": "Visual2",
-        "V3CD": "Visual2",
-        "LO1": "Visual2",
-        "LO2": "Visual2",
-        "LO3": "Visual2",
-        "PIT": "Visual2",
-        "FFC": "Visual2",
-        "MST": "Visual2",
-        "MT": "Visual2",
-        "FST": "Visual2",
-        "VMV1": "Visual2",
-        "VMV2": "Visual2",
-        "VMV3": "Visual2",
-        "PHA1": "Visual2",
-        "PHA2": "Visual2",
-        "PHA3": "Visual2",
-        "PH": "Visual2",
-        "VVC": "Visual2",
-        # Somatomotor Network
-        "1": "Somatomotor",
-        "2": "Somatomotor",
-        "3a": "Somatomotor",
-        "3b": "Somatomotor",
-        "4": "Somatomotor",
-        "6d": "Somatomotor",
-        "6v": "Somatomotor",
-        "6r": "Somatomotor",
-        "6a": "Somatomotor",
-        "6mp": "Somatomotor",
-        "6ma": "Somatomotor",
-        "SCEF": "Somatomotor",
-        "5m": "Somatomotor",
-        "5mv": "Somatomotor",
-        "5L": "Somatomotor",
-        "OP1": "Somatomotor",
-        "OP2-3": "Somatomotor",
-        "OP4": "Somatomotor",
-        "43": "Somatomotor",
-        "MI": "Somatomotor",
-        "RI": "Somatomotor",
-        "52": "Somatomotor",
-        "PFcm": "Somatomotor",
-        # Dorsal Attention Network
-        "VIP": "Dorsal Attention",
-        "LIPd": "Dorsal Attention",
-        "LIPv": "Dorsal Attention",
-        "MIP": "Dorsal Attention",
-        "AIP": "Dorsal Attention",
-        "IPS1": "Dorsal Attention",
-        "FEF": "Dorsal Attention",
-        "PEF": "Dorsal Attention",
-        "55b": "Dorsal Attention",
-        "i6-8": "Dorsal Attention",
-        "s6-8": "Dorsal Attention",
-        # Ventral Attention / Salience Network
-        "TPOJ1": "Ventral Attention",
-        "TPOJ2": "Ventral Attention",
-        "TPOJ3": "Ventral Attention",
-        "PGp": "Ventral Attention",
-        "PF": "Ventral Attention",
-        "PFm": "Ventral Attention",
-        "PFop": "Ventral Attention",
-        "PFt": "Ventral Attention",
-        "IP0": "Ventral Attention",
-        "IP1": "Ventral Attention",
-        "IP2": "Ventral Attention",
-        "DVT": "Ventral Attention",
-        "PoI1": "Ventral Attention",
-        "PoI2": "Ventral Attention",
-        "TA2": "Ventral Attention",
-        "FOP4": "Ventral Attention",
-        "AVI": "Ventral Attention",
-        "AAIC": "Ventral Attention",
-        "FOP1": "Ventral Attention",
-        "FOP2": "Ventral Attention",
-        "FOP3": "Ventral Attention",
-        "FOP5": "Ventral Attention",
-        "PI": "Ventral Attention",
-        "Ig": "Ventral Attention",
-        "STSva": "Ventral Attention",
-        "STSda": "Ventral Attention",
-        "STSdp": "Ventral Attention",
-        "STSvp": "Ventral Attention",
-        "PBelt": "Ventral Attention",
-        "A5": "Ventral Attention",
-        "MBelt": "Ventral Attention",
-        "LBelt": "Ventral Attention",
-        "A4": "Ventral Attention",
-        "STGa": "Ventral Attention",
-        "PSL": "Ventral Attention",
-        "STV": "Ventral Attention",
-        # Limbic Network
-        "25": "Limbic",
-        "23c": "Limbic",
-        "23d": "Limbic",
-        "31pv": "Limbic",
-        "31a": "Limbic",
-        "31pd": "Limbic",
-        "33pr": "Limbic",
-        "a24pr": "Limbic",
-        "p24pr": "Limbic",
-        "a24": "Limbic",
-        "p24": "Limbic",
-        "d32": "Limbic",
-        "p32": "Limbic",
-        "p32pr": "Limbic",
-        "a32pr": "Limbic",
-        "8BM": "Limbic",
-        "10r": "Limbic",
-        "EC": "Limbic",
-        "PreS": "Limbic",
-        "H": "Limbic",
-        "ProS": "Limbic",
-        "PeEc": "Limbic",
-        "Pir": "Limbic",
-        "TE1m": "Limbic",
-        # Frontoparietal / Executive Control Network
-        "8Av": "Frontoparietal",
-        "8Ad": "Frontoparietal",
-        "8BL": "Frontoparietal",
-        "8C": "Frontoparietal",
-        "9m": "Frontoparietal",
-        "9p": "Frontoparietal",
-        "9a": "Frontoparietal",
-        "10d": "Frontoparietal",
-        "10v": "Frontoparietal",
-        "10pp": "Frontoparietal",
-        "a10p": "Frontoparietal",
-        "p10p": "Frontoparietal",
-        "46": "Frontoparietal",
-        "44": "Frontoparietal",
-        "45": "Frontoparietal",
-        "47l": "Frontoparietal",
-        "47m": "Frontoparietal",
-        "47s": "Frontoparietal",
-        "a47r": "Frontoparietal",
-        "p47r": "Frontoparietal",
-        "IFJa": "Frontoparietal",
-        "IFJp": "Frontoparietal",
-        "IFSp": "Frontoparietal",
-        "IFSa": "Frontoparietal",
-        "p9-46v": "Frontoparietal",
-        "a9-46v": "Frontoparietal",
-        "9-46d": "Frontoparietal",
-        "11l": "Frontoparietal",
-        "13l": "Frontoparietal",
-        "OFC": "Frontoparietal",
-        "pOFC": "Frontoparietal",
-        # Default Mode Network
-        "RSC": "Default",
-        "POS1": "Default",
-        "POS2": "Default",
-        "7m": "Default",
-        "7AL": "Default",
-        "7PL": "Default",
-        "7PC": "Default",
-        "7Am": "Default",
-        "7Pm": "Default",
-        "d23ab": "Default",
-        "v23ab": "Default",
-        "PCV": "Default",
-        "TGd": "Default",
-        "TGv": "Default",
-        "TE1a": "Default",
-        "TE1p": "Default",
-        "TE2a": "Default",
-        "TE2p": "Default",
-        "PHT": "Default",
-        "TF": "Default",
-        "PGi": "Default",
-        "PGs": "Default",
-        # Subcortical
-        "Thalamus": "Subcortical",
-        "Putamen": "Subcortical",
-        "Stem": "Subcortical",
-        "Amy": "Subcortical",
-        "MidB": "Subcortical",
-        "HC": "Subcortical",
-        "NAcc": "Subcortical",
-        "Caudate": "Subcortical",
-        "Pallidum": "Subcortical",
-        "Hippocampus": "Subcortical",
-        "Amygdala": "Subcortical",
+    # ==========================================
+    # MAP NUMBERS TO NETWORK NAMES
+    # ==========================================
+    # Standard Yeo 7-network mapping (adjust if your CSV uses different numbering)
+    yeo_number_to_name = {
+        0: "Visual1",
+        1: "Visual2",
+        2: "Somatomotor",
+        3: "Dorsal Attention",
+        4: "Ventral Attention",
+        5: "Limbic",
+        6: "Frontoparietal",
+        7: "Default",
     }
 
-    # Glasser Network Colors (Visual1 = Cyan, Visual2 = Darker Teal)
-    network_colors = {
-        "Visual1": "#00BFC4",
-        "Visual2": "#0097A7",
-        "Somatomotor": "#F8766D",
-        "Dorsal Attention": "#7CAE00",
-        "Ventral Attention": "#C77CFF",
-        "Limbic": "#FF61C3",
-        "Frontoparietal": "#00BAFF",
-        "Default": "#FFC300",
-        "Subcortical": "#969696",
-    }
+    # Convert the numbers to names
+    cortex_networks_raw = glasser_yeo[network_col].tolist()
+    cortex_networks_clean = [
+        yeo_number_to_name.get(int(val), "Unknown") for val in cortex_networks_raw
+    ]
 
-    # Apply mapping
-    node_colors = []
+    # Build the full 446-length list
     network_assignments = []
+    network_assignments.extend(
+        cortex_networks_clean
+    )  # 1-360: Glasser Yeo Networks
+    network_assignments.extend(["Subcortical"] * 54)  # 361-414
+    network_assignments.extend(["Cerebellum"] * 32)  # 415-446
 
-    for region_name in region_names:
-        # Remove hemisphere prefix (L. or R. or B.)
-        if "." in region_name:
-            parts = region_name.split(".")
-            if len(parts) > 1:
-                region_key = parts[1]
-            else:
-                region_key = region_name
-        else:
-            region_key = region_name
-
-        # Try exact match
-        if region_key in glasser_to_network:
-            network = glasser_to_network[region_key]
-        else:
-            # Try partial match
-            network = "Subcortical"  # Default fallback
-            for key, net in glasser_to_network.items():
-                if key in region_key or region_key in key:
-                    network = net
-                    break
-
-        network_assignments.append(network)
-        node_colors.append(network_colors[network])
-
-    print(f"✓ Mapped {len(node_colors)} regions to Glasser networks")
-    print(f"\nNetwork distribution:")
-    net_counts = Counter(network_assignments)
-    for net, count in sorted(net_counts.items(), key=lambda x: x[1], reverse=True):
-        print(f"  {net}: {count} nodes")
+    print(
+        f"Network assignments created. Unique networks: {set(network_assignments)}"
+    )
 
     # ==========================================
-    # 5. SUMMARY
+    # 4. Save to Disk
     # ==========================================
-    print("\n" + "=" * 50)
-    print("SUCCESS!")
-    print(f"  - node_coords: shape {node_coords.shape}")
-    print(f"  - node_colors: {len(node_colors)} colors applied")
-    print(f"  - region_names: {len(region_names)} names")
-    print(f"  - networks: {len(set(network_assignments))} unique networks")
-    print("=" * 50)
-    return network_assignments, node_colors, node_coords
+    out_dir = "./res/pca-dim-reduction/"
+    os.makedirs(out_dir, exist_ok=True)  # Ensure the folder exists
+
+    np.save(os.path.join(out_dir, "node_coords_446.npy"), coords_mni)
+
+    # Save network assignments as a simple text file (one per line)
+    with open(os.path.join(out_dir, "network_assignments_446.txt"), "w") as _f:
+        for net in network_assignments:
+            _f.write(f"{net}\n")
+    return coords_mni, network_assignments
 
 
 @app.cell(hide_code=True)
 def _():
     mo.md(r"""
     And define the plotting function
-    """)
-    return
-
-
-@app.cell(hide_code=True)
-def _():
-    mo.md(r"""
-    # TODO: Double check this code! why is there an unknown region
     """)
     return
 
@@ -1039,7 +760,7 @@ def _():
 @app.function(hide_code=True)
 def plot_pcs_publication_ready(
     srbp_results: dict,
-    fc_matrices_df: pl.DataFrame,
+    fc_matrices_df, # pl.DataFrame
     node_coords: np.ndarray,
     pcs_to_plot: list,
     plot_dir: str,
@@ -1059,6 +780,23 @@ def plot_pcs_publication_ready(
     # Ensure the plot directory exists
     os.makedirs(plot_dir, exist_ok=True)
     os.makedirs(metadata_dir, exist_ok=True)
+
+    # ==========================================
+    # DEFINE COLOR MAP ONCE AT THE TOP
+    # ==========================================
+    glasser_network_colors = {
+        "Visual1": "#00BFC4",
+        "Visual2": "#0097A7",
+        "Somatomotor": "#F8766D",
+        "Dorsal Attention": "#7CAE00",
+        "Ventral Attention": "#C77CFF",
+        "Limbic": "#FF61C3",
+        "Frontoparietal": "#00BAFF",
+        "Default": "#FFC300",
+        "Subcortical": "#333333",
+        "Cerebellum": "#D2691E",
+        "Unknown": "#000000",
+    }
 
     # 1. Extract Data (Done once for all PCs)
     target_col = fc_matrices_df["diag"]
@@ -1088,12 +826,21 @@ def plot_pcs_publication_ready(
                 n_nodes - len(network_assignments)
             )
 
-    if node_colors is None or (
-        isinstance(node_colors, str) and node_colors == "royalblue"
-    ):
-        node_colors = [
-            "#a6cee3" if coord[0] < 0 else "#fb9a99" for coord in node_coords
-        ]
+    # ==========================================
+    # NEW LOGIC: Color nodes by Network
+    # ==========================================
+    if node_colors is None:
+        if network_assignments is not None:
+            # Map each node's network name to its hex color!
+            node_colors = [
+                glasser_network_colors.get(str(net), "#000000") 
+                for net in network_assignments
+            ]
+        else:
+            # Fallback to hemisphere coloring if no network info is provided
+            node_colors = [
+                "#a6cee3" if coord[0] < 0 else "#fb9a99" for coord in node_coords
+            ]
     elif isinstance(node_colors, list) and len(node_colors) < n_nodes:
         missing = n_nodes - len(node_colors)
         try:
@@ -1123,7 +870,7 @@ def plot_pcs_publication_ready(
 
         # Create Adjacency Matrix
         adj_matrix = np.zeros((n_nodes, n_nodes))
-        i_idx, j_idx = np.triu_indices(n_nodes, k=1)
+        i_idx, j_idx = np.tril_indices(n_nodes, k=1)
         for edge_idx in edges_to_plot:
             i, j = i_idx[edge_idx], j_idx[edge_idx]
             adj_matrix[i, j] = mean_diff[edge_idx]
@@ -1160,10 +907,12 @@ def plot_pcs_publication_ready(
                         intra_network_edges.get(net_i, 0) + 1
                     )
                 else:
+                    # Force conversion to string to prevent TypeError when comparing int/float to str
+                    str_i, str_j = str(net_i), str(net_j)
                     pair_name = (
-                        f"{net_i} ↔ {net_j}"
-                        if net_i < net_j
-                        else f"{net_j} ↔ {net_i}"
+                        f"{str_i} ↔ {str_j}"
+                        if str_i < str_j
+                        else f"{str_j} ↔ {str_i}"
                     )
                     inter_network_edges[pair_name] = (
                         inter_network_edges.get(pair_name, 0) + 1
@@ -1235,19 +984,6 @@ def plot_pcs_publication_ready(
 
         # Legend
         if show_legend:
-            glasser_network_colors = {
-                "Visual1": "#00BFC4",
-                "Visual2": "#0097A7",
-                "Somatomotor": "#F8766D",
-                "Dorsal Attention": "#7CAE00",
-                "Ventral Attention": "#C77CFF",
-                "Limbic": "#FF61C3",
-                "Frontoparietal": "#00BAFF",
-                "Default": "#FFC300",
-                "Subcortical": "#969696",
-                "Cerebellum": "#A0A0A0",
-                "Unknown": "#000000",
-            }
             legend_elements = []
             unique_nets_in_data = (
                 list(dict.fromkeys(network_assignments))
@@ -1255,7 +991,7 @@ def plot_pcs_publication_ready(
                 else []
             )
             for net_name in unique_nets_in_data:
-                color = glasser_network_colors.get(net_name, "#000000")
+                color = glasser_network_colors.get(str(net_name), "#000000")
                 legend_elements.append(
                     Line2D(
                         [0],
@@ -1319,8 +1055,6 @@ def plot_pcs_publication_ready(
         )
 
         # 2. Save the metadata to JSON
-        # We cast numpy types to native Python types (int/float) to prevent JSON serialization errors
-        # We also sort the dictionaries by value (highest to lowest)
         metadata = {
             "pc_index_0_based": int(pc_idx),
             "pc_number_1_based": int(pc_idx + 1),
@@ -1407,10 +1141,9 @@ def plot_pcs_publication_ready(
 
 @app.cell
 def _(
+    coords_mni,
     harmonized_srbp_fc_matrices_hc_mdd_df,
     network_assignments,
-    node_colors,
-    node_coords,
     srbp_metadata_dir,
     srbp_plot_dir,
     srbp_results,
@@ -1420,11 +1153,10 @@ def _(
     srbp_pc_plots_results = plot_pcs_publication_ready(
         srbp_results=srbp_results,
         fc_matrices_df=harmonized_srbp_fc_matrices_hc_mdd_df,
-        node_coords=node_coords,
+        node_coords=coords_mni,
         pcs_to_plot=srbp_target_pcs_to_plot,
         plot_dir=srbp_plot_dir,
         metadata_dir=srbp_metadata_dir,
-        node_colors=node_colors,
         show_legend=True,
         network_assignments=network_assignments,
     )
@@ -1741,21 +1473,19 @@ def _(
     bmb_metadata_dir,
     bmb_plot_dir,
     bmb_results,
+    coords_mni,
     harmonized_bmb_fc_matrices_hc_mdd_df,
     network_assignments,
-    node_colors,
-    node_coords,
 ):
     bmb_target_pcs_to_plot = [1.0, 60.0]
 
     bmb_pc_plots_results = plot_pcs_publication_ready(
         srbp_results=bmb_results,
         fc_matrices_df=harmonized_bmb_fc_matrices_hc_mdd_df,
-        node_coords=node_coords,
+        node_coords=coords_mni,
         pcs_to_plot=bmb_target_pcs_to_plot,
         plot_dir=bmb_plot_dir,
         metadata_dir=bmb_metadata_dir,
-        node_colors=node_colors,
         show_legend=True,
         network_assignments=network_assignments,
     )

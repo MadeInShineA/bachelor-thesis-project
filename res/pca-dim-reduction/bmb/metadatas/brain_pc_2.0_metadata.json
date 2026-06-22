@@ -124,39 +124,30 @@
     ],
     "network_statistics": {
         "per_network": {
-            "Somatomotor": 117,
-            "Unknown": 31,
-            "Visual2": 30,
-            "Ventral Attention": 23,
-            "Visual1": 10,
-            "Limbic": 7,
-            "Default": 5,
-            "Dorsal Attention": 3,
-            "Frontoparietal": 2
+            "Frontoparietal": 92,
+            "Visual2": 42,
+            "Subcortical": 39,
+            "Ventral Attention": 20,
+            "Cerebellum": 19,
+            "Default": 11,
+            "Dorsal Attention": 5
         },
         "intra_network": {
-            "Somatomotor": 31,
-            "Ventral Attention": 1
+            "Frontoparietal": 6,
+            "Visual2": 5
         },
         "inter_network": {
-            "Somatomotor \u2194 Visual2": 18,
-            "Somatomotor \u2194 Ventral Attention": 12,
-            "Somatomotor \u2194 Unknown": 12,
-            "Unknown \u2194 Visual2": 10,
-            "Somatomotor \u2194 Visual1": 7,
-            "Unknown \u2194 Ventral Attention": 6,
-            "Default \u2194 Somatomotor": 3,
-            "Limbic \u2194 Somatomotor": 2,
-            "Limbic \u2194 Ventral Attention": 2,
-            "Limbic \u2194 Unknown": 2,
-            "Limbic \u2194 Visual1": 1,
-            "Default \u2194 Frontoparietal": 1,
-            "Dorsal Attention \u2194 Ventral Attention": 1,
-            "Dorsal Attention \u2194 Somatomotor": 1,
-            "Dorsal Attention \u2194 Visual2": 1,
-            "Frontoparietal \u2194 Visual1": 1,
-            "Visual1 \u2194 Visual2": 1,
-            "Default \u2194 Unknown": 1
+            "Frontoparietal \u2194 Subcortical": 26,
+            "Frontoparietal \u2194 Visual2": 18,
+            "Frontoparietal \u2194 Ventral Attention": 14,
+            "Cerebellum \u2194 Frontoparietal": 14,
+            "Ventral Attention \u2194 Visual2": 6,
+            "Dorsal Attention \u2194 Frontoparietal": 5,
+            "Cerebellum \u2194 Subcortical": 5,
+            "Default \u2194 Visual2": 4,
+            "Subcortical \u2194 Visual2": 4,
+            "Default \u2194 Subcortical": 4,
+            "Default \u2194 Frontoparietal": 3
         }
     }
 }

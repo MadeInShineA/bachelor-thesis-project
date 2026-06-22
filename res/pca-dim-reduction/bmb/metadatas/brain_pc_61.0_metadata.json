@@ -15,17 +15,20 @@
     ],
     "network_statistics": {
         "per_network": {
-            "Somatomotor": 7,
+            "Ventral Attention": 3,
+            "Dorsal Attention": 3,
+            "Somatomotor": 2,
             "Frontoparietal": 1,
-            "Ventral Attention": 1,
-            "Unknown": 1
+            "Visual2": 1
         },
         "intra_network": {
-            "Somatomotor": 3
+            "Dorsal Attention": 1
         },
         "inter_network": {
-            "Frontoparietal \u2194 Somatomotor": 1,
-            "Unknown \u2194 Ventral Attention": 1
+            "Somatomotor \u2194 Ventral Attention": 1,
+            "Frontoparietal \u2194 Ventral Attention": 1,
+            "Dorsal Attention \u2194 Ventral Attention": 1,
+            "Somatomotor \u2194 Visual2": 1
         }
     }
 }

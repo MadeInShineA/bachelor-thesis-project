@@ -127,44 +127,38 @@
     ],
     "network_statistics": {
         "per_network": {
-            "Somatomotor": 120,
-            "Visual2": 24,
-            "Unknown": 23,
-            "Ventral Attention": 13,
-            "Frontoparietal": 13,
-            "Limbic": 12,
-            "Visual1": 10,
-            "Dorsal Attention": 9,
-            "Default": 9,
-            "Subcortical": 1
+            "Subcortical": 81,
+            "Frontoparietal": 73,
+            "Ventral Attention": 30,
+            "Visual2": 25,
+            "Cerebellum": 13,
+            "Default": 6,
+            "Dorsal Attention": 5,
+            "Limbic": 1
         },
         "intra_network": {
-            "Somatomotor": 29,
-            "Unknown": 1
+            "Subcortical": 23,
+            "Frontoparietal": 9,
+            "Ventral Attention": 6,
+            "Cerebellum": 2,
+            "Visual2": 1
         },
         "inter_network": {
-            "Somatomotor \u2194 Visual2": 13,
-            "Frontoparietal \u2194 Somatomotor": 10,
-            "Somatomotor \u2194 Unknown": 9,
-            "Somatomotor \u2194 Ventral Attention": 8,
-            "Unknown \u2194 Visual2": 7,
-            "Default \u2194 Somatomotor": 7,
-            "Limbic \u2194 Somatomotor": 6,
-            "Somatomotor \u2194 Visual1": 5,
-            "Visual1 \u2194 Visual2": 3,
-            "Dorsal Attention \u2194 Somatomotor": 3,
-            "Unknown \u2194 Ventral Attention": 3,
-            "Dorsal Attention \u2194 Limbic": 2,
-            "Limbic \u2194 Unknown": 2,
-            "Dorsal Attention \u2194 Visual1": 1,
-            "Default \u2194 Frontoparietal": 1,
+            "Frontoparietal \u2194 Subcortical": 26,
+            "Frontoparietal \u2194 Visual2": 11,
+            "Frontoparietal \u2194 Ventral Attention": 8,
+            "Cerebellum \u2194 Frontoparietal": 6,
+            "Ventral Attention \u2194 Visual2": 4,
+            "Subcortical \u2194 Visual2": 4,
+            "Cerebellum \u2194 Subcortical": 3,
+            "Dorsal Attention \u2194 Visual2": 2,
+            "Default \u2194 Visual2": 2,
+            "Default \u2194 Frontoparietal": 2,
+            "Dorsal Attention \u2194 Frontoparietal": 2,
+            "Default \u2194 Ventral Attention": 2,
+            "Subcortical \u2194 Ventral Attention": 2,
             "Dorsal Attention \u2194 Ventral Attention": 1,
-            "Somatomotor \u2194 Subcortical": 1,
-            "Dorsal Attention \u2194 Visual2": 1,
-            "Default \u2194 Visual1": 1,
-            "Limbic \u2194 Ventral Attention": 1,
-            "Dorsal Attention \u2194 Frontoparietal": 1,
-            "Frontoparietal \u2194 Limbic": 1
+            "Limbic \u2194 Ventral Attention": 1
         }
     }
 }

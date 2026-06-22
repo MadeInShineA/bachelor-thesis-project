@@ -15,20 +15,22 @@
     ],
     "network_statistics": {
         "per_network": {
-            "Somatomotor": 4,
-            "Visual2": 3,
+            "Ventral Attention": 2,
+            "Dorsal Attention": 2,
+            "Cerebellum": 2,
+            "Visual2": 1,
+            "Somatomotor": 1,
             "Default": 1,
-            "Ventral Attention": 1,
-            "Unknown": 1
+            "Subcortical": 1
         },
         "intra_network": {
-            "Visual2": 1,
-            "Somatomotor": 1
+            "Cerebellum": 1
         },
         "inter_network": {
-            "Default \u2194 Visual2": 1,
+            "Ventral Attention \u2194 Visual2": 1,
             "Somatomotor \u2194 Ventral Attention": 1,
-            "Somatomotor \u2194 Unknown": 1
+            "Default \u2194 Dorsal Attention": 1,
+            "Dorsal Attention \u2194 Subcortical": 1
         }
     }
 }
