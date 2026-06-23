@@ -77,16 +77,16 @@ def _():
 
 @app.cell
 def _(harmonized_srbp_fc_matrices_metadata_path):
-    harmonized_srbp_fc_matrices_metadata_df = pl.read_csv(
+    srbp_metadata_df = pl.read_csv(
         harmonized_srbp_fc_matrices_metadata_path
     )
-    harmonized_srbp_fc_matrices_metadata_df.head()
-    return (harmonized_srbp_fc_matrices_metadata_df,)
+    srbp_metadata_df.head()
+    return (srbp_metadata_df,)
 
 
 @app.cell
-def _(harmonized_srbp_fc_matrices_metadata_df):
-    print(harmonized_srbp_fc_matrices_metadata_df.columns)
+def _(srbp_metadata_df):
+    print(srbp_metadata_df.columns)
     return
 
 
@@ -122,9 +122,9 @@ def _():
 
 
 @app.cell
-def _(harmonized_srbp_fc_matrices, harmonized_srbp_fc_matrices_metadata_df):
+def _(harmonized_srbp_fc_matrices, srbp_metadata_df):
     harmonized_srbp_fc_matrices_df = (
-        harmonized_srbp_fc_matrices_metadata_df.with_columns(
+        srbp_metadata_df.with_columns(
             harmonized_fc_matrix=harmonized_srbp_fc_matrices
         )
     )
@@ -1610,6 +1610,151 @@ def _():
 
     However, we can see that for the PCs 2 and 60, the MDD subjects have an under connevtivity for most of the PC's FCs, just like in the SRBP dataset.
     """)
+    return
+
+
+@app.cell(hide_code=True)
+def _():
+    mo.md(r"""
+    ## Perturbating the FC matrices extraction of the SRBP dataset
+    """)
+    return
+
+
+@app.cell(hide_code=True)
+def _():
+    mo.md(r"""
+    We will now try to replicate the previous results, but with perturbated FC matrices.
+    """)
+    return
+
+
+@app.cell(hide_code=True)
+def _():
+    mo.md(r"""
+    ### Assign each time series file to it's subject
+    """)
+    return
+
+
+@app.cell(hide_code=True)
+def _():
+    mo.md(r"""
+    We start by creating a new Dataframe with the SRBP metadata and each subject time series file path
+    """)
+    return
+
+
+@app.cell
+def _():
+    srbp_time_series_directory_path = Path(
+        "/home/cbi-biomark03/ayumu/HARP/data/preproc_srpb/time_series/Glasser_filtering1_GSR1_scrubbing1/"
+    )
+    return (srbp_time_series_directory_path,)
+
+
+@app.cell
+def _(srbp_time_series_directory_path):
+    srbp_time_series_file_paths = [file for file in srbp_time_series_directory_path.iterdir() if file.is_file()]
+    return (srbp_time_series_file_paths,)
+
+
+@app.cell
+def _(srbp_time_series_file_paths):
+    srbp_time_series_file_paths_dict = {
+        path.name.removesuffix("_restT1_parcel.csv"): path 
+        for path in srbp_time_series_file_paths 
+        if path.name.endswith("_restT1_parcel.csv")
+    }
+    return (srbp_time_series_file_paths_dict,)
+
+
+@app.cell
+def _(srbp_time_series_file_paths_dict):
+    srbp_time_series_file_paths_df = pl.DataFrame({
+        "sub_id": list(srbp_time_series_file_paths_dict.keys()),
+        "time_series_path": [str(p) for p in srbp_time_series_file_paths_dict.values()]
+    })
+
+    return (srbp_time_series_file_paths_df,)
+
+
+@app.cell
+def _(srbp_metadata_df, srbp_time_series_file_paths_df):
+    srbp_time_series_file_df = srbp_time_series_file_paths_df.join(srbp_metadata_df, on="sub_id", how="left")
+    return (srbp_time_series_file_df,)
+
+
+@app.cell
+def _(srbp_time_series_file_df):
+    srbp_time_series_file_df.head()
+    return
+
+
+@app.cell(hide_code=True)
+def _():
+    mo.md(r"""
+    ### Calculate each subject fuzzy FC matrix
+    """)
+    return
+
+
+@app.cell(hide_code=True)
+def _():
+    mo.md(r"""
+    We will now define the function use to extract the FC matrices from the subject's time series path
+    """)
+    return
+
+
+@app.function
+def extract_subject_fuzzy_fc_matrix(subject_time_series_path: str)-> list:
+    pass
+
+
+@app.cell(hide_code=True)
+def _():
+    mo.md(r"""
+    And calculate each FC matrix
+    """)
+    return
+
+
+@app.cell
+def _(srbp_time_series_file_df):
+    srbp_fuzzy_fc_matrices_df = (
+        srbp_time_series_file_df
+        .with_columns(
+            pl.col("time_series_path")
+            .map_elements(extract_subject_fuzzy_fc_matrix, return_dtype=pl.List(pl.Float64))
+            .alias("fc_matrix")
+        )
+        .select(
+            "sub_id",
+            "time_series_path",
+            "fc_matrix",
+            pl.exclude("sub_id", "time_series_path", "fc_matrix")
+        )
+    )
+    return (srbp_fuzzy_fc_matrices_df,)
+
+
+@app.cell
+def _(srbp_fuzzy_fc_matrices_df):
+    srbp_fuzzy_fc_matrices_df.head()
+    return
+
+
+@app.cell(hide_code=True)
+def _():
+    mo.md(r"""
+    ### Harmonize the fuzzy FC matrices
+    """)
+    return
+
+
+@app.cell
+def _():
     return
 
 
