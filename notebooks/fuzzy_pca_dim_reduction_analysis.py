@@ -25,6 +25,8 @@ with app.setup:
     import nibabel as nib
     from nilearn.image import resample_to_img
     import pickle
+    from concurrent.futures import ThreadPoolExecutor
+    from tqdm import tqdm
 
 
 @app.cell(hide_code=True)
@@ -69,24 +71,22 @@ def _():
 
 @app.cell
 def _():
-    harmonized_srbp_fc_matrices_metadata_path = Path(
+    harmonized_srpb_fc_matrices_metadata_path = Path(
         "/home/cbi-biomark03/ayumu/HARP/data/preproc_srpb_ts_harmonized/all_data_sub_Glasser_GSR1.csv"
     )
-    return (harmonized_srbp_fc_matrices_metadata_path,)
+    return (harmonized_srpb_fc_matrices_metadata_path,)
 
 
 @app.cell
-def _(harmonized_srbp_fc_matrices_metadata_path):
-    srbp_metadata_df = pl.read_csv(
-        harmonized_srbp_fc_matrices_metadata_path
-    )
-    srbp_metadata_df.head()
-    return (srbp_metadata_df,)
+def _(harmonized_srpb_fc_matrices_metadata_path):
+    srpb_metadata_df = pl.read_csv(harmonized_srpb_fc_matrices_metadata_path)
+    srpb_metadata_df.head()
+    return (srpb_metadata_df,)
 
 
 @app.cell
-def _(srbp_metadata_df):
-    print(srbp_metadata_df.columns)
+def _(srpb_metadata_df):
+    print(srpb_metadata_df.columns)
     return
 
 
@@ -100,17 +100,17 @@ def _():
 
 @app.cell
 def _():
-    harmonized_srbp_fc_matrices = []
+    harmonized_srpb_fc_matrices = []
 
 
     with h5py.File(
         "/home/cbi-biomark03/ayumu/HARP/data/preproc_srpb_ts_harmonized/all_data_con_Glasser_GSR1_ortho1_harmonized.mat",
         "r",
     ) as _f:
-        harmonized_srbp_fc_matrices = _f["X"][:]
+        harmonized_srpb_fc_matrices = _f["X"][:]
 
-    harmonized_srbp_fc_matrices
-    return (harmonized_srbp_fc_matrices,)
+    harmonized_srpb_fc_matrices
+    return (harmonized_srpb_fc_matrices,)
 
 
 @app.cell(hide_code=True)
@@ -122,18 +122,16 @@ def _():
 
 
 @app.cell
-def _(harmonized_srbp_fc_matrices, srbp_metadata_df):
-    harmonized_srbp_fc_matrices_df = (
-        srbp_metadata_df.with_columns(
-            harmonized_fc_matrix=harmonized_srbp_fc_matrices
-        )
+def _(harmonized_srpb_fc_matrices, srpb_metadata_df):
+    harmonized_srpb_fc_matrices_df = srpb_metadata_df.with_columns(
+        harmonized_fc_matrix=harmonized_srpb_fc_matrices
     )
-    return (harmonized_srbp_fc_matrices_df,)
+    return (harmonized_srpb_fc_matrices_df,)
 
 
 @app.cell
-def _(harmonized_srbp_fc_matrices_df):
-    harmonized_srbp_fc_matrices_df["harmonized_fc_matrix"].head(1)
+def _(harmonized_srpb_fc_matrices_df):
+    harmonized_srpb_fc_matrices_df["harmonized_fc_matrix"].head(1)
     return
 
 
@@ -146,11 +144,11 @@ def _():
 
 
 @app.cell
-def _(harmonized_srbp_fc_matrices_df):
-    harmonized_srbp_fc_matrices_hc_mdd_df = harmonized_srbp_fc_matrices_df.filter(
+def _(harmonized_srpb_fc_matrices_df):
+    harmonized_srpb_fc_matrices_hc_mdd_df = harmonized_srpb_fc_matrices_df.filter(
         pl.col("diag").is_in([0, 2])
     )
-    return (harmonized_srbp_fc_matrices_hc_mdd_df,)
+    return (harmonized_srpb_fc_matrices_hc_mdd_df,)
 
 
 @app.cell(hide_code=True)
@@ -170,8 +168,8 @@ def _():
 
 
 @app.cell
-def _(harmonized_srbp_fc_matrices_hc_mdd_df):
-    harmonized_srbp_fc_matrices_hc_mdd_df.group_by("diag").len()
+def _(harmonized_srpb_fc_matrices_hc_mdd_df):
+    harmonized_srpb_fc_matrices_hc_mdd_df.group_by("diag").len()
     return
 
 
@@ -184,8 +182,8 @@ def _():
 
 
 @app.cell
-def _(harmonized_srbp_fc_matrices_hc_mdd_df):
-    harmonized_srbp_fc_matrices_hc_mdd_df.group_by("sex").len()
+def _(harmonized_srpb_fc_matrices_hc_mdd_df):
+    harmonized_srpb_fc_matrices_hc_mdd_df.group_by("sex").len()
     return
 
 
@@ -198,8 +196,8 @@ def _():
 
 
 @app.cell
-def _(harmonized_srbp_fc_matrices_hc_mdd_df):
-    harmonized_srbp_fc_matrices_hc_mdd_df.group_by("age").len()
+def _(harmonized_srpb_fc_matrices_hc_mdd_df):
+    harmonized_srpb_fc_matrices_hc_mdd_df.group_by("age").len()
     return
 
 
@@ -212,8 +210,8 @@ def _():
 
 
 @app.cell
-def _(harmonized_srbp_fc_matrices_hc_mdd_df):
-    harmonized_srbp_fc_matrices_hc_mdd_df.group_by("bdi").len()
+def _(harmonized_srpb_fc_matrices_hc_mdd_df):
+    harmonized_srpb_fc_matrices_hc_mdd_df.group_by("bdi").len()
     return
 
 
@@ -226,14 +224,14 @@ def _():
 
 
 @app.cell
-def _(harmonized_srbp_fc_matrices_hc_mdd_df):
-    harmonized_srbp_fc_matrices_hc_mdd_df.group_by("site").len()
+def _(harmonized_srpb_fc_matrices_hc_mdd_df):
+    harmonized_srpb_fc_matrices_hc_mdd_df.group_by("site").len()
     return
 
 
 @app.cell
-def _(harmonized_srbp_fc_matrices_hc_mdd_df):
-    harmonized_srbp_fc_matrices_hc_mdd_df.group_by("meanFD").len()
+def _(harmonized_srpb_fc_matrices_hc_mdd_df):
+    harmonized_srpb_fc_matrices_hc_mdd_df.group_by("meanFD").len()
     return
 
 
@@ -499,11 +497,11 @@ def _():
 
 @app.cell
 def _():
-    srbp_plot_dir = "./res/pca-dim-reduction/srbp/plots/"
-    srbp_ttest_dir = "./res/pca-dim-reduction/srbp/t-tests/"
-    srbp_cache_dir = "./res/pca-dim-reduction/srbp/cache/"
-    srbp_metadata_dir = "./res/pca-dim-reduction/srbp/metadatas/"
-    return srbp_cache_dir, srbp_metadata_dir, srbp_plot_dir, srbp_ttest_dir
+    srpb_plot_dir = "./res/pca-dim-reduction/srpb/plots/"
+    srpb_ttest_dir = "./res/pca-dim-reduction/srpb/t-tests/"
+    srpb_cache_dir = "./res/pca-dim-reduction/srpb/cache/"
+    srpb_metadata_dir = "./res/pca-dim-reduction/srpb/metadatas/"
+    return srpb_cache_dir, srpb_metadata_dir, srpb_plot_dir, srpb_ttest_dir
 
 
 @app.cell
@@ -547,29 +545,29 @@ def _():
 
 @app.cell
 def _(
-    harmonized_srbp_fc_matrices_hc_mdd_df,
+    harmonized_srpb_fc_matrices_hc_mdd_df,
     metric_dict,
-    srbp_cache_dir,
-    srbp_plot_dir,
-    srbp_ttest_dir,
+    srpb_cache_dir,
+    srpb_plot_dir,
+    srpb_ttest_dir,
 ):
-    srbp_metrics_dict = calculate_metrics(
-        df=harmonized_srbp_fc_matrices_hc_mdd_df,
+    srpb_metrics_dict = calculate_metrics(
+        df=harmonized_srpb_fc_matrices_hc_mdd_df,
         metric_dict=metric_dict,
         alpha_threshold=0.05,
-        plot_dir=srbp_plot_dir,
-        ttest_dir=srbp_ttest_dir,
-        cache_dir=srbp_cache_dir,
+        plot_dir=srpb_plot_dir,
+        ttest_dir=srpb_ttest_dir,
+        cache_dir=srpb_cache_dir,
     )
 
-    srbp_results = srbp_metrics_dict["results"]
-    srbp_ui = srbp_metrics_dict["ui"]
-    return srbp_results, srbp_ui
+    srpb_results = srpb_metrics_dict["results"]
+    srpb_ui = srpb_metrics_dict["ui"]
+    return srpb_results, srpb_ui
 
 
 @app.cell
-def _(srbp_ui):
-    srbp_ui
+def _(srpb_ui):
+    srpb_ui
     return
 
 
@@ -632,9 +630,9 @@ def select_mdd_pc(
 
 
 @app.cell
-def _(srbp_results):
-    srbp_selected_mdd_pcs = select_mdd_pc(srbp_results, ["bdi"])
-    srbp_selected_mdd_pcs
+def _(srpb_results):
+    srpb_selected_mdd_pcs = select_mdd_pc(srpb_results, ["bdi"])
+    srpb_selected_mdd_pcs
     return
 
 
@@ -800,7 +798,7 @@ def _():
 
 @app.function(hide_code=True)
 def plot_pcs_publication_ready(
-    srbp_results: dict,
+    srpb_results: dict,
     fc_matrices_df,  # pl.DataFrame
     node_coords: np.ndarray,
     pcs_to_plot: list,
@@ -903,7 +901,7 @@ def plot_pcs_publication_ready(
     # 2. Loop through each requested PC
     for pc_idx in pcs_to_plot:
         # Extract edges for this specific PC
-        diag_data = srbp_results["diag"]
+        diag_data = srpb_results["diag"]
         mask_pc = np.isclose(diag_data["cons_pc"], pc_idx)
         edges_to_plot = list(diag_data["cons"][mask_pc])
 
@@ -1236,30 +1234,30 @@ def plot_pcs_publication_ready(
 @app.cell
 def _(
     coords_mni,
-    harmonized_srbp_fc_matrices_hc_mdd_df,
+    harmonized_srpb_fc_matrices_hc_mdd_df,
     network_assignments,
-    srbp_metadata_dir,
-    srbp_plot_dir,
-    srbp_results,
+    srpb_metadata_dir,
+    srpb_plot_dir,
+    srpb_results,
 ):
-    srbp_target_pcs_to_plot = [1.0, 69.0]
+    srpb_target_pcs_to_plot = [1.0, 69.0]
 
-    srbp_pc_plots_results = plot_pcs_publication_ready(
-        srbp_results=srbp_results,
-        fc_matrices_df=harmonized_srbp_fc_matrices_hc_mdd_df,
+    srpb_pc_plots_results = plot_pcs_publication_ready(
+        srpb_results=srpb_results,
+        fc_matrices_df=harmonized_srpb_fc_matrices_hc_mdd_df,
         node_coords=coords_mni,
-        pcs_to_plot=srbp_target_pcs_to_plot,
-        plot_dir=srbp_plot_dir,
-        metadata_dir=srbp_metadata_dir,
+        pcs_to_plot=srpb_target_pcs_to_plot,
+        plot_dir=srpb_plot_dir,
+        metadata_dir=srpb_metadata_dir,
         show_legend=True,
         network_assignments=network_assignments,
     )
-    return (srbp_pc_plots_results,)
+    return (srpb_pc_plots_results,)
 
 
 @app.cell
-def _(srbp_pc_plots_results):
-    srbp_pc_plots_results["ui"]
+def _(srpb_pc_plots_results):
+    srpb_pc_plots_results["ui"]
     return
 
 
@@ -1274,7 +1272,7 @@ def _():
 @app.cell(hide_code=True)
 def _():
     mo.md(r"""
-    We see that if we compare the results obtained in the paper, which were obtained by splitting the srbp dataset in 2, the different PCA plots have the same first PC for almost every metric (except for the sex and FD mean metrics).
+    We see that if we compare the results obtained in the paper, which were obtained by splitting the srpb dataset in 2, the different PCA plots have the same first PC for almost every metric (except for the sex and FD mean metrics).
 
     However, when looking at which PC were significant for the MDD diagnosis, we don't obtain the same results.
     In the paper, the PC 2 was only selected for the diag metric. In our case, it was selected for the diag, BDI, age, site and mean FD metrics. The only PC which was caracterized as significant for the MDD diagnosis is PC 70.
@@ -1577,7 +1575,7 @@ def _(
     bmb_target_pcs_to_plot = [1.0, 7.0, 60.0]
 
     bmb_pc_plots_results = plot_pcs_publication_ready(
-        srbp_results=bmb_results,
+        srpb_results=bmb_results,
         fc_matrices_df=harmonized_bmb_fc_matrices_hc_mdd_df,
         node_coords=coords_mni,
         pcs_to_plot=bmb_target_pcs_to_plot,
@@ -1606,9 +1604,9 @@ def _():
 @app.cell(hide_code=True)
 def _():
     mo.md(r"""
-    We can see that for the BMB dataset, the different PC extracted, are quite different than the one in the SRBP dataset.
+    We can see that for the BMB dataset, the different PC extracted, are quite different than the one in the SRPB dataset.
 
-    However, we can see that for the PCs 2 and 60, the MDD subjects have an under connevtivity for most of the PC's FCs, just like in the SRBP dataset.
+    However, we can see that for the PCs 2 and 60, the MDD subjects have an under connevtivity for most of the PC's FCs, just like in the SRPB dataset.
     """)
     return
 
@@ -1616,7 +1614,7 @@ def _():
 @app.cell(hide_code=True)
 def _():
     mo.md(r"""
-    ## Perturbating the FC matrices extraction of the SRBP dataset
+    ## Extraction of the regular the FC matrices of the SRPB dataset
     """)
     return
 
@@ -1625,76 +1623,95 @@ def _():
 def _():
     mo.md(r"""
     We will now try to replicate the previous results, but with perturbated FC matrices.
-    """)
-    return
 
-
-@app.cell(hide_code=True)
-def _():
-    mo.md(r"""
-    ### Assign each time series file to it's subject
-    """)
-    return
-
-
-@app.cell(hide_code=True)
-def _():
-    mo.md(r"""
-    We start by creating a new Dataframe with the SRBP metadata and each subject time series file path
+    We will start by regular FC matrices extraction, to see if the extraction method is correct and compare them to the harmonized ones
     """)
     return
 
 
 @app.cell
 def _():
-    srbp_time_series_directory_path = Path(
+    srpb_fuzzy_fc_matrices_output_path = (
+        "/home/cbi-biomark/olivier.amacker/fuzzy-fc-matrices/srpb"
+    )
+    return (srpb_fuzzy_fc_matrices_output_path,)
+
+
+@app.cell(hide_code=True)
+def _():
+    mo.md(r"""
+    ### Assign each time series file to its subject
+    """)
+    return
+
+
+@app.cell(hide_code=True)
+def _():
+    mo.md(r"""
+    We start by creating a new Dataframe with the SRPB metadata and each subject time series file path
+    """)
+    return
+
+
+@app.cell
+def _():
+    srpb_time_series_directory_path = Path(
         "/home/cbi-biomark03/ayumu/HARP/data/preproc_srpb/time_series/Glasser_filtering1_GSR1_scrubbing1/"
     )
-    return (srbp_time_series_directory_path,)
+    return (srpb_time_series_directory_path,)
 
 
 @app.cell
-def _(srbp_time_series_directory_path):
-    srbp_time_series_file_paths = [file for file in srbp_time_series_directory_path.iterdir() if file.is_file()]
-    return (srbp_time_series_file_paths,)
+def _(srpb_time_series_directory_path):
+    srpb_time_series_file_paths = [
+        file
+        for file in srpb_time_series_directory_path.iterdir()
+        if file.is_file()
+    ]
+    return (srpb_time_series_file_paths,)
 
 
 @app.cell
-def _(srbp_time_series_file_paths):
-    srbp_time_series_file_paths_dict = {
-        path.name.removesuffix("_restT1_parcel.csv"): path 
-        for path in srbp_time_series_file_paths 
+def _(srpb_time_series_file_paths):
+    srpb_time_series_file_paths_dict = {
+        path.name.removesuffix("_restT1_parcel.csv"): path
+        for path in srpb_time_series_file_paths
         if path.name.endswith("_restT1_parcel.csv")
     }
-    return (srbp_time_series_file_paths_dict,)
+    return (srpb_time_series_file_paths_dict,)
 
 
 @app.cell
-def _(srbp_time_series_file_paths_dict):
-    srbp_time_series_file_paths_df = pl.DataFrame({
-        "sub_id": list(srbp_time_series_file_paths_dict.keys()),
-        "time_series_path": [str(p) for p in srbp_time_series_file_paths_dict.values()]
-    })
-
-    return (srbp_time_series_file_paths_df,)
-
-
-@app.cell
-def _(srbp_metadata_df, srbp_time_series_file_paths_df):
-    srbp_time_series_file_df = srbp_time_series_file_paths_df.join(srbp_metadata_df, on="sub_id", how="left")
-    return (srbp_time_series_file_df,)
+def _(srpb_time_series_file_paths_dict):
+    srpb_time_series_file_paths_df = pl.DataFrame(
+        {
+            "sub_id": list(srpb_time_series_file_paths_dict.keys()),
+            "time_series_path": [
+                str(p) for p in srpb_time_series_file_paths_dict.values()
+            ],
+        }
+    )
+    return (srpb_time_series_file_paths_df,)
 
 
 @app.cell
-def _(srbp_time_series_file_df):
-    srbp_time_series_file_df.head()
+def _(srpb_metadata_df, srpb_time_series_file_paths_df):
+    srpb_time_series_file_df = srpb_time_series_file_paths_df.join(
+        srpb_metadata_df, on="sub_id", how="left"
+    )
+    return (srpb_time_series_file_df,)
+
+
+@app.cell
+def _(srpb_time_series_file_df):
+    srpb_time_series_file_df.head()
     return
 
 
 @app.cell(hide_code=True)
 def _():
     mo.md(r"""
-    ### Calculate each subject fuzzy FC matrix
+    ### Assign each scrub file to its subject
     """)
     return
 
@@ -1702,46 +1719,452 @@ def _():
 @app.cell(hide_code=True)
 def _():
     mo.md(r"""
-    We will now define the function use to extract the FC matrices from the subject's time series path
+    We also assign each subject its scrub file path
+    """)
+    return
+
+
+@app.cell
+def _():
+    srpb_scrub_directory_path = Path(
+        "/home/cbi-biomark03/ayumu/HARP/data/preproc_srpb/scrub/Glasser_filtering1_GSR1_scrubbing1/"
+    )
+    return (srpb_scrub_directory_path,)
+
+
+@app.cell
+def _(srpb_scrub_directory_path):
+    srpb_scrub_file_paths = [
+        file for file in srpb_scrub_directory_path.iterdir() if file.is_file()
+    ]
+    return (srpb_scrub_file_paths,)
+
+
+@app.cell
+def _(srpb_scrub_file_paths):
+    srpb_scrub_file_paths_dict = {
+        path.name.removesuffix("_restT1_scrub.csv"): path
+        for path in srpb_scrub_file_paths
+        if path.name.endswith("_restT1_scrub.csv")
+    }
+    return (srpb_scrub_file_paths_dict,)
+
+
+@app.cell
+def _(srpb_scrub_file_paths_dict):
+    srpb_scrub_file_paths_df = pl.DataFrame(
+        {
+            "sub_id": list(srpb_scrub_file_paths_dict.keys()),
+            "scrub_path": [str(p) for p in srpb_scrub_file_paths_dict.values()],
+        }
+    )
+    return (srpb_scrub_file_paths_df,)
+
+
+@app.cell
+def _(srpb_scrub_file_paths_df, srpb_time_series_file_df):
+    srpb_time_series_scrub_file_df = srpb_scrub_file_paths_df.join(
+        srpb_time_series_file_df, on="sub_id", how="left"
+    )
+    return (srpb_time_series_scrub_file_df,)
+
+
+@app.cell
+def _(srpb_time_series_scrub_file_df):
+    srpb_time_series_scrub_file_df.head()
+    return
+
+
+@app.cell(hide_code=True)
+def _():
+    mo.md(r"""
+    ### Calculate each subject regular FC matrix
+    """)
+    return
+
+
+@app.cell(hide_code=True)
+def _():
+    mo.md(r"""
+    We will now define the functions used to extract the FC matrices from the subject's time series and scrub paths
     """)
     return
 
 
 @app.function
-def extract_subject_fuzzy_fc_matrix(subject_time_series_path: str)-> list:
-    pass
+def extract_subject_fc_matrix(
+    subject_time_series_path: str,
+    subject_scrub_path: str,
+    apply_scrubbing=True,
+    scrubbing_threshold=0.5,
+) -> list:
+
+    # Load the time_series
+    time_series_data = pl.read_csv(subject_time_series_path)
+    time_series_data = time_series_data.drop(time_series_data.columns[0])
+
+    if apply_scrubbing:
+        # Load the scrub file
+        scrub_data = pl.read_csv(subject_scrub_path)
+        scrub_array = scrub_data["0"].to_numpy()
+
+        scrub_first_col = scrub_data.columns[0]
+        scrub_data = scrub_data.drop(scrub_first_col)
+        scrub_array = scrub_data.to_numpy().flatten()
+
+        # Compute the mask
+        mask = np.ones(len(scrub_array))
+
+        for time_i, fd_i in enumerate(scrub_array):
+            if fd_i > scrubbing_threshold:
+                j1 = max(0, time_i)
+                j2 = min(len(scrub_array), time_i + 2)
+                mask[j1:j2] = 0
+
+        # Apply the mask using
+        mask_series = pl.Series(mask == 1)
+        time_series_data_filtered = time_series_data.filter(mask_series)
+    else:
+        time_series_data_filtered = time_series_data
+
+    # Convert to numpy for correlation computation
+    ts_array = time_series_data_filtered.to_numpy()
+
+    # Compute correlation matrix
+    corr_matrix = np.corrcoef(ts_array.T)
+
+    # Lower triangular + Fisher Z-transformation
+    lower_tri = np.tril(corr_matrix, -1)
+    lower_tri_z = np.arctanh(lower_tri)
+
+    # Extract non-zero values
+    connectivity = lower_tri_z[lower_tri_z != 0]
+
+    return connectivity.tolist()
 
 
 @app.cell(hide_code=True)
 def _():
     mo.md(r"""
-    And calculate each FC matrix
+    And extract each FC matrix in parallel
     """)
     return
 
 
 @app.cell
-def _(srbp_time_series_file_df):
-    srbp_fuzzy_fc_matrices_df = (
-        srbp_time_series_file_df
-        .with_columns(
-            pl.col("time_series_path")
-            .map_elements(extract_subject_fuzzy_fc_matrix, return_dtype=pl.List(pl.Float64))
-            .alias("fc_matrix")
-        )
-        .select(
-            "sub_id",
-            "time_series_path",
-            "fc_matrix",
-            pl.exclude("sub_id", "time_series_path", "fc_matrix")
-        )
-    )
-    return (srbp_fuzzy_fc_matrices_df,)
+def _(srpb_fuzzy_fc_matrices_output_path):
+    run_name = "regular-matrices"
+
+    run_fc_matrices_output_dir = f"{srpb_fuzzy_fc_matrices_output_path}/{run_name}/"
+
+    run_fc_matrices_cache_filename = "Glasser_filtering1_GSR1_fuzzy_fc_matrices.pkl"
+    run_fc_matrices_cache_path = os.path.join(run_fc_matrices_output_dir, run_fc_matrices_cache_filename)
+    return run_fc_matrices_cache_path, run_fc_matrices_output_dir, run_name
 
 
 @app.cell
-def _(srbp_fuzzy_fc_matrices_df):
-    srbp_fuzzy_fc_matrices_df.head()
+def _(
+    run_fc_matrices_cache_path,
+    run_fc_matrices_output_dir,
+    srpb_time_series_scrub_file_df,
+):
+    if os.path.exists(
+        run_fc_matrices_cache_path,
+    ):
+        print(
+            f"Loading cached results for extracted FC matrices from {run_fc_matrices_cache_path}"
+        )
+
+        with open(run_fc_matrices_cache_path, "rb") as f:
+            results = pickle.load(f)
+
+        # Reconstruct the DataFrame from the cached list
+        srpb_extracted_fc_matrices_df = (
+            srpb_time_series_scrub_file_df.with_columns(
+                pl.Series(
+                    name="fc_matrix", values=results, dtype=pl.List(pl.Float64)
+                )
+            ).select(
+                "sub_id",
+                "time_series_path",
+                "fc_matrix",
+                pl.exclude("sub_id", "time_series_path", "fc_matrix"),
+            )
+        )
+
+    else:
+        print(f"Computing and caching extracted FC matrices...")
+        ts_paths = srpb_time_series_scrub_file_df["time_series_path"].to_list()
+        scrub_paths = srpb_time_series_scrub_file_df["scrub_path"].to_list()
+
+        def process_subject(args):
+            ts_path, sc_path = args
+            return extract_subject_fc_matrix(
+                subject_time_series_path=ts_path,
+                subject_scrub_path=sc_path,
+            )
+
+        results = []
+        with ThreadPoolExecutor() as executor:
+            futures = [
+                executor.submit(process_subject, (ts, sc))
+                for ts, sc in zip(ts_paths, scrub_paths)
+            ]
+
+            for future in tqdm(futures, desc="Processing subjects"):
+                results.append(future.result())
+
+        srpb_extracted_fc_matrices_df = (
+            srpb_time_series_scrub_file_df.with_columns(
+                pl.Series(
+                    name="fc_matrix", values=results, dtype=pl.List(pl.Float64)
+                )
+            ).select(
+                "sub_id",
+                "time_series_path",
+                "fc_matrix",
+                pl.exclude("sub_id", "time_series_path", "fc_matrix"),
+            )
+        )
+
+        # Ensure the output directory exists before saving
+        os.makedirs(run_fc_matrices_output_dir, exist_ok=True)
+
+        # Save to cache with the correct extension
+        with open(run_fc_matrices_cache_path, "wb") as _f:
+            pickle.dump(results, _f)
+    return (srpb_extracted_fc_matrices_df,)
+
+
+@app.cell
+def _(srpb_extracted_fc_matrices_df):
+    srpb_extracted_fc_matrices_df.head(1)
+    return
+
+
+@app.cell(hide_code=True)
+def _():
+    mo.md(r"""
+    We want to save the current run FC matrices
+    """)
+    return
+
+
+@app.cell(hide_code=True)
+def _():
+    mo.md(r"""
+    ### Comparison of the extracted FC matrices and the harmonized ones
+    """)
+    return
+
+
+@app.cell
+def _(run_name):
+    srpb_fc_matrices_correlation_output_dir = f"./res/pca-dim-reduction/srpb/fc_matrices_correlation/{run_name}"
+    return (srpb_fc_matrices_correlation_output_dir,)
+
+
+@app.cell(hide_code=True)
+def _():
+    mo.md(r"""
+    Please note that this plotting code was generated by Qwen3.7-Plus
+    """)
+    return
+
+
+@app.cell
+def _():
+    from scipy import stats
+
+    def compare_fc_matrices(
+        unharmonized_series,
+        harmonized_series,
+        out_dir,
+    ) -> dict:
+        """
+        Compare unharmonized vs harmonized FC matrices.
+        Returns histogram of per-subject pairwise correlations.
+        Results are cached in JSON format.
+        """
+        os.makedirs(out_dir, exist_ok=True)
+        cache_path = os.path.join(out_dir, "fc_comparison_results.json")
+        plot_path = os.path.join(out_dir, "fc_comparison_histogram.png")
+
+        # Check cache
+        if os.path.exists(cache_path) and os.path.exists(plot_path):
+            with open(cache_path, "r") as f:
+                results = json.load(f)
+        else:
+            # Extract to Python lists
+            unharmonized_list = unharmonized_series.to_list()
+            harmonized_list = harmonized_series.to_list()
+
+            subject_correlations = []
+            subject_maes = []
+
+            for i, (my_vec_flat, ref_vec_flat) in enumerate(
+                zip(unharmonized_list, harmonized_list)
+            ):
+                my_vec = np.array(my_vec_flat, dtype=np.float64)
+                ref_vec = np.array(ref_vec_flat, dtype=np.float64)
+
+                # Safety check
+                if len(my_vec) != len(ref_vec):
+                    continue
+
+                # Calculate metrics
+                r, _ = stats.pearsonr(my_vec, ref_vec)
+                subject_correlations.append(r)
+
+                mae = np.mean(np.abs(my_vec - ref_vec))
+                subject_maes.append(mae)
+
+            results = {
+                "subject_correlations": subject_correlations,
+                "subject_maes": subject_maes,
+                "avg_correlation": float(np.mean(subject_correlations))
+                if subject_correlations
+                else float("nan"),
+                "avg_mae": float(np.mean(subject_maes))
+                if subject_maes
+                else float("nan"),
+                "n_subjects": len(subject_correlations),
+            }
+
+            # Create histogram of per-subject correlations
+            fig, ax = plt.subplots(1, 1, figsize=(10, 6))
+
+            if subject_correlations:
+                # Create histogram with 30 bins
+                n_bins = min(30, len(subject_correlations))
+                counts, bins, patches = ax.hist(
+                    subject_correlations,
+                    bins=n_bins,
+                    color="skyblue",
+                    edgecolor="black",
+                    alpha=0.8,
+                )
+            
+                ax.set_title(
+                    "Distribution of Per-Subject Pairwise Correlations\n(Unharmonized vs Harmonized)",
+                    fontsize=12,
+                )
+                ax.set_xlabel("Pearson Correlation (r)", fontsize=10)
+                ax.set_ylabel("Number of Subjects", fontsize=10)
+            
+                # Add vertical lines for mean and median
+                mean_corr = np.mean(subject_correlations)
+                median_corr = np.median(subject_correlations)
+            
+                ax.axvline(
+                    mean_corr,
+                    color="red",
+                    linestyle="--",
+                    linewidth=2,
+                    label=f"Mean: {mean_corr:.4f}",
+                )
+                ax.axvline(
+                    median_corr,
+                    color="green",
+                    linestyle="-.",
+                    linewidth=2,
+                    label=f"Median: {median_corr:.4f}",
+                )
+            
+                ax.legend(loc="upper left", fontsize=9)
+                ax.grid(axis="y", alpha=0.3)
+
+                # Add text annotation with statistics
+                stats_text = (
+                    f"Mean: {mean_corr:.4f}\n"
+                    f"Median: {median_corr:.4f}\n"
+                    f"Std: {np.std(subject_correlations):.4f}\n"
+                    f"Min: {np.min(subject_correlations):.4f}\n"
+                    f"Max: {np.max(subject_correlations):.4f}"
+                )
+                ax.text(
+                    0.95,
+                    0.95,
+                    stats_text,
+                    transform=ax.transAxes,
+                    ha="right",
+                    va="top",
+                    bbox=dict(boxstyle="round", facecolor="wheat", alpha=0.5),
+                )
+            else:
+                ax.text(
+                    0.5,
+                    0.5,
+                    "No valid data to plot",
+                    ha="center",
+                    va="center",
+                    transform=ax.transAxes,
+                )
+
+            plt.tight_layout()
+            plt.savefig(plot_path, dpi=150, bbox_inches="tight")
+            plt.close()
+
+            # Cache results as JSON
+            with open(cache_path, "w") as f:
+                json.dump(results, f, indent=2)
+
+        # Create UI element
+        comparison_plot = mo.image(src=plot_path)
+
+        # Handle NaN values safely
+        avg_corr = results["avg_correlation"]
+        avg_mae = results["avg_mae"]
+    
+        avg_corr_str = f"{avg_corr:.4f}" if not np.isnan(avg_corr) else "N/A"
+        avg_mae_str = f"{avg_mae:.4f}" if not np.isnan(avg_mae) else "N/A"
+        median_corr_str = f"{np.median(results['subject_correlations']):.4f}" if results['subject_correlations'] else "N/A"
+
+        metrics_md = mo.md(f"""
+        #### FC Matrix Comparison Metrics
+    
+        | Metric | Value |
+        |--------|-------|
+        | **Average Per-Subject Correlation** | {avg_corr_str} |
+        | **Median Per-Subject Correlation** | {median_corr_str} |
+        | **Average MAE** | {avg_mae_str} |
+        | **Number of Subjects** | {results["n_subjects"]} |
+        """)
+
+        ui = mo.vstack(
+            [
+                metrics_md,
+                comparison_plot,
+            ],
+            gap=2,
+        )
+
+        return {
+            "results": results,
+            "ui": ui,
+        }
+
+    return (compare_fc_matrices,)
+
+
+@app.cell
+def _(
+    compare_fc_matrices,
+    harmonized_srpb_fc_matrices_df,
+    srpb_extracted_fc_matrices_df,
+    srpb_fc_matrices_correlation_output_dir,
+):
+    fc_matrices_comparison_results = compare_fc_matrices(
+        srpb_extracted_fc_matrices_df["fc_matrix"],
+        harmonized_srpb_fc_matrices_df["harmonized_fc_matrix"],
+        out_dir=srpb_fc_matrices_correlation_output_dir
+    )
+    return (fc_matrices_comparison_results,)
+
+
+@app.cell
+def _(fc_matrices_comparison_results):
+    fc_matrices_comparison_results["ui"]
     return
 
 
@@ -1750,11 +2173,6 @@ def _():
     mo.md(r"""
     ### Harmonize the fuzzy FC matrices
     """)
-    return
-
-
-@app.cell
-def _():
     return
 
 
