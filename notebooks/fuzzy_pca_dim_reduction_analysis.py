@@ -27,6 +27,7 @@ with app.setup:
     import pickle
     from concurrent.futures import ThreadPoolExecutor
     from tqdm import tqdm
+    from scipy import stats
 
 
 @app.cell(hide_code=True)
@@ -1614,7 +1615,7 @@ def _():
 @app.cell(hide_code=True)
 def _():
     mo.md(r"""
-    ## Extraction of the regular the FC matrices of the SRPB dataset
+    ## Extraction and harmonization of the regular the FC matrices of the SRPB dataset
     """)
     return
 
@@ -1622,9 +1623,7 @@ def _():
 @app.cell(hide_code=True)
 def _():
     mo.md(r"""
-    We will now try to replicate the previous results, but with perturbated FC matrices.
-
-    We will start by regular FC matrices extraction, to see if the extraction method is correct and compare them to the harmonized ones
+    We will start by extracting regular FC matrices extraction, to see if the extraction method is correct and compare them to the harmonized ones
     """)
     return
 
@@ -1795,6 +1794,7 @@ def _():
 def extract_subject_fc_matrix(
     subject_time_series_path: str,
     subject_scrub_path: str,
+    corrcoef_function=np.corrcoef,
     apply_scrubbing=True,
     scrubbing_threshold=0.5,
 ) -> list:
@@ -1831,7 +1831,7 @@ def extract_subject_fc_matrix(
     ts_array = time_series_data_filtered.to_numpy()
 
     # Compute correlation matrix
-    corr_matrix = np.corrcoef(ts_array.T)
+    corr_matrix = corrcoef_function(ts_array.T)
 
     # Lower triangular + Fisher Z-transformation
     lower_tri = np.tril(corr_matrix, -1)
@@ -1855,18 +1855,50 @@ def _():
 def _(srpb_fuzzy_fc_matrices_output_path):
     run_name = "regular-matrices"
 
-    run_fc_matrices_output_dir = f"{srpb_fuzzy_fc_matrices_output_path}/{run_name}/"
+    run_fc_matrices_output_dir = (
+        f"{srpb_fuzzy_fc_matrices_output_path}/{run_name}/"
+    )
 
-    run_fc_matrices_cache_filename = "Glasser_filtering1_GSR1_fuzzy_fc_matrices.pkl"
-    run_fc_matrices_cache_path = os.path.join(run_fc_matrices_output_dir, run_fc_matrices_cache_filename)
+    run_fc_matrices_cache_filename = (
+        "Glasser_filtering1_GSR1_fuzzy_fc_matrices.pkl"
+    )
+    run_fc_matrices_cache_path = os.path.join(
+        run_fc_matrices_output_dir, run_fc_matrices_cache_filename
+    )
     return run_fc_matrices_cache_path, run_fc_matrices_output_dir, run_name
+
+
+@app.cell
+def _(srpb_time_series_scrub_file_df):
+    ts_paths = srpb_time_series_scrub_file_df["time_series_path"].to_list()
+    scrub_paths = srpb_time_series_scrub_file_df["scrub_path"].to_list()
+    return scrub_paths, ts_paths
+
+
+@app.function
+def process_subject(
+    subject_time_series_path: str,
+    subject_scrub_path: str,
+    corrcoef_function=np.corrcoef,
+    apply_scrubbing=True,
+    scrubbing_threshold=0.5,
+):
+    return extract_subject_fc_matrix(
+        subject_time_series_path=subject_time_series_path,
+        subject_scrub_path=subject_scrub_path,
+        corrcoef_function=corrcoef_function,
+        apply_scrubbing=apply_scrubbing,
+        scrubbing_threshold=scrubbing_threshold,
+    )
 
 
 @app.cell
 def _(
     run_fc_matrices_cache_path,
     run_fc_matrices_output_dir,
+    scrub_paths,
     srpb_time_series_scrub_file_df,
+    ts_paths,
 ):
     if os.path.exists(
         run_fc_matrices_cache_path,
@@ -1894,20 +1926,11 @@ def _(
 
     else:
         print(f"Computing and caching extracted FC matrices...")
-        ts_paths = srpb_time_series_scrub_file_df["time_series_path"].to_list()
-        scrub_paths = srpb_time_series_scrub_file_df["scrub_path"].to_list()
-
-        def process_subject(args):
-            ts_path, sc_path = args
-            return extract_subject_fc_matrix(
-                subject_time_series_path=ts_path,
-                subject_scrub_path=sc_path,
-            )
 
         results = []
         with ThreadPoolExecutor() as executor:
             futures = [
-                executor.submit(process_subject, (ts, sc))
+                executor.submit(process_subject, ts, sc)
                 for ts, sc in zip(ts_paths, scrub_paths)
             ]
 
@@ -1960,7 +1983,9 @@ def _():
 
 @app.cell
 def _(run_name):
-    srpb_fc_matrices_correlation_output_dir = f"./res/pca-dim-reduction/srpb/fc_matrices_correlation/{run_name}"
+    srpb_fc_matrices_correlation_output_dir = (
+        f"./res/pca-dim-reduction/srpb/fc_matrices_correlation/{run_name}"
+    )
     return (srpb_fc_matrices_correlation_output_dir,)
 
 
@@ -1972,192 +1997,187 @@ def _():
     return
 
 
-@app.cell
-def _():
-    from scipy import stats
+@app.function
+def compare_fc_matrices(
+    unharmonized_df: pl.DataFrame,
+    unharmonized_col: str,
+    harmonized_df: pl.DataFrame,
+    harmonized_col: str,
+    out_dir: str,
+    sub_id_col: str = "sub_id",
+) -> tuple[dict, pl.DataFrame]:
+    """
+    Compare unharmonized vs harmonized FC matrices matched by sub_id.
+    Returns (results_dict, unharmonized_df with added pairwise_correlation column).
+    Results are saved to cache in JSON format (cache loading is disabled).
+    """
+    os.makedirs(out_dir, exist_ok=True)
+    cache_path = os.path.join(out_dir, "fc_comparison_results.json")
+    plot_path = os.path.join(out_dir, "fc_comparison_histogram.png")
 
-    def compare_fc_matrices(
-        unharmonized_series,
-        harmonized_series,
-        out_dir,
-    ) -> dict:
-        """
-        Compare unharmonized vs harmonized FC matrices.
-        Returns histogram of per-subject pairwise correlations.
-        Results are cached in JSON format.
-        """
-        os.makedirs(out_dir, exist_ok=True)
-        cache_path = os.path.join(out_dir, "fc_comparison_results.json")
-        plot_path = os.path.join(out_dir, "fc_comparison_histogram.png")
-
-        # Check cache
-        if os.path.exists(cache_path) and os.path.exists(plot_path):
-            with open(cache_path, "r") as f:
-                results = json.load(f)
-        else:
-            # Extract to Python lists
-            unharmonized_list = unharmonized_series.to_list()
-            harmonized_list = harmonized_series.to_list()
-
-            subject_correlations = []
-            subject_maes = []
-
-            for i, (my_vec_flat, ref_vec_flat) in enumerate(
-                zip(unharmonized_list, harmonized_list)
-            ):
-                my_vec = np.array(my_vec_flat, dtype=np.float64)
-                ref_vec = np.array(ref_vec_flat, dtype=np.float64)
-
-                # Safety check
-                if len(my_vec) != len(ref_vec):
-                    continue
-
-                # Calculate metrics
-                r, _ = stats.pearsonr(my_vec, ref_vec)
-                subject_correlations.append(r)
-
-                mae = np.mean(np.abs(my_vec - ref_vec))
-                subject_maes.append(mae)
-
-            results = {
-                "subject_correlations": subject_correlations,
-                "subject_maes": subject_maes,
-                "avg_correlation": float(np.mean(subject_correlations))
-                if subject_correlations
-                else float("nan"),
-                "avg_mae": float(np.mean(subject_maes))
-                if subject_maes
-                else float("nan"),
-                "n_subjects": len(subject_correlations),
-            }
-
-            # Create histogram of per-subject correlations
-            fig, ax = plt.subplots(1, 1, figsize=(10, 6))
-
-            if subject_correlations:
-                # Create histogram with 30 bins
-                n_bins = min(30, len(subject_correlations))
-                counts, bins, patches = ax.hist(
-                    subject_correlations,
-                    bins=n_bins,
-                    color="skyblue",
-                    edgecolor="black",
-                    alpha=0.8,
-                )
-            
-                ax.set_title(
-                    "Distribution of Per-Subject Pairwise Correlations\n(Unharmonized vs Harmonized)",
-                    fontsize=12,
-                )
-                ax.set_xlabel("Pearson Correlation (r)", fontsize=10)
-                ax.set_ylabel("Number of Subjects", fontsize=10)
-            
-                # Add vertical lines for mean and median
-                mean_corr = np.mean(subject_correlations)
-                median_corr = np.median(subject_correlations)
-            
-                ax.axvline(
-                    mean_corr,
-                    color="red",
-                    linestyle="--",
-                    linewidth=2,
-                    label=f"Mean: {mean_corr:.4f}",
-                )
-                ax.axvline(
-                    median_corr,
-                    color="green",
-                    linestyle="-.",
-                    linewidth=2,
-                    label=f"Median: {median_corr:.4f}",
-                )
-            
-                ax.legend(loc="upper left", fontsize=9)
-                ax.grid(axis="y", alpha=0.3)
-
-                # Add text annotation with statistics
-                stats_text = (
-                    f"Mean: {mean_corr:.4f}\n"
-                    f"Median: {median_corr:.4f}\n"
-                    f"Std: {np.std(subject_correlations):.4f}\n"
-                    f"Min: {np.min(subject_correlations):.4f}\n"
-                    f"Max: {np.max(subject_correlations):.4f}"
-                )
-                ax.text(
-                    0.95,
-                    0.95,
-                    stats_text,
-                    transform=ax.transAxes,
-                    ha="right",
-                    va="top",
-                    bbox=dict(boxstyle="round", facecolor="wheat", alpha=0.5),
-                )
-            else:
-                ax.text(
-                    0.5,
-                    0.5,
-                    "No valid data to plot",
-                    ha="center",
-                    va="center",
-                    transform=ax.transAxes,
-                )
-
-            plt.tight_layout()
-            plt.savefig(plot_path, dpi=150, bbox_inches="tight")
-            plt.close()
-
-            # Cache results as JSON
-            with open(cache_path, "w") as f:
-                json.dump(results, f, indent=2)
-
-        # Create UI element
-        comparison_plot = mo.image(src=plot_path)
-
-        # Handle NaN values safely
-        avg_corr = results["avg_correlation"]
-        avg_mae = results["avg_mae"]
+    # 1. Align DataFrames by sub_id using a left join
+    harm_suffix = "_harm"
+    joined_df = unharmonized_df.join(
+        harmonized_df.select([sub_id_col, harmonized_col]),
+        on=sub_id_col,
+        how="left",
+        suffix=harm_suffix,
+    )
     
-        avg_corr_str = f"{avg_corr:.4f}" if not np.isnan(avg_corr) else "N/A"
-        avg_mae_str = f"{avg_mae:.4f}" if not np.isnan(avg_mae) else "N/A"
-        median_corr_str = f"{np.median(results['subject_correlations']):.4f}" if results['subject_correlations'] else "N/A"
+    # Determine the actual name of the harmonized column in the joined dataframe
+    if harmonized_col in joined_df.columns:
+        joined_harm_col = harmonized_col
+    else:
+        joined_harm_col = harmonized_col + harm_suffix
 
-        metrics_md = mo.md(f"""
-        #### FC Matrix Comparison Metrics
-    
-        | Metric | Value |
-        |--------|-------|
-        | **Average Per-Subject Correlation** | {avg_corr_str} |
-        | **Median Per-Subject Correlation** | {median_corr_str} |
-        | **Average MAE** | {avg_mae_str} |
-        | **Number of Subjects** | {results["n_subjects"]} |
-        """)
+    unharmonized_list = joined_df[unharmonized_col].to_list()
+    harmonized_list = joined_df[joined_harm_col].to_list()
 
-        ui = mo.vstack(
-            [
-                metrics_md,
-                comparison_plot,
-            ],
-            gap=2,
+    # 2. Compute metrics (Cache loading removed, always recompute)
+    n_rows = len(unharmonized_list)
+    subject_correlations = []
+    subject_maes = []
+
+    for i in range(n_rows):
+        my_vec_flat = unharmonized_list[i]
+        ref_vec_flat = harmonized_list[i]
+
+        # Handle nulls (e.g., subject missing in harmonized_df)
+        if my_vec_flat is None or ref_vec_flat is None:
+            subject_correlations.append(None)
+            subject_maes.append(None)
+            continue
+
+        my_vec = np.array(my_vec_flat, dtype=np.float64)
+        ref_vec = np.array(ref_vec_flat, dtype=np.float64)
+
+        if len(my_vec) != len(ref_vec):
+            subject_correlations.append(None)
+            subject_maes.append(None)
+            continue
+
+        # Calculate metrics
+        r, _ = stats.pearsonr(my_vec, ref_vec)
+        subject_correlations.append(r)
+
+        mae = np.mean(np.abs(my_vec - ref_vec))
+        subject_maes.append(mae)
+
+    # Filter out None values for aggregate statistics
+    valid_corrs = [c for c in subject_correlations if c is not None]
+    valid_maes = [m for m in subject_maes if m is not None]
+
+    results = {
+        "subject_correlations": subject_correlations,
+        "subject_maes": subject_maes,
+        "avg_correlation": float(np.mean(valid_corrs)) if valid_corrs else float("nan"),
+        "avg_mae": float(np.mean(valid_maes)) if valid_maes else float("nan"),
+        "n_subjects": len(valid_corrs),
+    }
+
+    # --- Histogram ---
+    fig, ax = plt.subplots(1, 1, figsize=(10, 6))
+
+    if valid_corrs:
+        n_bins = min(30, len(valid_corrs))
+        ax.hist(
+            valid_corrs,
+            bins=n_bins,
+            color="skyblue",
+            edgecolor="black",
+            alpha=0.8,
         )
+        ax.set_title(
+            "Distribution of Per-Subject Pairwise Correlations\n(Unharmonized vs Harmonized)",
+            fontsize=12,
+        )
+        ax.set_xlabel("Pearson Correlation (r)", fontsize=10)
+        ax.set_ylabel("Number of Subjects", fontsize=10)
 
-        return {
-            "results": results,
-            "ui": ui,
-        }
+        mean_corr = np.mean(valid_corrs)
+        median_corr = np.median(valid_corrs)
 
-    return (compare_fc_matrices,)
+        ax.axvline(mean_corr, color="red", linestyle="--", linewidth=2,
+                    label=f"Mean: {mean_corr:.4f}")
+        ax.axvline(median_corr, color="green", linestyle="-.", linewidth=2,
+                    label=f"Median: {median_corr:.4f}")
+        ax.legend(loc="upper left", fontsize=9)
+        ax.grid(axis="y", alpha=0.3)
+
+        stats_text = (
+            f"Mean: {mean_corr:.4f}\n"
+            f"Median: {median_corr:.4f}\n"
+            f"Std: {np.std(valid_corrs):.4f}\n"
+            f"Min: {np.min(valid_corrs):.4f}\n"
+            f"Max: {np.max(valid_corrs):.4f}"
+        )
+        ax.text(0.95, 0.95, stats_text, transform=ax.transAxes,
+                ha="right", va="top",
+                bbox=dict(boxstyle="round", facecolor="wheat", alpha=0.5))
+    else:
+        ax.text(0.5, 0.5, "No valid data to plot",
+                ha="center", va="center", transform=ax.transAxes)
+
+    plt.tight_layout()
+    plt.savefig(plot_path, dpi=150, bbox_inches="tight")
+    plt.close()
+
+    # 3. Save cache (Loading is disabled, but saving remains)
+    with open(cache_path, "w") as f:
+        json.dump(results, f, indent=2)
+
+    # 4. Build the final Polars DataFrame
+    corr_df = joined_df.with_columns(
+        pl.Series(name="pairwise_correlation", values=results["subject_correlations"], dtype=pl.Float64)
+    )
+
+    # 5. UI Generation
+    comparison_plot = mo.image(src=plot_path)
+
+    avg_corr = results["avg_correlation"]
+    avg_mae = results["avg_mae"]
+
+    avg_corr_str = f"{avg_corr:.4f}" if not np.isnan(avg_corr) else "N/A"
+    avg_mae_str = f"{avg_mae:.4f}" if not np.isnan(avg_mae) else "N/A"
+    
+    valid_corrs_for_ui = [c for c in results["subject_correlations"] if c is not None]
+    median_corr_str = (
+        f"{np.median(valid_corrs_for_ui):.4f}"
+        if valid_corrs_for_ui else "N/A"
+    )
+
+    metrics_md = mo.md(f"""
+    #### FC Matrix Comparison Metrics
+
+    | Metric | Value |
+    |--------|-------|
+    | **Average Per-Subject Correlation** | {avg_corr_str} |
+    | **Median Per-Subject Correlation** | {median_corr_str} |
+    | **Average MAE** | {avg_mae_str} |
+    | **Number of Subjects** | {results["n_subjects"]} |
+    """)
+
+    ui = mo.vstack([metrics_md, comparison_plot], gap=2)
+
+    results["ui"] = ui
+
+    return results, corr_df
 
 
 @app.cell
 def _(
-    compare_fc_matrices,
     harmonized_srpb_fc_matrices_df,
     srpb_extracted_fc_matrices_df,
     srpb_fc_matrices_correlation_output_dir,
 ):
-    fc_matrices_comparison_results = compare_fc_matrices(
-        srpb_extracted_fc_matrices_df["fc_matrix"],
-        harmonized_srpb_fc_matrices_df["harmonized_fc_matrix"],
-        out_dir=srpb_fc_matrices_correlation_output_dir
+    fc_matrices_comparison_results, srpb_extracted_fc_matrices_correlation_df = (
+        compare_fc_matrices(
+            srpb_extracted_fc_matrices_df,
+            "fc_matrix",
+            harmonized_srpb_fc_matrices_df,
+            "harmonized_fc_matrix",
+            out_dir=srpb_fc_matrices_correlation_output_dir,
+        )
     )
     return (fc_matrices_comparison_results,)
 
@@ -2171,8 +2191,259 @@ def _(fc_matrices_comparison_results):
 @app.cell(hide_code=True)
 def _():
     mo.md(r"""
-    ### Harmonize the fuzzy FC matrices
+    ### Harmonization of the regular extracted matrices
     """)
+    return
+
+
+@app.cell
+def _():
+    return
+
+
+@app.cell(hide_code=True)
+def _():
+    mo.md(r"""
+    ## Extracttion and harmonization of perturbated FC matrices
+    """)
+    return
+
+
+@app.cell(hide_code=True)
+def _():
+    mo.md(r"""
+    We start by defining the perturbated `corrcoef` function
+    """)
+    return
+
+
+@app.cell
+def _():
+    fuzzy_numpy_container = (
+        "verificarlo/fuzzy:v2.0.0-lapack-python3.8.5-numpy-scipy-sklearn"
+    )
+    return
+
+
+@app.cell
+def _():
+    import base64
+    import subprocess
+
+
+    def fuzzy_np_corrcoef(x, precision_binary64=53):
+        """
+        Run np.corrcoef with fuzzy perturbations inside Docker container.
+
+        Args:
+            x: Input array for correlation
+            precision_binary64: Precision level (53=standard, lower=more noise)
+                               Use 1-10 for testing, 53 for production
+        """
+        container = (
+            "verificarlo/fuzzy:v2.0.0-lapack-python3.8.5-numpy-scipy-sklearn"
+        )
+
+        # Serialize input
+        x_b64 = base64.b64encode(pickle.dumps(x)).decode("ascii")
+
+        # Script to run inside container
+        py_script = """
+    import sys, base64, pickle, numpy as np
+
+    try:
+        x_b64 = sys.stdin.read().strip()
+        x = pickle.loads(base64.b64decode(x_b64))
+        res = np.corrcoef(x)
+        res_b64 = base64.b64encode(pickle.dumps(res)).decode('ascii')
+        sys.stdout.write(res_b64)
+    except Exception as e:
+        sys.stderr.write(f"Error inside container: {str(e)}")
+        sys.exit(1)
+    """
+
+        # Use exact format from README
+        vfc_backends = f"libinterflop_mca.so -m mca --precision-binary32=24 --precision-binary64={precision_binary64}"
+
+        result = subprocess.run(
+            [
+                "docker",
+                "run",
+                "--rm",
+                "-i",
+                "-e",
+                f"VFC_BACKENDS={vfc_backends}",
+                container,
+                "python3",
+                "-c",
+                py_script,
+            ],
+            input=x_b64,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+
+        res = pickle.loads(base64.b64decode(result.stdout))
+        return res
+
+    return (fuzzy_np_corrcoef,)
+
+
+@app.cell
+def _():
+    num_fuzzy_run = 2
+    return
+
+
+@app.cell
+def _(
+    as_completed,
+    fuzzy_np_corrcoef,
+    scrub_paths,
+    srpb_fuzzy_fc_matrices_output_path,
+    srpb_time_series_scrub_file_df,
+    ts_paths,
+):
+    def run_fuzzy_extraction_runs(num_fuzzy_run: int):
+        all_dataframes = []
+
+        for run_number in range(num_fuzzy_run):
+            run_fc_matrices_output_dir = (
+                f"{srpb_fuzzy_fc_matrices_output_path}/run-{run_number}/"
+            )
+
+            run_fc_matrices_cache_filename = (
+                "Glasser_filtering1_GSR1_fuzzy_fc_matrices.pkl"
+            )
+
+            run_fc_matrices_cache_path = os.path.join(
+                run_fc_matrices_output_dir, run_fc_matrices_cache_filename
+            )
+
+            if os.path.exists(
+                run_fc_matrices_cache_path,
+            ):
+                print(
+                    f"Loading cached results for extracted FC matrices run {run_number} from {run_fc_matrices_cache_path}"
+                )
+
+                with open(run_fc_matrices_cache_path, "rb") as f:
+                    results = pickle.load(f)
+
+                    # Reconstruct the DataFrame from the cached list
+                    srpb_extracted_fc_matrices_df = (
+                        srpb_time_series_scrub_file_df.with_columns(
+                            pl.Series(
+                                name="fc_matrix",
+                                values=results,
+                                dtype=pl.List(pl.Float64),
+                            )
+                        ).select(
+                            "sub_id",
+                            "time_series_path",
+                            "fc_matrix",
+                            pl.exclude("sub_id", "time_series_path", "fc_matrix"),
+                        )
+                    )
+
+                    all_dataframes.append(srpb_extracted_fc_matrices_df)
+
+            else:
+                print(
+                    f"Computing and caching extracted FC matrices for run {run_number}..."
+                )
+
+                results = []
+                with ThreadPoolExecutor() as executor:
+                    futures = [
+                        executor.submit(
+                            process_subject,
+                            ts,
+                            sc,
+                            fuzzy_np_corrcoef,
+                        )
+                        for ts, sc in zip(ts_paths, scrub_paths)
+                    ]
+
+                    for future in tqdm(
+                        as_completed(futures),
+                        total=len(futures),
+                        desc="Processing subjects",
+                    ):
+                        results.append(future.result())
+
+                srpb_fuzzy_fc_matrices_df = (
+                    srpb_time_series_scrub_file_df.with_columns(
+                        pl.Series(
+                            name="fc_matrix",
+                            values=results,
+                            dtype=pl.List(pl.Float64),
+                        )
+                    ).select(
+                        "sub_id",
+                        "time_series_path",
+                        "fc_matrix",
+                        pl.exclude("sub_id", "time_series_path", "fc_matrix"),
+                    )
+                )
+
+                all_dataframes.append(srpb_fuzzy_fc_matrices_df)
+
+                # Ensure the output directory exists before saving
+                os.makedirs(run_fc_matrices_output_dir, exist_ok=True)
+
+                # Save to cache with the correct extension
+                with open(run_fc_matrices_cache_path, "wb") as _f:
+                    pickle.dump(results, _f)
+
+        return all_dataframes
+
+    return
+
+
+@app.cell
+def _():
+    # fuzzy_runs_df = run_fuzzy_extraction_runs(num_fuzzy_run)
+    return
+
+
+@app.cell
+def _(fuzzy_runs_df, srpb_extracted_fc_matrices_df):
+    fuzzy_runs_df[0]["fc_matrix"] == srpb_extracted_fc_matrices_df["fc_matrix"]
+    return
+
+
+@app.cell
+def _(srpb_extracted_fc_matrices_df):
+    srpb_extracted_fc_matrices_df.head(1)
+    return
+
+
+@app.cell
+def _():
+    srpb_fc_matrices_correlation_run_0_output_dir = (
+        f"./res/pca-dim-reduction/srpb/fc_matrices_correlation/run-0"
+    )
+    return (srpb_fc_matrices_correlation_run_0_output_dir,)
+
+
+@app.cell
+def _(
+    fuzzy_runs_df,
+    srpb_extracted_fc_matrices_df,
+    srpb_fc_matrices_correlation_run_0_output_dir,
+):
+    fc_matrices_comparison_run_0_results = compare_fc_matrices(
+        srpb_extracted_fc_matrices_df["fc_matrix"],
+        fuzzy_runs_df[0]["fc_matrix"],
+        out_dir=srpb_fc_matrices_correlation_run_0_output_dir,
+    )
+    return
+
+
+@app.cell
+def _():
     return
 
 
