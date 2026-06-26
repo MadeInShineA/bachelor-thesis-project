@@ -28,6 +28,7 @@ with app.setup:
     from concurrent.futures import ThreadPoolExecutor
     from tqdm import tqdm
     from scipy import stats
+    from typing import Tuple
 
 
 @app.cell(hide_code=True)
@@ -778,7 +779,7 @@ def _():
     with open(os.path.join(out_dir, "network_assignments_446.txt"), "w") as _f:
         for net in network_assignments:
             _f.write(f"{net}\n")
-    return coords_mni, network_assignments
+    return ROI, coords_mni, network_assignments
 
 
 @app.cell(hide_code=True)
@@ -2023,7 +2024,7 @@ def compare_fc_matrices(
         how="left",
         suffix=harm_suffix,
     )
-    
+
     # Determine the actual name of the harmonized column in the joined dataframe
     if harmonized_col in joined_df.columns:
         joined_harm_col = harmonized_col
@@ -2070,7 +2071,9 @@ def compare_fc_matrices(
     results = {
         "subject_correlations": subject_correlations,
         "subject_maes": subject_maes,
-        "avg_correlation": float(np.mean(valid_corrs)) if valid_corrs else float("nan"),
+        "avg_correlation": float(np.mean(valid_corrs))
+        if valid_corrs
+        else float("nan"),
         "avg_mae": float(np.mean(valid_maes)) if valid_maes else float("nan"),
         "n_subjects": len(valid_corrs),
     }
@@ -2097,10 +2100,20 @@ def compare_fc_matrices(
         mean_corr = np.mean(valid_corrs)
         median_corr = np.median(valid_corrs)
 
-        ax.axvline(mean_corr, color="red", linestyle="--", linewidth=2,
-                    label=f"Mean: {mean_corr:.4f}")
-        ax.axvline(median_corr, color="green", linestyle="-.", linewidth=2,
-                    label=f"Median: {median_corr:.4f}")
+        ax.axvline(
+            mean_corr,
+            color="red",
+            linestyle="--",
+            linewidth=2,
+            label=f"Mean: {mean_corr:.4f}",
+        )
+        ax.axvline(
+            median_corr,
+            color="green",
+            linestyle="-.",
+            linewidth=2,
+            label=f"Median: {median_corr:.4f}",
+        )
         ax.legend(loc="upper left", fontsize=9)
         ax.grid(axis="y", alpha=0.3)
 
@@ -2111,12 +2124,24 @@ def compare_fc_matrices(
             f"Min: {np.min(valid_corrs):.4f}\n"
             f"Max: {np.max(valid_corrs):.4f}"
         )
-        ax.text(0.95, 0.95, stats_text, transform=ax.transAxes,
-                ha="right", va="top",
-                bbox=dict(boxstyle="round", facecolor="wheat", alpha=0.5))
+        ax.text(
+            0.95,
+            0.95,
+            stats_text,
+            transform=ax.transAxes,
+            ha="right",
+            va="top",
+            bbox=dict(boxstyle="round", facecolor="wheat", alpha=0.5),
+        )
     else:
-        ax.text(0.5, 0.5, "No valid data to plot",
-                ha="center", va="center", transform=ax.transAxes)
+        ax.text(
+            0.5,
+            0.5,
+            "No valid data to plot",
+            ha="center",
+            va="center",
+            transform=ax.transAxes,
+        )
 
     plt.tight_layout()
     plt.savefig(plot_path, dpi=150, bbox_inches="tight")
@@ -2128,7 +2153,11 @@ def compare_fc_matrices(
 
     # 4. Build the final Polars DataFrame
     corr_df = joined_df.with_columns(
-        pl.Series(name="pairwise_correlation", values=results["subject_correlations"], dtype=pl.Float64)
+        pl.Series(
+            name="pairwise_correlation",
+            values=results["subject_correlations"],
+            dtype=pl.Float64,
+        )
     )
 
     # 5. UI Generation
@@ -2139,11 +2168,12 @@ def compare_fc_matrices(
 
     avg_corr_str = f"{avg_corr:.4f}" if not np.isnan(avg_corr) else "N/A"
     avg_mae_str = f"{avg_mae:.4f}" if not np.isnan(avg_mae) else "N/A"
-    
-    valid_corrs_for_ui = [c for c in results["subject_correlations"] if c is not None]
+
+    valid_corrs_for_ui = [
+        c for c in results["subject_correlations"] if c is not None
+    ]
     median_corr_str = (
-        f"{np.median(valid_corrs_for_ui):.4f}"
-        if valid_corrs_for_ui else "N/A"
+        f"{np.median(valid_corrs_for_ui):.4f}" if valid_corrs_for_ui else "N/A"
     )
 
     metrics_md = mo.md(f"""
@@ -2196,15 +2226,178 @@ def _():
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _():
+    mo.md(r"""
+    We start by dfeining the functions we need for the harmonization
+    """)
     return
 
 
 @app.cell(hide_code=True)
 def _():
     mo.md(r"""
-    ## Extracttion and harmonization of perturbated FC matrices
+    Please note that the following code is heavily inspired by the code provided by Ayumu Yamashita-san
+    """)
+    return
+
+
+@app.function
+def load_matlab_np_file(file_path: str) -> np.ndarray:
+    with h5py.File(str(file_path), "r") as f:
+        dset = f["/X"] if "/X" in f else f["X"]
+        return np.array(dset).T
+
+
+@app.cell
+def _(List):
+    def get_dummy_values_and_labels(column: str) -> Tuple[np.ndarray, List]:
+        dummies = pd.get_dummies(column, dtype=float)
+        return dummies.values, dummies.columns.tolist()
+
+    return (get_dummy_values_and_labels,)
+
+
+@app.cell
+def _(GSR_flag, ROI, get_dummy_values_and_labels):
+    # The default argument values are taken from the provided code
+    def estimate_bias(
+        output_dir_path: Path,
+        dataset: str = "BMB",
+        roi: str = "Glasser",
+        gsr_flag: bool = True,
+        protocol_flag: bool = True,
+        permutation_flag: bool = False,
+        lambda_value: float = 1.0,
+        ortho_flag: bool = True,
+        w_ts: float = 1.0,
+        tau_delta: float = 0.1,
+    ):
+
+        # Setup the different paths
+        base_path = Path("/home/cbi-biomark03/ayumu/HARP/")
+
+        if roi == "Glasser":
+            number_of_regions = 446
+        elif roi == "HCP_MMP":
+            number_of_regions = 379
+
+        # RS means regular subjects
+        # TS means traveling subjects
+
+        rs_dataset_directory_path = base_path / f"data/preproc_{dataset.lower()}/"
+        ts_dataset_directory_path = (
+            base_path / f"data/preproc_{dataset.lower()}_ts/"
+        )
+
+        output_figure_path = (
+            output_dir_path / f"fig/BiasEstimation/{dataset.lower()}/"
+        )
+        os.makedirs(output_figure_path, exist_ok=True)
+
+        if permutation_flag == 1:
+            output_directory_path = (
+                output_dir_path / f"results/perm/ts_harmonization_{dataset}/"
+            )
+        else:
+            output_directory_path = (
+                output_dir_path / f"results/ts_harmonization_{dataset}_lambda/"
+            )
+        output_directory_path.mkdir(parents=True, exist_ok=True)
+
+        effective_lambda = float(lambda_value) * 10.0
+
+        outpute_file_path = (
+            output_directory_path
+            / f"EstimatedBias_{roi}_GSR{gsr_flag}_protocol{protocol_flag}_lambda{effective_lambda}_ortho{ortho_flag}_wts{w_ts}_tdelta{tau_delta}.mat"
+        )
+
+        # If the output file already exist, skip the calculation
+        if outpute_file_path.exists():
+            print(f"The output file already exists at: {outpute_file_path}")
+            return
+
+        ts_connectivity_path = (
+            ts_dataset_directory_path / f"all_data_con_{ROI}_GSR{GSR_flag}.mat"
+        )
+        ts_metadata_path = (
+            ts_dataset_directory_path / f"all_data_sub_{ROI}_GSR{GSR_flag}.csv"
+        )
+
+        ts_connectivity = load_matlab_np_file(ts_connectivity_path)
+
+        ts_metadata_dataframe = pd.read_csv(ts_metadata_path)
+
+        # Correct the traveling subjects sites
+        ts_metadata_dataframe["Site"] = ts_metadata_dataframe["Site"].replace(
+            ["SWS"], "SWA"
+        )
+        ts_metadata_dataframe["Site"] = ts_metadata_dataframe["Site"].replace(
+            ["UOP"], "UOS"
+        )
+
+        # Calculate the dummy values
+        if dataset == "SRPB":
+            subject_dummy_values, subject_dummy_labels = (
+                get_dummy_values_and_labels("sub_id")
+            )
+        elif dataset == "BNB":
+            subject_dummy_values, subject_dummy_labels = (
+                get_dummy_values_and_labels("subject_id")
+            )
+        else:
+            raise ValueError(f"Unexpected dataset value: {dataset}")
+
+        site_dummies = pd.get_dummies(ts_metadata_dataframe["Site"], dtype=float)
+        site_dummy_values, site_dummy_labels = (
+            site_dummies.values,
+            site_dummies.columns.tolist(),
+        )
+
+        if dataset == "BMB":
+            protocol_dummy_values, protocol_dummy_labels = (
+                get_dummy_values_and_labels("protocol")
+            )
+
+        number_of_subjects = ts_metadata_dataframe.shape[0]
+
+        rs_connectivity_path = (
+            rs_dataset_directory_path / f"all_data_con_{ROI}_GSR{GSR_flag}.mat"
+        )
+        rs_metadata_path = (
+            rs_dataset_directory_path / f"all_data_sub_{ROI}_GSR{GSR_flag}.csv"
+        )
+
+        rs_connectivity = load_matlab_np_file(rs_connectivity_path)
+        rs_metadata_dataframe = pd.read_csv(rs_metadata_path)
+
+        # Correct the regular subjects sites
+        rs_metadata_dataframe["Site"] = rs_metadata_dataframe["Site"].replace(
+            ["SWS"], "SWA"
+        )
+        rs_metadata_dataframe["Site"] = rs_metadata_dataframe["Site"].replace(
+            ["UOP"], "UOS"
+        )
+
+    return
+
+
+@app.function
+def harmonize_dataset(
+    dataset_str: str,
+    gsr_flag: bool,
+    prot_flag: bool,
+    harm_type: str,
+    ortho_flag: bool,
+    roi_flag: str,
+):
+    pass
+
+
+@app.cell(hide_code=True)
+def _():
+    mo.md(r"""
+    ## Extraction and harmonization of perturbated FC matrices
     """)
     return
 
