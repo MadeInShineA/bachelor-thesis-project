@@ -2242,6 +2242,14 @@ def _():
     return
 
 
+@app.cell(hide_code=True)
+def _():
+    mo.md(r"""
+    Function to loada Matlab file
+    """)
+    return
+
+
 @app.function
 def load_matlab_np_file(file_path: str) -> np.ndarray:
     with h5py.File(str(file_path), "r") as f:
@@ -2249,9 +2257,17 @@ def load_matlab_np_file(file_path: str) -> np.ndarray:
         return np.array(dset).T
 
 
+@app.cell(hide_code=True)
+def _():
+    mo.md(r"""
+    Function to one hot encode a specific column
+    """)
+    return
+
+
 @app.cell
 def _(List):
-    def get_dummy_values_and_labels(column: str) -> Tuple[np.ndarray, List]:
+    def get_dummy_values_and_labels(column: pd.Series) -> Tuple[np.ndarray, List]:
         dummies = pd.get_dummies(column, dtype=float)
         return dummies.values, dummies.columns.tolist()
 
@@ -2259,7 +2275,91 @@ def _(List):
 
 
 @app.cell
-def _(GSR_flag, ROI, get_dummy_values_and_labels):
+def _(List):
+    def stack_np_array_by_common_columns(
+        np_array_1: np.ndarray,
+        labels_1: List,
+        np_array_2: np.ndarray,
+        labels_2: List,
+    ) -> Tuple[np.ndarray, List]:
+        # Create lookup for array 2
+        labels_2_dict = {label: i for i, label in enumerate(labels_2)}
+
+        columns = []
+        selected_columns = []
+
+        # Iterate through array 1's labels
+        for i, label in enumerate(labels_1):
+            # Find this label in array 2
+            label_idx = labels_2_dict.get(label, None)
+            if label_idx is not None:  # Label exists in both
+                col_1 = np_array_1[:, [i]]
+                col_2 = np_array_2[:, [label_idx]]
+
+                # Stack: array 1 on top, array 2 on bottom
+                columns.append(np.vstack([col_1, col_2]))
+                selected_columns.append(label)
+
+        if not columns:
+            return np.empty((np_array_1.shape[0] + np_array_2.shape[0], 0)), []
+
+        return np.hstack(columns), selected_columns
+
+    return (stack_np_array_by_common_columns,)
+
+
+@app.function
+def weighted_orthogonalize_sampling(
+    measurement_dummies, sampling_dummies, weights
+):
+    """
+    Orthogonalize sampling_dummies against measurement_dummies using weighted projection.
+
+    Formula: P = X_M · (X_M^T · W · X_M)^{-1} · X_M^T · W
+             X_S_perp = X_S - P · X_S
+    """
+
+    W = np.diag(weights)
+
+    # X_M^T · W · X_M
+    XtWX = measurement_dummies.T @ W @ measurement_dummies
+
+    # (X_M^T · W · X_M)^{-1}
+    XtWX_inv = np.linalg.pinv(XtWX)
+
+    # P = X_M · (X_M^T · W · X_M)^{-1} · X_M^T · W
+    P = measurement_dummies @ XtWX_inv @ (measurement_dummies.T @ W)
+
+    # X_S_perp = X_S - P · X_S
+    X_S_perp = sampling_dummies - P @ sampling_dummies
+
+    return X_S_perp
+
+
+@app.cell
+def _(dtype):
+    def mean_zero_row(number_of_rows: int, offset: int, length: int) -> np.ndarray:
+        row = np.zeros(number_of_rows, dtype - float)
+
+        if length > 0:
+            row[offset : offset + length] = 1.0 / float(length)
+
+        return row
+
+    return (mean_zero_row,)
+
+
+@app.cell
+def _(
+    Dict,
+    GSR_flag,
+    ROI,
+    get_dummy_values_and_labels,
+    mean_zero_row,
+    p,
+    stack_np_array_by_common_columns,
+    w_ts,
+):
     # The default argument values are taken from the provided code
     def estimate_bias(
         output_dir_path: Path,
@@ -2270,7 +2370,7 @@ def _(GSR_flag, ROI, get_dummy_values_and_labels):
         permutation_flag: bool = False,
         lambda_value: float = 1.0,
         ortho_flag: bool = True,
-        w_ts: float = 1.0,
+        ts_weight: float = 1.0,
         tau_delta: float = 0.1,
     ):
 
@@ -2338,28 +2438,26 @@ def _(GSR_flag, ROI, get_dummy_values_and_labels):
 
         # Calculate the dummy values
         if dataset == "SRPB":
-            subject_dummy_values, subject_dummy_labels = (
-                get_dummy_values_and_labels("sub_id")
+            ts_subject_dummy_values, ts_subject_dummy_labels = (
+                get_dummy_values_and_labels(ts_metadata_dataframe["sub_id"])
             )
-        elif dataset == "BNB":
-            subject_dummy_values, subject_dummy_labels = (
-                get_dummy_values_and_labels("subject_id")
+        elif dataset == "BMB":
+            ts_subject_dummy_values, ts_subject_dummy_labels = (
+                get_dummy_values_and_labels(ts_metadata_dataframe["subject_id"])
             )
         else:
             raise ValueError(f"Unexpected dataset value: {dataset}")
 
-        site_dummies = pd.get_dummies(ts_metadata_dataframe["Site"], dtype=float)
-        site_dummy_values, site_dummy_labels = (
-            site_dummies.values,
-            site_dummies.columns.tolist(),
+        ts_site_dummy_values, ts_site_dummy_labels = get_dummy_values_and_labels(
+            ts_metadata_dataframe["Site"]
         )
 
         if dataset == "BMB":
-            protocol_dummy_values, protocol_dummy_labels = (
-                get_dummy_values_and_labels("protocol")
+            ts_protocol_dummy_values, ts_protocol_dummy_labels = (
+                get_dummy_values_and_labels(ts_metadata_dataframe["protocol"])
             )
 
-        number_of_subjects = ts_metadata_dataframe.shape[0]
+        ts_number_of_subjects = ts_metadata_dataframe.shape[0]
 
         rs_connectivity_path = (
             rs_dataset_directory_path / f"all_data_con_{ROI}_GSR{GSR_flag}.mat"
@@ -2371,12 +2469,219 @@ def _(GSR_flag, ROI, get_dummy_values_and_labels):
         rs_connectivity = load_matlab_np_file(rs_connectivity_path)
         rs_metadata_dataframe = pd.read_csv(rs_metadata_path)
 
-        # Correct the regular subjects sites
-        rs_metadata_dataframe["Site"] = rs_metadata_dataframe["Site"].replace(
-            ["SWS"], "SWA"
+        if dataset == "BMB":
+            columns_to_remove = ~np.isfinite(rs_connectivity).all(axis=0)
+
+            if columns_to_remove.any():
+                rs_connectivity = rs_connectivity[:, ~columns_to_remove]
+                rs_metadata_dataframe = rs_metadata_dataframe.loc[
+                    ~columns_to_remove, :
+                ].reset_index(drop=True)
+
+            rs_metadata_dataframe = rs_metadata_dataframe.copy()
+            rs_metadata_dataframe["site"] = (
+                rs_metadata_dataframe["participants_id"]
+                .astype(str)
+                .str.slice(0, 3)
+            )
+
+        rs_number_of_subjects = rs_metadata_dataframe.shape[0]
+
+        # Group the ts and rs connectivities
+        connectivities = np.vstack([ts_connectivity.T, rs_connectivity.T])
+
+        # If we want to make a permutation of the connectivities
+        if permutation_flag == 1:
+            np.random.seed(42)
+
+            permutation_indices = np.random.permutation(connectivities.shape[0])
+
+            connectivities = connectivities[permutation_indices, :]
+            print("Realised permutation with seed 42")
+
+        total_number_of_subjects, number_of_connectivity = connectivities.shape
+
+        # Combine the different dummy values and labels
+        if dataset == "SRBP":
+            sites_to_use = ["COI", "KUT", "UTO", "SWA"]
+
+            rs_site_dummy_values, rs_site_dummy_labels = (
+                get_dummy_values_and_labels(rs_metadata_dataframe["site"])
+            )
+
+            selected_site_indices = [
+                indice
+                for indice, label in enumerate(rs_site_dummy_labels)
+                if label in sites_to_use
+            ]
+
+            rs_site_dummy_values, rs_site_dummy_values[:, selected_site_indices]
+
+            rs_site_dummy_labels = [
+                rs_site_dummy_labels[i] for i in selected_site_indices
+            ]
+
+        elif dataset == "BMB":
+            rs_site_dummy_values, rs_site_dummy_labels = (
+                get_dummy_values_and_labels(rs_metadata_dataframe["site"])
+            )
+            rs_protocol_dummy_values, rs_protocol_dummy_labels = (
+                get_dummy_values_and_labels(rs_metadata_dataframe["protocol"])
+            )
+
+        else:
+            raise ValueError(f"Unexpected dataset value: {dataset}")
+
+        combined_site_dummy_values, combined_site_dummy_labels = (
+            stack_np_array_by_common_columns(
+                ts_site_dummy_values,
+                ts_site_dummy_labels,
+                rs_site_dummy_values,
+                rs_site_dummy_labels,
+            )
         )
-        rs_metadata_dataframe["Site"] = rs_metadata_dataframe["Site"].replace(
-            ["UOP"], "UOS"
+
+        if dataset == "BMB":
+            combined_protocol_dummy_values, combined_protocol_dummy_labels = (
+                stack_np_array_by_common_columns(
+                    ts_protocol_dummy_values,
+                    ts_protocol_dummy_labels,
+                    rs_protocol_dummy_values,
+                    rs_protocol_dummy_labels,
+                )
+            )
+        elif dataset == "SRBP":
+            combined_protocol_dummy_values, combined_protocol_dummy_labels = (
+                np.empty((ts_number_of_subjects + rs_number_of_subjects, 0)),
+                [],
+            )
+        else:
+            raise ValueError(f"Unexpected dataset value: {dataset}")
+
+        combined_subject_dummy_values = np.vstack(
+            ts_subject_dummy_values,
+            np.zeros(
+                (rs_number_of_subjects, ts_subject_dummy_values.shape[1]),
+                dtype=float,
+            ),
+        )
+
+        # Initialize the sampling dummies
+        combined_sampling_dummy_values = combined_site_dummy_values.copy()
+
+        if combined_sampling_dummy_values.size > 0:
+            combined_sampling_dummy_values[:ts_number_of_subjects, :] = 0.0
+
+        label_site_sampling = [f"{s}_SAMPLING" for s in combined_site_dummy_values]
+
+        # Orthogonize if the flag is set
+        if ortho_flag == 1:
+            is_traveling_subject = np.zeros(total_number_of_subjects)
+
+            is_traveling_subject[:ts_number_of_subjects] = True
+
+            ts_weights = np.ones(total_number_of_subjects, dtype=float)
+
+            ts_weights[is_traveling_subject] = ts_weight
+
+            combined_sampling_dummy_values = weighted_orthogonalize_sampling(
+                combined_site_dummy_values,
+                combined_sampling_dummy_values,
+                ts_weights,
+            )
+
+        # Merge the dummies and values based on the protocol flag
+        if dataset == "BMB" and protocol_flag == 1:
+            dummy_values = (
+                np.hstack(
+                    [
+                        combined_subject_dummy_values,
+                        combined_site_dummy_values,
+                        combined_sampling_dummy_values,
+                        combined_protocol_dummy_values,
+                    ]
+                )
+                if combined_site_dummy_values.size
+                else np.hstack(
+                    [
+                        combined_subject_dummy_values,
+                        combined_sampling_dummy_values,
+                        combined_protocol_dummy_values,
+                    ]
+                )
+            )
+
+            dummy_labels = (
+                list(ts_subject_dummy_labels)
+                + list(combined_site_dummy_labels)
+                + list(label_site_sampling)
+                + list(combined_protocol_dummy_labels)
+            )
+
+            num: Dict[str, int] = {
+                "sub": combined_subject_dummy_values.shape[1],
+                "mea": combined_site_dummy_values.shape[1],
+                "sampling": combined_sampling_dummy_values.shape[1],
+                "protocol": combined_protocol_dummy_values.shape[1],
+            }
+        else:
+            dummy_values = (
+                np.hstack(
+                    [
+                        combined_subject_dummy_values,
+                        combined_site_dummy_values,
+                        combined_sampling_dummy_values,
+                    ]
+                )
+                if combined_site_dummy_values.size
+                else np.hstack(
+                    [combined_subject_dummy_values, combined_sampling_dummy_values]
+                )
+            )
+
+            dummy_labels = (
+                list(ts_subject_dummy_labels)
+                + list(combined_site_dummy_labels)
+                + list(label_site_sampling)
+            )
+
+            num: Dict[str, int] = {
+                "sub": combined_subject_dummy_values.shape[1],
+                "mea": combined_site_dummy_values.shape[1],
+                "sampling": combined_sampling_dummy_values.shape[1],
+            }
+
+        # Add a bias coefficient (intercept) of 1s to the dummy values
+        dummy_values_with_bias = np.hstack(
+            [dummy_values, np.ones((total_number_of_subjects, 1), dtype=float)]
+        )
+
+        number_of_coefficients = dummy_values_with_bias.shape[1]
+
+        # Changes the 0-1 array into 0-1/m where m is the number of values
+        rows = []
+        offset = 0
+
+        rows.append(mean_zero_row(number_of_coefficients, offset, num["sub"]))
+        offset += num["sub"]
+        rows.append(mean_zero_row(number_of_coefficients, offset, num["mea"]))
+        offset += num["mea"]
+        rows.append(mean_zero_row(number_of_coefficients, offset, num["sampling"]))
+        offset += num["sampling"]
+
+        if dataset == "BMB" and protocol_flag == 1:
+            rows.append(
+                mean_zero_row(number_of_coefficients, offset, num["protocol"])
+            )
+            offset += num["protocol"]
+
+        # De
+        a_equality = np.vstack(rows) if rows else np.zeros((0, p), dtype=float)
+        b_equality = np.zeros(a_equality.shape[0], dtype=float)
+
+        # H = DM' DM + λ I
+        hessian_matrix = dummy_values.T @ dummy_values + effective_lambda * np.eye(
+            number_of_coefficients
         )
 
     return
