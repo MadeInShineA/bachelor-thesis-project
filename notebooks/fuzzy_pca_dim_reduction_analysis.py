@@ -30,6 +30,10 @@ with app.setup:
     from scipy import stats
     from typing import Tuple
 
+    from scipy.linalg import cho_factor, cho_solve, lu_factor, lu_solve
+    from scipy.io import savemat
+    from scipy.linalg import lu_factor, lu_solve
+
 
 @app.cell(hide_code=True)
 def _():
@@ -2351,9 +2355,12 @@ def _(dtype):
 
 @app.cell
 def _(
+    DM,
     Dict,
     GSR_flag,
+    NC,
     ROI,
+    a_equality,
     get_dummy_values_and_labels,
     mean_zero_row,
     p,
@@ -2515,7 +2522,7 @@ def _(
                 if label in sites_to_use
             ]
 
-            rs_site_dummy_values, rs_site_dummy_values[:, selected_site_indices]
+            rs_site_dummy_values = rs_site_dummy_labels[:, selected_site_indices]
 
             rs_site_dummy_labels = [
                 rs_site_dummy_labels[i] for i in selected_site_indices
@@ -2675,14 +2682,109 @@ def _(
             )
             offset += num["protocol"]
 
-        # De
-        a_equality = np.vstack(rows) if rows else np.zeros((0, p), dtype=float)
-        b_equality = np.zeros(a_equality.shape[0], dtype=float)
+        # Define the different equations
+        a_equations = np.vstack(rows) if rows else np.zeros((0, p), dtype=float)
+        b_equations = np.zeros(a_equality.shape[0], dtype=float)
 
         # H = DM' DM + λ I
         hessian_matrix = dummy_values.T @ dummy_values + effective_lambda * np.eye(
             number_of_coefficients
         )
+
+        # Add measurment bias constraint ridge regularization
+        offset_mea = num["sub"]
+        len_mea = num["mea"]
+
+        if len_mea > 0:
+            # C = I - (1/S)11^T (Centering matrix)
+            # Penalty term: (1/tau_delta^2) * C
+            C = np.eye(len_mea) - np.ones((len_mea, len_mea)) / float(len_mea)
+            if tau_delta != 0:
+                hessian_matrix[
+                    offset_mea : offset_mea + len_mea,
+                    offset_mea : offset_mea + len_mea,
+                ] += (1.0 / tau_delta**2) * C
+
+        # Our objective function is: Minimize 0.5 * x^T H x + f^T x  subject to  A x = 0
+        # Where:
+        #   x = stacked vector of [dummy coefficients; bias coefficients]
+        #   y = Lagrange multipliers (enforce the constraint Ax = 0)
+        #   H = DM^T @ DM + lambda * I  (plus bias centering penalty)
+        #   f = -DM^T @ target  (linear term from data residuals)
+        #   A = constraint matrix (e.g., forces sum of biases to 0)
+        #
+        # We can therefore see this problem as a KKT system:
+        #   [ H    A^T ] [ x ]   [ -f ]
+        #   [ A     0  ] [ y ] = [  0 ]
+        # Where:
+        #   - H is the Hessian matrix of our objective function
+        #   - A is the constraint matrix (average of bias)
+        #   - x is the vector of ALL coefficients (dummies + biases stacked together)
+        #   - y is the vector of Lagrange multipliers (enforces the constraint)
+        #   - f is the target vector
+        #   - r is the Hessian matrix regularization term
+        #   - 0 is the constrain target (bias sum = 0)
+        #
+        # We can calculate H value as follow
+        # ~H = DM * DM^T + λ <=> H = ~H + Ridge
+        #
+        # And therefore obtain this 2 equations
+        # Hx + A^Ty = -f
+        # and
+        # Ax = 0
+        #
+        # Which gives us:
+        # Hx = -f - A^Ty <=> x = H^(-1)(-f - A^Ty) = -H^(-1)f - H^(-1)A^Ty
+        #
+        # Since we know Ax = 0 we can substitute x
+        # -A H^(-1)f - (A H^(-1)A^T)y = 0
+        # <=>
+        # (A H^(-1)A^T)y = -A H^(-1)f
+        #
+        # We define W as the Schur complement: W = A * H^-1 * A^T
+        # Then we solve: W * y = -A * H^-1 * f
+        #
+        # We want to compute W efficiently without inversing H
+        # To do so,
+        # We solve two triangular systems using Cholesky (H = L * L^T):
+        # Let Z = H^-1 * A^T. Then H * Z = A^T.
+        # This splits into:
+        # 1. L * U = A^T     (Compute intermediate U)
+        # 2. L^T * Z = U     (Compute final Z)
+        # Finally, W = A * Z
+        #
+        # Once we have H, A, W, and Z, we can find each edge x value:
+        # For each edge i, we compute its specific linear term
+        # f = -DM^T * X[:, i]
+        # By doing the following:
+            # 1. Compute H^-1 * f
+            # 2. Compute the projected target: -A * H^-1 * f
+            # 3. Solve for y: W * y = -A * H^-1 * f
+            # 4. Recover x: x = -H^-1 * f - H^-1 * A^T * y
+
+
+        # We start by calculating the Cholesky factorization of H (H = L * L^T)
+        # cho_factor returns the factor matrix (cH) and a boolean flag (lower_H)
+        cH, lower_H = cho_factor(
+            hessian_matrix, overwrite_a=False, check_finite=False
+        )
+
+        # We will now find Z = H^-1 * A^T by solving H * Z = A^T
+        # cho_solve performs the two triangular solves automatically
+        inv_H_A_T = cho_solve(
+            (cH, lower_H), a_equations.T, check_finite=False
+        )  # shape: (number_of_coefficients, a_equations.shape[0])
+
+        # And finally find W = A * Z = A * H^-1 * A^T
+        W = (
+            a_equations @ inv_H_A_T
+        )  # shape: (a_equations.shape[0], a_equations.shape[0])
+
+        # Now that we have W, we factorize it to solve for y later
+        # (We will solve W * y = rhs, NOT multiply y = W * rhs)
+        cW, lower_W = cho_factor(W, overwrite_a=False, check_finite=False)
+
+        mn = np.empty((DM.shape[1], NC), dtype=float)
 
     return
 
