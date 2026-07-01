@@ -2353,15 +2353,302 @@ def _(dtype):
     return (mean_zero_row,)
 
 
+@app.cell(hide_code=True)
+def _():
+    mo.md(r"""
+    # TODO DOUBLE CHECK THE COMMENTS AND UNDERSTANDING OF THIS FUNCTION
+    """)
+    return
+
+
+@app.function
+def compute_gcv_score(
+    dummy_values_with_bias,
+    solution_matrix,
+    a_equation,
+    feature_dims,
+    lambda_eff,
+    tau_delta,
+):
+    """
+    Calculates Generalized Cross-Validation (GCV), MSE, and Degrees of Freedom (df)
+    for a Regularized Linear Model with bias constraints.
+
+    This function implements the analytical solution for GCV by reusing pre-computed
+    global matrices (H, A, W, Z) rather than solving the full system for every target vector.
+    This avoids calculating explicit Lagrange multipliers (y) inside the loop, which is
+    computationally efficient for large datasets.
+    """
+
+    # --- 1. Extract Dimensions ---
+    # n_samples: Total number of observations (rows)
+    # n_features: Total number of coefficients (columns)
+    n_samples, n_features = dummy_values_with_bias.shape
+    n_targets = solution_matrix.shape[1]
+
+    # Extract block counts from the 'feature_dims' dictionary safely
+    count_sub = feature_dims.get("sub", 0) if feature_dims else 0
+    count_measured = feature_dims.get("mea", 0) if feature_dims else 0
+
+    # --- 2. Construct the Hessian Matrix (H) ---
+    # Mathematical Definition: H = D^T @ D + lambda * I + bias_penalty
+    # This matrix represents the curvature of the regularized loss function (r).
+    # It combines the data fidelity (D^T @ D) and regularization (lambda * I).
+    hessian_matrix = (
+        dummy_values_with_bias.T @ dummy_values_with_bias
+        + lambda_eff * np.eye(n_features)
+    )
+
+    # Apply Measurement Bias Penalty (Centering Constraint)
+    # If 'tau_delta' is provided and we have measured blocks, we enforce that
+    # the mean of the measured features is zero.
+    # This adds a penalty term to H corresponding to the Identity matrix minus the
+    # centering projection matrix.
+    if count_measured > 0 and tau_delta != 0:
+        # Create a Centering Matrix C = I - (1/S) * 1*1^T
+        # Penalty term: (1/tau_delta^2) * C
+        C = np.eye(count_measured) - np.ones(
+            (count_measured, count_measured)
+        ) / float(count_measured)
+        hessian_matrix[
+            count_measured : count_measured + count_measured,
+            count_measured : count_measured + count_measured,
+        ] += (1.0 / (tau_delta**2)) * C
+
+    # --- 3. Matrix Factorization (Pre-computation) ---
+    # We factorize H once to avoid recomputing the inverse for every target column.
+    try:
+        # H_cho_factor = cho_factor(H)
+        # We store the factors directly to avoid tuple overhead in the loop
+        h_factor, lower_h = cho_factor(
+            hessian_matrix, overwrite_a=False, check_finite=False
+        )
+        # Helper function: given vector f, returns H^{-1} @ f
+        solve_h = lambda f: cho_solve(
+            (h_factor, lower_h), f, check_finite=False
+        )
+    except np.linalg.LinAlgError:
+        # Fallback to LU decomposition if Cholesky fails (e.g., if matrix is singular)
+        lu_factors_h = lu_factor(hessian_matrix)
+        solve_h = lambda f: lu_solve(lu_factors_h, f)
+
+    # --- 4. Pre-compute Global Terms (Z and W) ---
+    # We compute these once outside the loop to save time.
+    # In the KKT system:
+    #   [ H    A^T ] [ x ]   [ -f ]
+    #   [ A     0  ] [ y ] = [  0 ]
+    #
+    # We define Z = H^{-1} @ A^T.
+    # Math: H * Z = A^T.
+    # This splits into:
+    # 1. L * U = A^T     (Compute intermediate U)
+    # 2. L^T * Z = U     (Compute final Z)
+    # Finally, Z = A^T @ H^{-1} (Note: In code, we solve H*Z=A^T, so Z = H^-1*A^T)
+    # Note: a_equation.T corresponds to A^T in the KKT matrix structure above.
+
+    # Calculate Z = H^{-1} @ A^T (invH_AT)
+    # This is the cached term used in Step 6 to recover x.
+    Z = solve_h(a_equation.T)
+
+    # Calculate W = A @ Z = A @ H^{-1} @ A^T (Schur Complement)
+    # W is the matrix we will solve for y (W * y = b)
+    W = a_equation @ Z
+
+    # --- 5. Factorize the Schur Complement (W) ---
+    # W_cho_factor = cho_factor(W)
+    # We factorize W for efficient solving in the loop.
+    try:
+        w_factor, lower_w = cho_factor(
+            W, overwrite_a=False, check_finite=False
+        )
+        solve_w = lambda b: cho_solve(
+            (w_factor, lower_w), b, check_finite=False
+        )
+    except np.linalg.LinAlgError:
+        lu_factors_w = lu_factor(W)
+        solve_w = lambda b: lu_solve(lu_factors_w, b)
+
+    # --- 6. Calculate Degrees of Freedom (df) ---
+    # Formula: df = trace(H^{-1}) - trace(W^{-1} @ T)
+    # Where T = A @ M1 @ G (effectively A @ H^-1 @ A^T related terms)
+    # Degrees of freedom measure the model complexity (bias-variance tradeoff).
+    # T_Matrix corresponds to the term inside the trace of the Schur complement equation.
+    T_Matrix = (
+        a_equation
+        @ solve_h(dummy_values_with_bias.T @ dummy_values_with_bias)
+        @ a_equation.T
+    )
+    df = np.trace(
+        solve_h(dummy_values_with_bias.T @ dummy_values_with_bias)
+    ) - np.trace(solve_w(T_Matrix))
+
+    # --- 7. Calculate Residual Sum of Squares (RSS) ---
+    # We iterate over each target column to calculate the error.
+    # D_T corresponds to dummy_values_with_bias.T
+    D_T = dummy_values_with_bias.T
+    Total_RSS = 0.0
+
+    for target_idx in range(n_targets):
+        # Extract the specific target vector (Y column)
+        # t corresponds to the target vector X[:, i] in the original logic
+        # In the KKT system, this is the target vector 't' (or 'target' in some notations)
+        target_vector = solution_matrix[:, target_idx]
+
+        # The analytical solution for the estimated coefficients (x) for this target:
+        # x = H^{-1} @ ( -D^T @ t ) - Z @ ( W^{-1} @ ( -A @ H^{-1} @ (D^T @ t) ) )
+        #
+        # Step A: Compute the raw gradient from the data
+        # f = -(D^T @ target)
+        # This represents the negative gradient term from the data fidelity loss.
+        # In the KKT system, the RHS vector is -f.
+        f = -(D_T @ target_vector)
+
+        # Step B: Transform gradient through H^{-1}
+        # Math: invH_residual = H^{-1} * f
+        # This gives us the unconstrained least squares solution component.
+        invH_residual = solve_h(f)
+
+        # Step C: Transform through constraint projection (A)
+        # Math: constraint_term = -A @ H^{-1} * f
+        # This represents the right-hand side term for the equation W * y = b.
+        # Note: In the KKT derivation: W * y = -A * H^{-1} * f
+        # So b = -A * H^{-1} * f.
+        b = -(a_equation @ invH_residual)
+
+        # Step D: Solve for the constraint correction using Schur Complement
+        # Math: constraint_correction = W^{-1} @ b
+        # This effectively computes the term needed to solve for y implicitly.
+        # In the KKT system: y = W^{-1} @ b
+        y = solve_w(b)
+
+        # Step E: Recover the primal solution vector x
+        # Math: x = -H^{-1} * f - Z @ y
+        # In the KKT system:
+        #   Hx + A^T y = -f
+        #   => Hx = -f - A^T y
+        #   => x = H^{-1} @ (-f - A^T y)
+        #   => x = -H^{-1} f - H^{-1} A^T y
+        #   => x = -invH_residual - Z @ y
+        x = -invH_residual - (Z @ y)
+
+        # Step F: Compute prediction error and add to RSS
+        # Prediction: D @ x
+        # Error: t - D @ x
+        RSS_component = target_vector - (dummy_values_with_bias @ x)
+        Total_RSS += np.sum(RSS_component**2)
+
+    # --- 8. Compute GCV Score and MSE ---
+    # Mean Squared Error: Average of RSS across all targets and samples
+    mse = Total_RSS / (n_samples * n_targets)
+
+    # GCV: MSE adjusted by the ratio of df to n_samples
+    # GCV = MSE / ((1 - df/n)^2)
+    # This penalizes models with high degrees of freedom (overfitting).
+    df_ratio = df / n_samples
+    denominator = 1.0 - df_ratio
+
+    if np.isclose(denominator, 0):
+        gcv_score = np.inf
+    else:
+        gcv_score = mse / (denominator**2)
+
+    return gcv_score, mse, df
+
+
+@app.cell(hide_code=True)
+def _():
+    mo.md(r"""
+    Here is a breackdown of the method to estimate this different bias:
+    - Subject
+    - Site
+    - Sampeling
+    - (Protocol)
+
+    We will do the following steps in order:
+
+    1. Extract the TS (Trabeling Subjects) and RS (Regular Subjects) connectivity matrices and metadata
+    1. Binary encode the desired bias metadata from both and the RS datasets
+    2. Stack the different biases horizontally
+    3. Define the bias constraints $A\mathbf{x} = \mathbf{b}$ where $A$ is a mean constraint matrix with entries of $1/N$ (where $N$ is the group size), and $\mathbf{b}$ is the zero vector. This enforces that the sum of means equals zero, forcing all group biases to be centered at zero.
+        - $$\mathbf{A}\mathbf{x} = \mathbf{b} \quad \implies \quad \underbrace{\text{[Matrix of } 1/N\text{s]}}_{\mathbf{A}} \times \underbrace{\text{[Bias Coefficients]}}_{\mathbf{x}} = \underbrace{\text{[Target: 0]}}_{\mathbf{b}}$$
+
+    4. Solve the KKT optimization problem
+
+    To solve the constrained optimization problem, we first establish the Karush-Kuhn-Tucker (KKT) system. Our goal is to minimize the regularized objective function:
+
+    $\min_{\mathbf{x}} \quad \frac{1}{2} \mathbf{x}^\top \mathbf{H} \mathbf{x} + \mathbf{f}^\top \mathbf{x} \quad \text{subject to} \quad \mathbf{A} \mathbf{x} = \mathbf{0}$
+
+    Here, $\mathbf{x}$ represents the stacked vector of dummy and bias coefficients,
+
+    $\mathbf{H} = \mathbf{D}\mathbf{M}^\top \mathbf{D}\mathbf{M} + \lambda \mathbf{I}$
+
+    is the symmetric positive definite Hessian,
+
+    $\mathbf{f} = -\mathbf{D}\mathbf{M}^\top \mathbf{y}_{\text{target}}$
+
+    captures the residual terms, and $\mathbf{A}$ encodes the constraints (e.g., forcing the sum of biases to zero).
+
+    By introducing Lagrange multipliers $\mathbf{y}$, we form the Lagrangian
+
+    $\mathcal{L}(\mathbf{x}, \mathbf{y}) = \frac{1}{2} \mathbf{x}^\top \mathbf{H} \mathbf{x} + \mathbf{f}^\top \mathbf{x} + \mathbf{y}^\top \mathbf{A} \mathbf{x}$
+
+    The necessary conditions for optimality yield the following KKT system:
+
+    $$\begin{bmatrix}
+    \mathbf{H} & \mathbf{A}^\top \\
+    \mathbf{A} & \mathbf{0}
+    \end{bmatrix}
+    \begin{bmatrix}
+    \mathbf{x} \\
+    \mathbf{y}
+    \end{bmatrix}
+    =
+    \begin{bmatrix}
+    -\mathbf{f} \\
+    \mathbf{0}
+    \end{bmatrix}$$
+
+    To avoid inverting the large $N \times N$ matrix $\mathbf{H}$ directly, we eliminate $\mathbf{x}$ from the system. From the first block equation, we have
+
+    $\mathbf{H}\mathbf{x} + \mathbf{A}^\top \mathbf{y} = -\mathbf{f}$,
+
+    which implies
+
+    $\mathbf{x} = -\mathbf{H}^{-1}\mathbf{f} - \mathbf{H}^{-1}\mathbf{A}^\top \mathbf{y}$.
+
+    Substituting this into the second equation ($\mathbf{A}\mathbf{x} = \mathbf{0}$) gives us a reduced system involving the Schur complement
+
+    $\mathbf{W} = \mathbf{A}\mathbf{H}^{-1}\mathbf{A}^\top$
+
+    $\mathbf{W} \mathbf{y} = -\mathbf{A} \mathbf{H}^{-1} \mathbf{f}$
+
+    This allows us to solve for the smaller vector $\mathbf{y}$ first. Since $\mathbf{H}$ is positive definite, we compute its Cholesky decomposition
+
+    $\mathbf{H} = \mathbf{L}\mathbf{L}^\top$
+
+    We then efficiently compute the terms
+
+    $\mathbf{z} = \mathbf{H}^{-1}\mathbf{A}^\top$
+    and
+    $\mathbf{r} = \mathbf{H}^{-1}\mathbf{f}$
+
+    by solving two triangular systems ($\mathbf{L}\mathbf{u} = \mathbf{A}^\top$ and $\mathbf{L}^\top \mathbf{z} = \mathbf{u}$) rather than forming the inverse explicitly.
+
+    Finally, once $\mathbf{y}$ is obtained by solving $\mathbf{W}\mathbf{y} = -\mathbf{A}\mathbf{r}$, we recover the full solution $\mathbf{x}$ using the relation $\mathbf{x} = -\mathbf{r} - \mathbf{z}\mathbf{y}$.
+    """)
+    return
+
+
 @app.cell
 def _(
-    DM,
     Dict,
     GSR_flag,
-    NC,
     ROI,
     a_equality,
+    a_equation,
     get_dummy_values_and_labels,
+    label,
+    lambda_eff,
     mean_zero_row,
     p,
     stack_np_array_by_common_columns,
@@ -2392,6 +2679,7 @@ def _(
         # RS means regular subjects
         # TS means traveling subjects
 
+        # Define the necessary paths
         rs_dataset_directory_path = base_path / f"data/preproc_{dataset.lower()}/"
         ts_dataset_directory_path = (
             base_path / f"data/preproc_{dataset.lower()}_ts/"
@@ -2421,8 +2709,12 @@ def _(
 
         # If the output file already exist, skip the calculation
         if outpute_file_path.exists():
-            print(f"The output file already exists at: {outpute_file_path}")
+            print(
+                f"The bias estimation output file already exists at: {outpute_file_path}"
+            )
             return
+
+        # Extract connectivity and metadata from the TS dataset
 
         ts_connectivity_path = (
             ts_dataset_directory_path / f"all_data_con_{ROI}_GSR{GSR_flag}.mat"
@@ -2465,6 +2757,8 @@ def _(
             )
 
         ts_number_of_subjects = ts_metadata_dataframe.shape[0]
+
+        # Do the same for the RS dataset
 
         rs_connectivity_path = (
             rs_dataset_directory_path / f"all_data_con_{ROI}_GSR{GSR_flag}.mat"
@@ -2652,7 +2946,7 @@ def _(
                 + list(label_site_sampling)
             )
 
-            num: Dict[str, int] = {
+            feature_dims: Dict[str, int] = {
                 "sub": combined_subject_dummy_values.shape[1],
                 "mea": combined_site_dummy_values.shape[1],
                 "sampling": combined_sampling_dummy_values.shape[1],
@@ -2669,31 +2963,40 @@ def _(
         rows = []
         offset = 0
 
-        rows.append(mean_zero_row(number_of_coefficients, offset, num["sub"]))
-        offset += num["sub"]
-        rows.append(mean_zero_row(number_of_coefficients, offset, num["mea"]))
-        offset += num["mea"]
-        rows.append(mean_zero_row(number_of_coefficients, offset, num["sampling"]))
-        offset += num["sampling"]
+        rows.append(
+            mean_zero_row(number_of_coefficients, offset, feature_dims["sub"])
+        )
+        offset += feature_dims["sub"]
+        rows.append(
+            mean_zero_row(number_of_coefficients, offset, feature_dims["mea"])
+        )
+        offset += feature_dims["mea"]
+        rows.append(
+            mean_zero_row(number_of_coefficients, offset, feature_dims["sampling"])
+        )
+        offset += feature_dims["sampling"]
 
         if dataset == "BMB" and protocol_flag == 1:
             rows.append(
-                mean_zero_row(number_of_coefficients, offset, num["protocol"])
+                mean_zero_row(
+                    number_of_coefficients, offset, feature_dims["protocol"]
+                )
             )
-            offset += num["protocol"]
+            offset += feature_dims["protocol"]
 
         # Define the different equations
         a_equations = np.vstack(rows) if rows else np.zeros((0, p), dtype=float)
         b_equations = np.zeros(a_equality.shape[0], dtype=float)
 
         # H = DM' DM + λ I
-        hessian_matrix = dummy_values.T @ dummy_values + effective_lambda * np.eye(
-            number_of_coefficients
+        hessian_matrix = (
+            dummy_values_with_bias.T @ dummy_values_with_bias
+            + effective_lambda * np.eye(number_of_coefficients)
         )
 
         # Add measurment bias constraint ridge regularization
-        offset_mea = num["sub"]
-        len_mea = num["mea"]
+        offset_mea = feature_dims["sub"]
+        len_mea = feature_dims["mea"]
 
         if len_mea > 0:
             # C = I - (1/S)11^T (Centering matrix)
@@ -2757,48 +3060,358 @@ def _(
         # For each edge i, we compute its specific linear term
         # f = -DM^T * X[:, i]
         # By doing the following:
-            # 1. Compute H^-1 * f
-            # 2. Compute the projected target: -A * H^-1 * f
-            # 3. Solve for y: W * y = -A * H^-1 * f
-            # 4. Recover x: x = -H^-1 * f - H^-1 * A^T * y
+        # 1. Compute H^-1 * f
+        # 2. Compute the projected target: -A * H^-1 * f
+        # 3. Solve for y: W * y = -A * H^-1 * f
+        # 4. Recover x: x = -H^-1 * f - H^-1 * A^T * y
 
+        # Please note that the comments were generated by Qwen3.5-4b
 
-        # We start by calculating the Cholesky factorization of H (H = L * L^T)
-        # cho_factor returns the factor matrix (cH) and a boolean flag (lower_H)
-        cH, lower_H = cho_factor(
+        # 1. Calculate H_cho_factor = cho_factor(H)
+        # H = DM^T @ DM + lambda * I + bias_penalty
+        H_cho_factor, lower_H = cho_factor(
             hessian_matrix, overwrite_a=False, check_finite=False
         )
+        # 2. Calculate Z = H^-1 @ A^T (invH_AT)
+        # We solve H * Z = A^T using the Cholesky factors.
+        # A here is the constraint matrix (rows = constraints, cols = total variables).
+        invH_AT_cache = cho_solve(
+            (H_cho_factor, lower_H), a_equations.T, check_finite=False
+        )
+        # 3. Calculate W = A @ Z = A @ H^-1 @ A^T (Schur Complement)
+        # W is the matrix we will solve for y (W * y = b)
+        W = a_equations @ invH_AT_cache
+        # 4. Factorize W for efficient solving in the loop
+        # W_cho_factor = cho_factor(W)
+        W_cho_factor, lower_W = cho_factor(
+            W, overwrite_a=False, check_finite=False
+        )
+        # 5. Prepare output storage
+        # Rows = total variables (dummy coeffs + bias coeffs)
+        # Cols = number of edges
+        solution_matrix = np.empty(
+            (dummy_values_with_bias.shape[1], number_of_connectivity), dtype=float
+        )
+        for i in range(number_of_connectivity):
+            print(f"Edge {i + 1}/{number_of_connectivity} processed")
 
-        # We will now find Z = H^-1 * A^T by solving H * Z = A^T
-        # cho_solve performs the two triangular solves automatically
-        inv_H_A_T = cho_solve(
-            (cH, lower_H), a_equations.T, check_finite=False
-        )  # shape: (number_of_coefficients, a_equations.shape[0])
+            # 1. Extract data for the current edge
+            # t corresponds to the target vector X[:, i]
+            edge_target = connectivities[:, i]
 
-        # And finally find W = A * Z = A * H^-1 * A^T
-        W = (
-            a_equations @ inv_H_A_T
-        )  # shape: (a_equations.shape[0], a_equations.shape[0])
+            # 2. Calculate residual vector f
+            # Math: f = -(number_of_connectivity.T @ target)
+            # This represents the negative gradient term from the data fidelity loss.
+            residual_vector = -(dummy_values_with_bias.T @ edge_target)
 
-        # Now that we have W, we factorize it to solve for y later
-        # (We will solve W * y = rhs, NOT multiply y = W * rhs)
-        cW, lower_W = cho_factor(W, overwrite_a=False, check_finite=False)
+            # 3. Solve for H^-1 * f (invH_residual)
+            # Math: invH_residual = H^-1 * f
+            invH_residual = cho_solve(
+                (H_cho_factor, lower_H), residual_vector, check_finite=False
+            )
 
-        mn = np.empty((DM.shape[1], NC), dtype=float)
+            # 4. Calculate the Right-Hand Side (RHS) for the Schur system
+            # Math: RHS = -(A * (H^-1 * f) + constraint_rhs_constant)
+            # Note: If the constraint is purely homogeneous (Ax=0), the 'b_equations' term
+            # might be zero or represent a bias offset. Assuming b_equations handles the offset.
+            rhs_y = -(b_equations + a_equations @ invH_residual)
+
+            # 5. Solve for Lagrange multipliers y
+            # Math: W * y = rhs_y  =>  y = W^-1 * rhs_y
+            lagrange_multipliers = cho_solve(
+                (W_cho_factor, lower_W), rhs_y, check_finite=False
+            )
+
+            # 6. Recover the primal solution vector x
+            # Math: x = -H^-1 * f - H^-1 * A^T * y
+            # We use the cached invH_AT_cache for the second term.
+            solution_vector = -invH_residual - (
+                invH_AT_cache @ lagrange_multipliers
+            )
+
+            # 7. Store the result
+            solution_matrix[:, i] = solution_vector
+
+        # Extract the different bias coefficients
+        # shape: (num_mea, num_edges)
+        mea_coeffs = solution_matrix[
+            feature_dims["sub"] : feature_dims["sub"] + feature_dims["mea"], :
+        ]
+
+        # shape: (num_sampling, num_edges)
+        sampling_coeffs = solution_matrix[
+            feature_dims["sub"] + feature_dims["mea"] : feature_dims["sub"]
+            + feature_dims["mea"]
+            + feature_dims["sampling"],
+            :,
+        ]
+
+        # Calculate the correlation of the site and sampling coeffs
+        corr_matrix = np.corrcoef(mea_coeffs, sampling_coeffs)
+
+        # Create a correlation heatmap
+        sns.heatmap(corr_matrix, cmap="coolwarm", vmin=-1, vmax=1)
+        plt.title("Bias Analysis Heatmap and GCV and MSE Summary")
+        plt.show()
+
+        gcv, mse, df = compute_gcv_score(
+            dummy_values_with_bias,
+            solution_matrix,
+            a_equation,
+            lambda_eff=lambda_eff,
+            tau_delta=tau_delta,
+            feature_dims=feature_dims,
+        )
+        print(f"GCV={gcv:.6g}, MSE={mse:.6g}, df={df:.3f}")
+
+        mat_obj = {
+            "mn": solution_matrix,
+            "DM": dummy_values_with_bias,
+            "LABEL": np.array(label, dtype=object).reshape(-1, 1),  # cellstr 風
+            "feature_dims": {
+                k: np.array(v, dtype=np.int32) for k, v in feature_dims.items()
+            },
+            "gcv": gcv,
+            "mse": mse,
+            "df": df,
+        }
+
+        savemat(str(outpute_file_path), mat_obj, dummy_labels)
 
     return
 
 
-@app.function
-def harmonize_dataset(
-    dataset_str: str,
-    gsr_flag: bool,
-    prot_flag: bool,
-    harm_type: str,
-    ortho_flag: bool,
-    roi_flag: str,
+@app.cell
+def _(
+    corrected_fc_values,
+    d,
+    data_dir,
+    df,
+    fc_value_corrected,
+    feature_dims_dict,
+    label,
+    mat_name,
+    out_path,
+    outmat_name,
+    outpute_file_path,
+    sub_name,
 ):
-    pass
+    def harmonize_dataset(
+        bias_path: Path,
+        data_path: Path,
+        output_path: Path,
+        dataset: str = "BMB",
+        ROI: str = "Glasser",
+        GSR_flag: bool = True,
+        ortho_flag: bool = True,
+        prot_flag: bool = True,
+        harm_type: str = "ts",
+    ):
+
+        # Make sure the output path exists
+
+        output_path.mkdir(exist_ok=True)
+
+        # Assigne the different file names
+        mat_file_name = f"all_data_con_{ROI}_GSR{GSR_flag}.mat"
+        out_mat_file_name = (
+            f"all_data_con_{ROI}_GSR{GSR_flag}_ortho{ortho_flag}_harmonized.mat"
+        )
+        subjecs_metadata_file_name = f"all_data_sub_{ROI}_GSR{GSR_flag}.csv"
+        site_column = "site"
+
+        if (out_path / out_mat_file_name).exists():
+            print(
+                f"The harmonization output file already exists at: {outpute_file_path}"
+            )
+            return
+
+        # Load the FC values
+        with h5py.File(f"{data_dir}{mat_name}", "r") as f:
+            fc_values = f["X"][:]
+
+        # Load the subjects Dataframe
+        subjects_metadata_dataframe = d.read_csv(
+            f"{data_dir}{subjecs_metadata_file_name}"
+        )
+
+        # Exclude the FC with NaN or inf values
+        exclude_participants = np.where(
+            np.isnan(fc_values).any(axis=1) | np.isinf(fc_values).any(axis=1)
+        )[0]
+
+        subjects_metadata_dataframe_filtered = subjects_metadata_dataframe.drop(
+            exclude_participants
+        ).reset_index(drop=True)
+
+        fc_values = np.delete(fc_values, exclude_participants, axis=0)
+
+        # If we want to do TS harmonization
+        if harm_type == "ts":
+            corrected_fc_values
+            subjects_metadata_dataframe_filtered["ts_harmonized"] = 0
+
+            if dataset == "BMB":
+                # Set the w_ts, tau and lambda values to retrieve the correct file
+                if ortho_flag == 1:
+                    if GSR_flag == 1:
+                        if ROI == "Glasser":
+                            optimal_w_ts, optimal_tau, optimal_lambda = (
+                                1.0,
+                                0.18,
+                                5.6,
+                            )
+                        elif ROI == "HCP_MMP":
+                            optimal_w_ts, optimal_tau, optimal_lambda = (
+                                1.0,
+                                0.18,
+                                5.2,
+                            )
+                    elif GSR_flag == 0:
+                        optimal_w_ts, optimal_tau, optimal_lambda = 1.0, 0.2, 5.0
+                elif ortho_flag == 0:
+                    if GSR_flag == 1:
+                        optimal_w_ts, optimal_tau, optimal_lambda = 1.0, 0.14, 5.3
+                    elif GSR_flag == 0:
+                        optimal_w_ts, optimal_tau, optimal_lambda = 1.0, 0.14, 5.3
+                    optimal_w_ts, optimal_tau, optimal_lambda = 1.0, 0.14, 5.3
+                file_name = f"{bias_path}EstimatedBias_{ROI}_GSR{GSR_flag}_protocol{prot_flag}_lambda{optimal_lambda}_ortho{ortho_flag}_wts{optimal_w_ts}_tdelta{optimal_tau}.mat"
+
+                # Load the bias from the correct file
+                bias, feature_dims_struct, LABEL_struct, gcv, mse, dof = (
+                    load_matlab_np_file(file_name)
+                )
+
+                # Extract the feature_dims_dict
+                for key in feature_dims_struct.dtype.names:
+                    feature_dims_dict[key] = int(feature_dims_struct[key][0, 0])
+
+                # Recover the labels
+                labels = []
+                for i, item in enumerate(LABEL_struct):
+                    labels.append(str(item[0][0]))
+                labels.append("const")
+
+                # Convert labels to a np array
+                labels = np.array(labels)
+
+                # Harmonize the different sites
+                site_info = subjects_metadata_dataframe_filtered[
+                    "participants_id"
+                ].str[:3]
+                for site_i in np.unique(site_info):
+                    print(f"Harmonize {site_i}")
+                    use_sub_index = np.where(site_info == site_i)[0]
+                    if np.sum(labels == site_i):
+                        fc_value_corrected[use_sub_index, :] = (
+                            fc_value_corrected[use_sub_index, :]
+                            - bias[labels == site_i, :]
+                        )
+                        df.loc[use_sub_index, "ts_harmonize"] = 1
+                    else:
+                        print(f"!!! {site_i} is not in bias label !!!")
+
+                # Harmonize the different protocols
+                if prot_flag:
+                    for protocol_i in np.unique(
+                        subjects_metadata_dataframe_filtered.protocol
+                    ):
+                        print(f"Harmonize {protocol_i}")
+                        use_sub_index = np.where(
+                            (
+                                subjects_metadata_dataframe_filtered.protocol
+                                == protocol_i
+                            )
+                            & (df.ts_harmonize == 1)
+                        )[0]
+                        fc_value_corrected[use_sub_index, :] = (
+                            fc_value_corrected[use_sub_index, :]
+                            - bias[label == protocol_i, :]
+                        )
+
+                # Add the site column to the metadata dataframe
+                subjects_metadata_dataframe_filtered["site"] = site_info
+
+            # We now do the same for the SRPB datset
+            elif dataset == "SRPB":
+                # Set the w_ts, tau and lambda values to retrieve the correct file
+
+                if ortho_flag == 1:
+                    if GSR_flag == 1:
+                        if ROI == "Glasser":
+                            optimal_w_ts, optimal_tau, optimal_lambda = (
+                                1.0,
+                                0.16,
+                                6.8,
+                            )
+                        elif ROI == "HCP_MMP":
+                            optimal_w_ts, optimal_tau, optimal_lambda = (
+                                1.0,
+                                0.16,
+                                6.3,
+                            )
+                    elif GSR_flag == 0:
+                        optimal_w_ts, optimal_tau, optimal_lambda = 1.0, 0.22, 6.1
+                elif ortho_flag == 0:
+                    if GSR_flag == 1:
+                        optimal_w_ts, optimal_tau, optimal_lambda = 1.0, 0.46, 5.7
+                    elif GSR_flag == 0:
+                        optimal_w_ts, optimal_tau, optimal_lambda = 1.0, 0.46, 5.7
+                file_name = f"{bias_path}EstimatedBias_{ROI}_GSR{GSR_flag}_protocol{prot_flag}_lambda{optimal_lambda}_ortho{ortho_flag}_wts{optimal_w_ts}_tdelta{optimal_tau}.mat"
+
+                # Load the bias from the correct file
+
+                bias, feature_dims_struct, LABEL_struct, gcv, mse, dof = (
+                    load_matlab_np_file(file_name)
+                )
+
+                # Extract the feature_dims_dict
+                for key in feature_dims_struct.dtype.names:
+                    feature_dims_dict[key] = int(feature_dims_struct[key][0, 0])
+
+                # Recover the labels
+                labels = []
+                for i, item in enumerate(LABEL_struct):
+                    labels.append(str(item[0][0]))
+                labels.append("const")
+
+                # Convert labels to a np array
+                labels = np.array(labels)
+
+                # Select the sites to harmonize
+                use_harmonize_site = ["SWA", "COI", "UTO", "KUT"]
+
+                for site_i in use_harmonize_site:
+                    print(f"{dataset}: Harmonizing in {site_i}")
+                    use_sub_index = np.where(
+                        subjects_metadata_dataframe_filtered[site_column] == site_i
+                    )[0]
+                    if np.sum(labels == site_i):
+                        fc_value_corrected[use_sub_index, :] = (
+                            fc_value_corrected[use_sub_index, :]
+                            - bias[labels == site_i, :]
+                        )
+                        df.loc[use_sub_index, "ts_harmonize"] = 1
+
+            print("Finished traveling subject harmonization!!")
+
+            # Save the corrected fc values
+            with h5py.File(f"{out_path}{outmat_name}", "w") as f:
+                f.create_dataset("X", data=fc_value_corrected)
+            df.reset_index(drop=True).to_csv(f"{out_path}{sub_name}", index=False)
+
+            # Collect the unique sites and make fraph
+            unique_sites = df["site"].unique()
+            site_colors = sns.color_palette("Set3", len(unique_sites))
+            site_color_map = dict(zip(unique_sites, site_colors))
+            row_colors = [site_color_map[site] for site in df["site"]]
+
+        elif harm_type == "ComBat":
+            raise ValueError(
+                "The harmonization can only be done for the ts harm type"
+            )
+
+    return
 
 
 @app.cell(hide_code=True)
