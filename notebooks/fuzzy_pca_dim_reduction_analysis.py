@@ -33,6 +33,7 @@ with app.setup:
     from scipy.linalg import cho_factor, cho_solve, lu_factor, lu_solve
     from scipy.io import savemat
     from scipy.linalg import lu_factor, lu_solve
+    import matplotlib.image as mpimg
 
 
 @app.cell(hide_code=True)
@@ -706,12 +707,12 @@ def _():
     )
 
     # Combine into single 446-label volume
-    ROI = np.zeros(np.shape(subcortex_volume), dtype=np.int32)
-    ROI[cortex_mask] = cortex_volume_processed[cortex_mask]
+    roi = np.zeros(np.shape(subcortex_volume), dtype=np.int32)
+    roi[cortex_mask] = cortex_volume_processed[cortex_mask]
     subcortex_mask = subcortex_volume > 0
-    ROI[subcortex_mask] = subcortex_volume[subcortex_mask] + np.max(ROI)
+    roi[subcortex_mask] = subcortex_volume[subcortex_mask] + np.max(roi)
     cerebellum_mask = cerebellum_volume > 0
-    ROI[cerebellum_mask] = cerebellum_volume[cerebellum_mask] + np.max(ROI)
+    roi[cerebellum_mask] = cerebellum_volume[cerebellum_mask] + np.max(roi)
 
     # ==========================================
     # 2. Calculate 3D MNI Coordinates
@@ -720,7 +721,7 @@ def _():
     target_affine = subcortex_img.affine
 
     labels = np.arange(1, 447)
-    coords_voxel = np.array(center_of_mass(ROI, labels=ROI, index=labels))
+    coords_voxel = np.array(center_of_mass(roi, labels=roi, index=labels))
 
     # Convert voxel indices to MNI coordinates (mm)
     coords_hom = np.hstack([coords_voxel, np.ones((446, 1))])
@@ -783,7 +784,7 @@ def _():
     with open(os.path.join(out_dir, "network_assignments_446.txt"), "w") as _f:
         for net in network_assignments:
             _f.write(f"{net}\n")
-    return ROI, coords_mni, network_assignments
+    return coords_mni, labels, network_assignments
 
 
 @app.cell(hide_code=True)
@@ -1659,40 +1660,63 @@ def _():
 
 @app.cell
 def _():
-    srpb_time_series_directory_path = Path(
-        "/home/cbi-biomark03/ayumu/HARP/data/preproc_srpb/time_series/Glasser_filtering1_GSR1_scrubbing1/"
-    )
-    return (srpb_time_series_directory_path,)
+    srpb_time_series_directory_paths = [
+        Path(
+            "/home/cbi-biomark03/ayumu/HARP/data/preproc_srpb/time_series/Glasser_filtering1_GSR1_scrubbing1/"
+        ),
+        Path(
+            "/home/cbi-biomark03/ayumu/HARP/data/preproc_uhi_bipolar/time_series/Glasser_filtering1_GSR1_scrubbing1/"
+        ),
+    ]
+    return (srpb_time_series_directory_paths,)
 
 
 @app.cell
-def _(srpb_time_series_directory_path):
+def _(srpb_time_series_directory_paths):
+    srpb_time_series_directory_suffixes = {
+        srpb_time_series_directory_paths[0]: "_restT1_parcel.csv",
+        srpb_time_series_directory_paths[1]: "_BOLD_REST1_AP_parcel.csv",
+    }
+    return (srpb_time_series_directory_suffixes,)
+
+
+@app.cell
+def _(srpb_time_series_directory_paths):
     srpb_time_series_file_paths = [
         file
-        for file in srpb_time_series_directory_path.iterdir()
+        for directory_path in srpb_time_series_directory_paths
+        for file in directory_path.iterdir()
         if file.is_file()
     ]
-    return (srpb_time_series_file_paths,)
+    return
 
 
 @app.cell
-def _(srpb_time_series_file_paths):
-    srpb_time_series_file_paths_dict = {
-        path.name.removesuffix("_restT1_parcel.csv"): path
-        for path in srpb_time_series_file_paths
-        if path.name.endswith("_restT1_parcel.csv")
-    }
-    return (srpb_time_series_file_paths_dict,)
+def _(srpb_time_series_directory_paths, srpb_time_series_directory_suffixes):
+    srpb_time_series_separated_dicts_list = [
+        {
+            path.name.removesuffix(
+                srpb_time_series_directory_suffixes[dir_path]
+            ): path
+            for path in dir_path.iterdir()
+            if path.is_file()
+            and path.name.endswith(srpb_time_series_directory_suffixes[dir_path])
+        }
+        for dir_path in srpb_time_series_directory_paths
+    ]
+    return (srpb_time_series_separated_dicts_list,)
 
 
 @app.cell
-def _(srpb_time_series_file_paths_dict):
+def _(srpb_time_series_separated_dicts_list):
+    srpb_combined_dict = {}
+    for d in srpb_time_series_separated_dicts_list:
+        srpb_combined_dict.update(d)
+
     srpb_time_series_file_paths_df = pl.DataFrame(
         {
-            "sub_id": list(srpb_time_series_file_paths_dict.keys()),
-            "time_series_path": [
-                str(p) for p in srpb_time_series_file_paths_dict.values()
-            ],
+            "sub_id": list(srpb_combined_dict.keys()),
+            "time_series_path": [str(p) for p in srpb_combined_dict.values()],
         }
     )
     return (srpb_time_series_file_paths_df,)
@@ -1701,7 +1725,7 @@ def _(srpb_time_series_file_paths_dict):
 @app.cell
 def _(srpb_metadata_df, srpb_time_series_file_paths_df):
     srpb_time_series_file_df = srpb_time_series_file_paths_df.join(
-        srpb_metadata_df, on="sub_id", how="left"
+        srpb_metadata_df, on="sub_id", how="right"
     )
     return (srpb_time_series_file_df,)
 
@@ -1709,6 +1733,18 @@ def _(srpb_metadata_df, srpb_time_series_file_paths_df):
 @app.cell
 def _(srpb_time_series_file_df):
     srpb_time_series_file_df.head()
+    return
+
+
+@app.cell
+def _(srpb_metadata_df):
+    srpb_metadata_df.head()
+    return
+
+
+@app.cell
+def _(srpb_time_series_file_df):
+    srpb_time_series_file_df.shape
     return
 
 
@@ -1730,36 +1766,60 @@ def _():
 
 @app.cell
 def _():
-    srpb_scrub_directory_path = Path(
-        "/home/cbi-biomark03/ayumu/HARP/data/preproc_srpb/scrub/Glasser_filtering1_GSR1_scrubbing1/"
-    )
-    return (srpb_scrub_directory_path,)
-
-
-@app.cell
-def _(srpb_scrub_directory_path):
-    srpb_scrub_file_paths = [
-        file for file in srpb_scrub_directory_path.iterdir() if file.is_file()
+    srpb_scrub_directory_paths = [
+        Path(
+            "/home/cbi-biomark03/ayumu/HARP/data/preproc_srpb/scrub/Glasser_filtering1_GSR1_scrubbing1/"
+        ),
+        Path(
+            "/home/cbi-biomark03/ayumu/HARP/data/preproc_uhi_bipolar/scrub/Glasser_filtering1_GSR1_scrubbing1"
+        ),
     ]
-    return (srpb_scrub_file_paths,)
+    return (srpb_scrub_directory_paths,)
 
 
 @app.cell
-def _(srpb_scrub_file_paths):
-    srpb_scrub_file_paths_dict = {
-        path.name.removesuffix("_restT1_scrub.csv"): path
-        for path in srpb_scrub_file_paths
-        if path.name.endswith("_restT1_scrub.csv")
+def _(srpb_scrub_directory_paths):
+    srpb_scrub_directory_suffixes = {
+        srpb_scrub_directory_paths[0]: "_restT1_scrub.csv",
+        srpb_scrub_directory_paths[1]: "_BOLD_REST1_AP_scrub.csv",
     }
-    return (srpb_scrub_file_paths_dict,)
+    return (srpb_scrub_directory_suffixes,)
 
 
 @app.cell
-def _(srpb_scrub_file_paths_dict):
+def _(srpb_scrub_directory_paths):
+    srpb_scrub_file_paths = [
+        file
+        for directory_path in srpb_scrub_directory_paths
+        for file in directory_path.iterdir()
+        if file.is_file()
+    ]
+    return
+
+
+@app.cell
+def _(srpb_scrub_directory_suffixes):
+    srpb_scrub_separated_dicts_list = [
+        {
+            path.name.removesuffix(suffix): path
+            for path in dir_path.iterdir()
+            if path.is_file() and path.name.endswith(suffix)
+        }
+        for dir_path, suffix in srpb_scrub_directory_suffixes.items()
+    ]
+    return (srpb_scrub_separated_dicts_list,)
+
+
+@app.cell
+def _(srpb_scrub_separated_dicts_list):
+    srpb_scrub_combined_dict = {}
+    for _d in srpb_scrub_separated_dicts_list:
+        srpb_scrub_combined_dict.update(_d)
+
     srpb_scrub_file_paths_df = pl.DataFrame(
         {
-            "sub_id": list(srpb_scrub_file_paths_dict.keys()),
-            "scrub_path": [str(p) for p in srpb_scrub_file_paths_dict.values()],
+            "sub_id": list(srpb_scrub_combined_dict.keys()),
+            "scrub_path": [str(p) for p in srpb_scrub_combined_dict.values()],
         }
     )
     return (srpb_scrub_file_paths_df,)
@@ -1768,7 +1828,7 @@ def _(srpb_scrub_file_paths_dict):
 @app.cell
 def _(srpb_scrub_file_paths_df, srpb_time_series_file_df):
     srpb_time_series_scrub_file_df = srpb_scrub_file_paths_df.join(
-        srpb_time_series_file_df, on="sub_id", how="left"
+        srpb_time_series_file_df, on="sub_id", how="right"
     )
     return (srpb_time_series_scrub_file_df,)
 
@@ -1776,6 +1836,12 @@ def _(srpb_scrub_file_paths_df, srpb_time_series_file_df):
 @app.cell
 def _(srpb_time_series_scrub_file_df):
     srpb_time_series_scrub_file_df.head()
+    return
+
+
+@app.cell
+def _(srpb_time_series_scrub_file_df):
+    srpb_time_series_scrub_file_df.shape
     return
 
 
@@ -1858,10 +1924,10 @@ def _():
 
 @app.cell
 def _(srpb_fuzzy_fc_matrices_output_path):
-    run_name = "regular-matrices"
+    regular_run_name = "regular-matrices"
 
     run_fc_matrices_output_dir = (
-        f"{srpb_fuzzy_fc_matrices_output_path}/{run_name}/"
+        f"{srpb_fuzzy_fc_matrices_output_path}/{regular_run_name}/"
     )
 
     run_fc_matrices_cache_filename = (
@@ -1870,7 +1936,11 @@ def _(srpb_fuzzy_fc_matrices_output_path):
     run_fc_matrices_cache_path = os.path.join(
         run_fc_matrices_output_dir, run_fc_matrices_cache_filename
     )
-    return run_fc_matrices_cache_path, run_fc_matrices_output_dir, run_name
+    return (
+        regular_run_name,
+        run_fc_matrices_cache_path,
+        run_fc_matrices_output_dir,
+    )
 
 
 @app.cell
@@ -1986,14 +2056,6 @@ def _():
     return
 
 
-@app.cell
-def _(run_name):
-    srpb_fc_matrices_correlation_output_dir = (
-        f"./res/pca-dim-reduction/srpb/fc_matrices_correlation/{run_name}"
-    )
-    return (srpb_fc_matrices_correlation_output_dir,)
-
-
 @app.cell(hide_code=True)
 def _():
     mo.md(r"""
@@ -2011,95 +2073,132 @@ def compare_fc_matrices(
     out_dir: str,
     sub_id_col: str = "sub_id",
 ) -> tuple[dict, pl.DataFrame]:
-    """
-    Compare unharmonized vs harmonized FC matrices matched by sub_id.
-    Returns (results_dict, unharmonized_df with added pairwise_correlation column).
-    Results are saved to cache in JSON format (cache loading is disabled).
-    """
+
     os.makedirs(out_dir, exist_ok=True)
     cache_path = os.path.join(out_dir, "fc_comparison_results.json")
     plot_path = os.path.join(out_dir, "fc_comparison_histogram.png")
 
-    # 1. Align DataFrames by sub_id using a left join
-    harm_suffix = "_harm"
+    # ------------------------------------------------------------------
+    # 1. SAFE JOIN (avoid suffix ambiguity entirely)
+    # ------------------------------------------------------------------
     joined_df = unharmonized_df.join(
-        harmonized_df.select([sub_id_col, harmonized_col]),
+        harmonized_df.rename({harmonized_col: "harm"}),
         on=sub_id_col,
         how="left",
-        suffix=harm_suffix,
     )
 
-    # Determine the actual name of the harmonized column in the joined dataframe
-    if harmonized_col in joined_df.columns:
-        joined_harm_col = harmonized_col
-    else:
-        joined_harm_col = harmonized_col + harm_suffix
-
+    # ------------------------------------------------------------------
+    # 2. EXTRACT DATA
+    # ------------------------------------------------------------------
     unharmonized_list = joined_df[unharmonized_col].to_list()
-    harmonized_list = joined_df[joined_harm_col].to_list()
+    harmonized_list = joined_df["harm"].to_list()
 
-    # 2. Compute metrics (Cache loading removed, always recompute)
-    n_rows = len(unharmonized_list)
+    # ------------------------------------------------------------------
+    # 3. COMPUTE METRICS
+    # ------------------------------------------------------------------
     subject_correlations = []
     subject_maes = []
 
-    for i in range(n_rows):
+    for i in range(len(unharmonized_list)):
         my_vec_flat = unharmonized_list[i]
         ref_vec_flat = harmonized_list[i]
 
-        # Handle nulls (e.g., subject missing in harmonized_df)
+        # handle missing data
         if my_vec_flat is None or ref_vec_flat is None:
             subject_correlations.append(None)
             subject_maes.append(None)
             continue
 
-        my_vec = np.array(my_vec_flat, dtype=np.float64)
-        ref_vec = np.array(ref_vec_flat, dtype=np.float64)
+        my_vec = np.asarray(my_vec_flat, dtype=np.float64)
+        ref_vec = np.asarray(ref_vec_flat, dtype=np.float64)
 
+        # length mismatch
         if len(my_vec) != len(ref_vec):
             subject_correlations.append(None)
             subject_maes.append(None)
             continue
 
-        # Calculate metrics
-        r, _ = stats.pearsonr(my_vec, ref_vec)
+        # remove invalid values
+        mask = np.isfinite(my_vec) & np.isfinite(ref_vec)
+
+        if not np.any(mask):
+            subject_correlations.append(None)
+            subject_maes.append(None)
+            continue
+
+        my_vec = my_vec[mask]
+        ref_vec = ref_vec[mask]
+
+        # correlation (safe)
+        if len(my_vec) < 2 or np.std(my_vec) == 0 or np.std(ref_vec) == 0:
+            r = np.nan
+        else:
+            try:
+                r, _ = stats.pearsonr(my_vec, ref_vec)
+            except Exception:
+                r = np.nan
+
         subject_correlations.append(r)
 
+        # MAE
         mae = np.mean(np.abs(my_vec - ref_vec))
         subject_maes.append(mae)
 
-    # Filter out None values for aggregate statistics
-    valid_corrs = [c for c in subject_correlations if c is not None]
-    valid_maes = [m for m in subject_maes if m is not None]
+    # ------------------------------------------------------------------
+    # 4. CLEAN AGGREGATION
+    # ------------------------------------------------------------------
+    valid_corrs = np.asarray(
+        [c for c in subject_correlations if c is not None and np.isfinite(c)],
+        dtype=np.float64,
+    )
+
+    valid_maes = np.asarray(
+        [m for m in subject_maes if m is not None and np.isfinite(m)],
+        dtype=np.float64,
+    )
 
     results = {
         "subject_correlations": subject_correlations,
         "subject_maes": subject_maes,
         "avg_correlation": float(np.mean(valid_corrs))
-        if valid_corrs
+        if valid_corrs.size
         else float("nan"),
-        "avg_mae": float(np.mean(valid_maes)) if valid_maes else float("nan"),
-        "n_subjects": len(valid_corrs),
+        "avg_mae": float(np.mean(valid_maes))
+        if valid_maes.size
+        else float("nan"),
+        "n_subjects": int(valid_corrs.size),
     }
 
-    # --- Histogram ---
+    # ------------------------------------------------------------------
+    # 5. ROBUST HISTOGRAM
+    # ------------------------------------------------------------------
     fig, ax = plt.subplots(1, 1, figsize=(10, 6))
 
-    if valid_corrs:
-        n_bins = min(30, len(valid_corrs))
-        ax.hist(
-            valid_corrs,
-            bins=n_bins,
-            color="skyblue",
-            edgecolor="black",
-            alpha=0.8,
-        )
+    if valid_corrs.size > 0:
+        # handle degenerate case (your actual issue)
+        if np.ptp(valid_corrs) < 1e-12:
+            ax.hist(
+                valid_corrs,
+                bins=1,
+                color="skyblue",
+                edgecolor="black",
+                alpha=0.8,
+            )
+        else:
+            ax.hist(
+                valid_corrs,
+                bins="auto",
+                color="skyblue",
+                edgecolor="black",
+                alpha=0.8,
+            )
+
         ax.set_title(
             "Distribution of Per-Subject Pairwise Correlations\n(Unharmonized vs Harmonized)",
             fontsize=12,
         )
-        ax.set_xlabel("Pearson Correlation (r)", fontsize=10)
-        ax.set_ylabel("Number of Subjects", fontsize=10)
+        ax.set_xlabel("Pearson Correlation (r)")
+        ax.set_ylabel("Number of Subjects")
 
         mean_corr = np.mean(valid_corrs)
         median_corr = np.median(valid_corrs)
@@ -2118,107 +2217,92 @@ def compare_fc_matrices(
             linewidth=2,
             label=f"Median: {median_corr:.4f}",
         )
-        ax.legend(loc="upper left", fontsize=9)
+
+        ax.legend()
         ax.grid(axis="y", alpha=0.3)
 
-        stats_text = (
-            f"Mean: {mean_corr:.4f}\n"
-            f"Median: {median_corr:.4f}\n"
-            f"Std: {np.std(valid_corrs):.4f}\n"
-            f"Min: {np.min(valid_corrs):.4f}\n"
-            f"Max: {np.max(valid_corrs):.4f}"
-        )
         ax.text(
             0.95,
             0.95,
-            stats_text,
+            f"Mean: {mean_corr:.4f}\nMedian: {median_corr:.4f}\n"
+            f"Std: {np.std(valid_corrs):.4f}\nMin: {np.min(valid_corrs):.4f}\nMax: {np.max(valid_corrs):.4f}",
             transform=ax.transAxes,
             ha="right",
             va="top",
             bbox=dict(boxstyle="round", facecolor="wheat", alpha=0.5),
         )
+
     else:
-        ax.text(
-            0.5,
-            0.5,
-            "No valid data to plot",
-            ha="center",
-            va="center",
-            transform=ax.transAxes,
-        )
+        ax.text(0.5, 0.5, "No valid data", ha="center", va="center")
 
     plt.tight_layout()
     plt.savefig(plot_path, dpi=150, bbox_inches="tight")
     plt.close()
 
-    # 3. Save cache (Loading is disabled, but saving remains)
+    # ------------------------------------------------------------------
+    # 6. SAVE RESULTS
+    # ------------------------------------------------------------------
     with open(cache_path, "w") as f:
         json.dump(results, f, indent=2)
 
-    # 4. Build the final Polars DataFrame
-    corr_df = joined_df.with_columns(
-        pl.Series(
-            name="pairwise_correlation",
-            values=results["subject_correlations"],
-            dtype=pl.Float64,
-        )
-    )
-
-    # 5. UI Generation
+    # ------------------------------------------------------------------
+    # 7. UI
+    # ------------------------------------------------------------------
     comparison_plot = mo.image(src=plot_path)
 
     avg_corr = results["avg_correlation"]
     avg_mae = results["avg_mae"]
 
-    avg_corr_str = f"{avg_corr:.4f}" if not np.isnan(avg_corr) else "N/A"
-    avg_mae_str = f"{avg_mae:.4f}" if not np.isnan(avg_mae) else "N/A"
+    avg_corr_str = f"{avg_corr:.4f}" if np.isfinite(avg_corr) else "N/A"
+    avg_mae_str = f"{avg_mae:.4f}" if np.isfinite(avg_mae) else "N/A"
 
-    valid_corrs_for_ui = [
-        c for c in results["subject_correlations"] if c is not None
-    ]
     median_corr_str = (
-        f"{np.median(valid_corrs_for_ui):.4f}" if valid_corrs_for_ui else "N/A"
+        f"{np.median(valid_corrs):.4f}" if valid_corrs.size else "N/A"
     )
 
     metrics_md = mo.md(f"""
-    #### FC Matrix Comparison Metrics
+#### FC Matrix Comparison Metrics
 
-    | Metric | Value |
-    |--------|-------|
-    | **Average Per-Subject Correlation** | {avg_corr_str} |
-    | **Median Per-Subject Correlation** | {median_corr_str} |
-    | **Average MAE** | {avg_mae_str} |
-    | **Number of Subjects** | {results["n_subjects"]} |
-    """)
+| Metric | Value |
+|--------|-------|
+| **Average Per-Subject Correlation** | {avg_corr_str} |
+| **Median Per-Subject Correlation** | {median_corr_str} |
+| **Average MAE** | {avg_mae_str} |
+| **Number of Subjects** | {results["n_subjects"]} |
+""")
 
     ui = mo.vstack([metrics_md, comparison_plot], gap=2)
 
     results["ui"] = ui
 
-    return results, corr_df
+    return results
+
+
+@app.cell
+def _(regular_run_name):
+    srpb_extracted_fc_matrices_correlation_output_dir = f"./res/pca-dim-reduction/srpb/extracted-harmonized-fc-matrices-correlation/{regular_run_name}"
+    return (srpb_extracted_fc_matrices_correlation_output_dir,)
 
 
 @app.cell
 def _(
     harmonized_srpb_fc_matrices_df,
+    srpb_extracted_fc_matrices_correlation_output_dir,
     srpb_extracted_fc_matrices_df,
-    srpb_fc_matrices_correlation_output_dir,
 ):
-    fc_matrices_comparison_results, srpb_extracted_fc_matrices_correlation_df = (
-        compare_fc_matrices(
-            srpb_extracted_fc_matrices_df,
-            "fc_matrix",
-            harmonized_srpb_fc_matrices_df,
-            "harmonized_fc_matrix",
-            out_dir=srpb_fc_matrices_correlation_output_dir,
-        )
+    srpb_extracted_fc_matrices_comparison_results = compare_fc_matrices(
+        srpb_extracted_fc_matrices_df,
+        "fc_matrix",
+        harmonized_srpb_fc_matrices_df,
+        "harmonized_fc_matrix",
+        out_dir=srpb_extracted_fc_matrices_correlation_output_dir,
     )
-    return (fc_matrices_comparison_results,)
+    return (srpb_extracted_fc_matrices_comparison_results,)
 
 
 @app.cell
-def _(fc_matrices_comparison_results):
-    fc_matrices_comparison_results["ui"]
+def _(srpb_extracted_fc_matrices_comparison_results):
+    srpb_extracted_fc_matrices_comparison_results["ui"]
     return
 
 
@@ -2340,17 +2424,14 @@ def weighted_orthogonalize_sampling(
     return X_S_perp
 
 
-@app.cell
-def _(dtype):
-    def mean_zero_row(number_of_rows: int, offset: int, length: int) -> np.ndarray:
-        row = np.zeros(number_of_rows, dtype - float)
+@app.function
+def mean_zero_row(number_of_rows: int, offset: int, length: int) -> np.ndarray:
+    row = np.zeros(number_of_rows, dtype=float)
 
-        if length > 0:
-            row[offset : offset + length] = 1.0 / float(length)
+    if length > 0:
+        row[offset : offset + length] = 1.0 / float(length)
 
-        return row
-
-    return (mean_zero_row,)
+    return row
 
 
 @app.cell(hide_code=True)
@@ -2364,14 +2445,14 @@ def _():
 @app.function
 def compute_gcv_score(
     dummy_values_with_bias,
-    solution_matrix,
+    connectivities,
     a_equation,
     feature_dims,
     lambda_eff,
     tau_delta,
 ):
     """
-    Calculates Generalized Cross-Validation (GCV), MSE, and Degrees of Freedom (df)
+    Calculates Generalized Cross-Validation (GCV), MSE, and Degrees of Freedom (dof)
     for a Regularized Linear Model with bias constraints.
 
     This function implements the analytical solution for GCV by reusing pre-computed
@@ -2384,7 +2465,7 @@ def compute_gcv_score(
     # n_samples: Total number of observations (rows)
     # n_features: Total number of coefficients (columns)
     n_samples, n_features = dummy_values_with_bias.shape
-    n_targets = solution_matrix.shape[1]
+    n_targets = connectivities.shape[1]
 
     # Extract block counts from the 'feature_dims' dictionary safely
     count_sub = feature_dims.get("sub", 0) if feature_dims else 0
@@ -2468,8 +2549,8 @@ def compute_gcv_score(
         lu_factors_w = lu_factor(W)
         solve_w = lambda b: lu_solve(lu_factors_w, b)
 
-    # --- 6. Calculate Degrees of Freedom (df) ---
-    # Formula: df = trace(H^{-1}) - trace(W^{-1} @ T)
+    # --- 6. Calculate Degrees of Freedom (dof) ---
+    # Formula: dof = trace(H^{-1}) - trace(W^{-1} @ T)
     # Where T = A @ M1 @ G (effectively A @ H^-1 @ A^T related terms)
     # Degrees of freedom measure the model complexity (bias-variance tradeoff).
     # T_Matrix corresponds to the term inside the trace of the Schur complement equation.
@@ -2478,13 +2559,14 @@ def compute_gcv_score(
         @ solve_h(dummy_values_with_bias.T @ dummy_values_with_bias)
         @ a_equation.T
     )
-    df = np.trace(
+    dof = np.trace(
         solve_h(dummy_values_with_bias.T @ dummy_values_with_bias)
     ) - np.trace(solve_w(T_Matrix))
 
     # --- 7. Calculate Residual Sum of Squares (RSS) ---
     # We iterate over each target column to calculate the error.
     # D_T corresponds to dummy_values_with_bias.T
+
     D_T = dummy_values_with_bias.T
     Total_RSS = 0.0
 
@@ -2492,7 +2574,7 @@ def compute_gcv_score(
         # Extract the specific target vector (Y column)
         # t corresponds to the target vector X[:, i] in the original logic
         # In the KKT system, this is the target vector 't' (or 'target' in some notations)
-        target_vector = solution_matrix[:, target_idx]
+        target_vector = connectivities[:, target_idx]
 
         # The analytical solution for the estimated coefficients (x) for this target:
         # x = H^{-1} @ ( -D^T @ t ) - Z @ ( W^{-1} @ ( -A @ H^{-1} @ (D^T @ t) ) )
@@ -2501,6 +2583,7 @@ def compute_gcv_score(
         # f = -(D^T @ target)
         # This represents the negative gradient term from the data fidelity loss.
         # In the KKT system, the RHS vector is -f.
+
         f = -(D_T @ target_vector)
 
         # Step B: Transform gradient through H^{-1}
@@ -2541,18 +2624,18 @@ def compute_gcv_score(
     # Mean Squared Error: Average of RSS across all targets and samples
     mse = Total_RSS / (n_samples * n_targets)
 
-    # GCV: MSE adjusted by the ratio of df to n_samples
-    # GCV = MSE / ((1 - df/n)^2)
+    # GCV: MSE adjusted by the ratio of dof to n_samples
+    # GCV = MSE / ((1 - dof/n)^2)
     # This penalizes models with high degrees of freedom (overfitting).
-    df_ratio = df / n_samples
-    denominator = 1.0 - df_ratio
+    dof_ratio = dof / n_samples
+    denominator = 1.0 - dof_ratio
 
     if np.isclose(denominator, 0):
         gcv_score = np.inf
     else:
         gcv_score = mse / (denominator**2)
 
-    return gcv_score, mse, df
+    return gcv_score, mse, dof
 
 
 @app.cell(hide_code=True)
@@ -2640,24 +2723,13 @@ def _():
 
 
 @app.cell
-def _(
-    Dict,
-    GSR_flag,
-    ROI,
-    a_equality,
-    a_equation,
-    get_dummy_values_and_labels,
-    label,
-    lambda_eff,
-    mean_zero_row,
-    p,
-    stack_np_array_by_common_columns,
-    w_ts,
-):
+def _(Dict, get_dummy_values_and_labels, p, stack_np_array_by_common_columns):
     # The default argument values are taken from the provided code
     def estimate_bias(
         output_dir_path: Path,
+        rs_connectivity: list,
         dataset: str = "BMB",
+        ids_to_remove=[],
         roi: str = "Glasser",
         gsr_flag: bool = True,
         protocol_flag: bool = True,
@@ -2685,26 +2757,27 @@ def _(
             base_path / f"data/preproc_{dataset.lower()}_ts/"
         )
 
-        output_figure_path = (
-            output_dir_path / f"fig/BiasEstimation/{dataset.lower()}/"
-        )
+        output_figure_path = output_dir_path / f"figs/"
+        figure_name = "bias_correlation_heatmap.png"
+
         os.makedirs(output_figure_path, exist_ok=True)
 
         if permutation_flag == 1:
             output_directory_path = (
-                output_dir_path / f"results/perm/ts_harmonization_{dataset}/"
+                output_dir_path / f"ts_harmonization_{dataset}_perm/"
             )
         else:
             output_directory_path = (
-                output_dir_path / f"results/ts_harmonization_{dataset}_lambda/"
+                output_dir_path / f"ts_harmonization_{dataset}_lambda/"
             )
+
         output_directory_path.mkdir(parents=True, exist_ok=True)
 
         effective_lambda = float(lambda_value) * 10.0
 
         outpute_file_path = (
             output_directory_path
-            / f"EstimatedBias_{roi}_GSR{gsr_flag}_protocol{protocol_flag}_lambda{effective_lambda}_ortho{ortho_flag}_wts{w_ts}_tdelta{tau_delta}.mat"
+            / f"EstimatedBias_{roi}_GSR{int(gsr_flag)}_protocol{int(protocol_flag)}_lambda{effective_lambda}_ortho{int(ortho_flag)}_wts{ts_weight}_tdelta{tau_delta}.mat"
         )
 
         # If the output file already exist, skip the calculation
@@ -2712,15 +2785,53 @@ def _(
             print(
                 f"The bias estimation output file already exists at: {outpute_file_path}"
             )
-            return
+
+            data = loadmat(str(outpute_file_path))
+
+            solution_matrix = data["solution_matrix"]
+            dummy_values_with_bias = data["dummy_values_with_bias"]
+
+            raw_labels = data["dummy_labels"]
+            dummy_labels_struct = np.array(
+                [[str(item[0].flatten()[0])] for item in raw_labels], dtype=object
+            )
+
+            raw_fd = data["feature_dims"].flatten()[0]
+            feature_dims_struct = {
+                "sub": int(raw_fd["sub"].item()),
+                "mea": int(raw_fd["mea"].item()),
+                "sampling": int(raw_fd["sampling"].item()),
+            }
+
+            gcv = float(data["gcv"].item())
+            mse = float(data["mse"].item())
+            dof = float(data["dof"].item())
+
+            image_path = output_figure_path / figure_name
+            if image_path.exists():
+                mo.image(src=str(image_path))
+            else:
+                print(f"Warning: Image file not found at {image_path}")
+
+            return {
+                "solution_matrix": solution_matrix,
+                "dummy_values_with_bias": dummy_values_with_bias,
+                "dummy_labels": dummy_labels_struct,
+                "feature_dims": feature_dims_struct,
+                "gcv": gcv,
+                "mse": mse,
+                "dof": dof,
+            }
 
         # Extract connectivity and metadata from the TS dataset
 
         ts_connectivity_path = (
-            ts_dataset_directory_path / f"all_data_con_{ROI}_GSR{GSR_flag}.mat"
+            ts_dataset_directory_path
+            / f"all_data_con_{roi}_GSR{int(gsr_flag)}.mat"
         )
         ts_metadata_path = (
-            ts_dataset_directory_path / f"all_data_sub_{ROI}_GSR{GSR_flag}.csv"
+            ts_dataset_directory_path
+            / f"all_data_sub_{roi}_GSR{int(gsr_flag)}.csv"
         )
 
         ts_connectivity = load_matlab_np_file(ts_connectivity_path)
@@ -2760,15 +2871,33 @@ def _(
 
         # Do the same for the RS dataset
 
+        """
         rs_connectivity_path = (
-            rs_dataset_directory_path / f"all_data_con_{ROI}_GSR{GSR_flag}.mat"
+            rs_dataset_directory_path / f"all_data_con_{roi}_GSR{int(gsr_flag)}.mat"
         )
+        """
         rs_metadata_path = (
-            rs_dataset_directory_path / f"all_data_sub_{ROI}_GSR{GSR_flag}.csv"
+            rs_dataset_directory_path
+            / f"all_data_sub_{roi}_GSR{int(gsr_flag)}.csv"
         )
 
+        """
         rs_connectivity = load_matlab_np_file(rs_connectivity_path)
+        """
         rs_metadata_dataframe = pd.read_csv(rs_metadata_path)
+
+        # TODO: Check if the 3000 range subjects should be included
+
+        if dataset == "SRPB":
+            rs_metadata_dataframe = rs_metadata_dataframe[
+                ~rs_metadata_dataframe["sub_id"].isin(ids_to_remove)
+            ]
+        elif dataset == "BMB":
+            rs_metadata_dataframe = rs_metadata_dataframe[
+                ~rs_metadata_dataframe["subject_id"].isin(ids_to_remove)
+            ]
+        else:
+            raise ValueError(f"Unsupported dataset: {dataset}")
 
         if dataset == "BMB":
             columns_to_remove = ~np.isfinite(rs_connectivity).all(axis=0)
@@ -2803,7 +2932,7 @@ def _(
         total_number_of_subjects, number_of_connectivity = connectivities.shape
 
         # Combine the different dummy values and labels
-        if dataset == "SRBP":
+        if dataset == "SRPB":
             sites_to_use = ["COI", "KUT", "UTO", "SWA"]
 
             rs_site_dummy_values, rs_site_dummy_labels = (
@@ -2816,7 +2945,7 @@ def _(
                 if label in sites_to_use
             ]
 
-            rs_site_dummy_values = rs_site_dummy_labels[:, selected_site_indices]
+            rs_site_dummy_values = rs_site_dummy_values[:, selected_site_indices]
 
             rs_site_dummy_labels = [
                 rs_site_dummy_labels[i] for i in selected_site_indices
@@ -2851,7 +2980,7 @@ def _(
                     rs_protocol_dummy_labels,
                 )
             )
-        elif dataset == "SRBP":
+        elif dataset == "SRPB":
             combined_protocol_dummy_values, combined_protocol_dummy_labels = (
                 np.empty((ts_number_of_subjects + rs_number_of_subjects, 0)),
                 [],
@@ -2860,11 +2989,13 @@ def _(
             raise ValueError(f"Unexpected dataset value: {dataset}")
 
         combined_subject_dummy_values = np.vstack(
-            ts_subject_dummy_values,
-            np.zeros(
-                (rs_number_of_subjects, ts_subject_dummy_values.shape[1]),
-                dtype=float,
-            ),
+            [
+                ts_subject_dummy_values,
+                np.zeros(
+                    (rs_number_of_subjects, ts_subject_dummy_values.shape[1]),
+                    dtype=float,
+                ),
+            ],
         )
 
         # Initialize the sampling dummies
@@ -2873,11 +3004,11 @@ def _(
         if combined_sampling_dummy_values.size > 0:
             combined_sampling_dummy_values[:ts_number_of_subjects, :] = 0.0
 
-        label_site_sampling = [f"{s}_SAMPLING" for s in combined_site_dummy_values]
+        label_site_sampling = [f"{s}_SAMPLING" for s in combined_site_dummy_labels]
 
         # Orthogonize if the flag is set
         if ortho_flag == 1:
-            is_traveling_subject = np.zeros(total_number_of_subjects)
+            is_traveling_subject = np.zeros(total_number_of_subjects, dtype=bool)
 
             is_traveling_subject[:ts_number_of_subjects] = True
 
@@ -2986,7 +3117,7 @@ def _(
 
         # Define the different equations
         a_equations = np.vstack(rows) if rows else np.zeros((0, p), dtype=float)
-        b_equations = np.zeros(a_equality.shape[0], dtype=float)
+        b_equations = np.zeros(a_equations.shape[0], dtype=float)
 
         # H = DM' DM + λ I
         hessian_matrix = (
@@ -3152,148 +3283,138 @@ def _(
         # Create a correlation heatmap
         sns.heatmap(corr_matrix, cmap="coolwarm", vmin=-1, vmax=1)
         plt.title("Bias Analysis Heatmap and GCV and MSE Summary")
+
+        plt.savefig(output_figure_path / figure_name)
+
         plt.show()
 
-        gcv, mse, df = compute_gcv_score(
+        gcv, mse, dof = compute_gcv_score(
             dummy_values_with_bias,
-            solution_matrix,
-            a_equation,
-            lambda_eff=lambda_eff,
+            connectivities,
+            a_equations,
+            lambda_eff=effective_lambda,
             tau_delta=tau_delta,
             feature_dims=feature_dims,
         )
-        print(f"GCV={gcv:.6g}, MSE={mse:.6g}, df={df:.3f}")
+        print(f"GCV={gcv:.6g}, MSE={mse:.6g}, df={dof:.3f}")
 
         mat_obj = {
-            "mn": solution_matrix,
-            "DM": dummy_values_with_bias,
-            "LABEL": np.array(label, dtype=object).reshape(-1, 1),  # cellstr 風
+            "solution_matrix": solution_matrix,
+            "dummy_values_with_bias": dummy_values_with_bias,
+            "dummy_labels": np.array(dummy_labels, dtype=object).reshape(-1, 1),
             "feature_dims": {
                 k: np.array(v, dtype=np.int32) for k, v in feature_dims.items()
             },
             "gcv": gcv,
             "mse": mse,
-            "df": df,
+            "dof": dof,
         }
 
-        savemat(str(outpute_file_path), mat_obj, dummy_labels)
+        savemat(str(outpute_file_path), mat_obj)
 
-    return
+        return mat_obj
+
+    return (estimate_bias,)
 
 
 @app.cell
-def _(
-    corrected_fc_values,
-    d,
-    data_dir,
-    df,
-    fc_value_corrected,
-    feature_dims_dict,
-    label,
-    mat_name,
-    out_path,
-    outmat_name,
-    outpute_file_path,
-    sub_name,
-):
-    def harmonize_dataset(
-        bias_path: Path,
-        data_path: Path,
+def _(labels):
+    def harmonize_connectivity(
+        bias_dictionnary: dict,
+        connectivity: np.ndarray,
+        metadata_dir_path: Path,
         output_path: Path,
+        ids_to_remove=[],
         dataset: str = "BMB",
-        ROI: str = "Glasser",
-        GSR_flag: bool = True,
+        roi: str = "Glasser",
+        gsr_flag: bool = True,
         ortho_flag: bool = True,
         prot_flag: bool = True,
         harm_type: str = "ts",
     ):
 
         # Make sure the output path exists
-
         output_path.mkdir(exist_ok=True)
 
-        # Assigne the different file names
-        mat_file_name = f"all_data_con_{ROI}_GSR{GSR_flag}.mat"
-        out_mat_file_name = (
-            f"all_data_con_{ROI}_GSR{GSR_flag}_ortho{ortho_flag}_harmonized.mat"
-        )
-        subjecs_metadata_file_name = f"all_data_sub_{ROI}_GSR{GSR_flag}.csv"
+        # Assign the different file names
+        out_mat_file_name = f"all_data_con_{roi}_GSR{int(gsr_flag)}_ortho{int(ortho_flag)}_harmonized.mat"
+        subjects_metadata_file_name = f"all_data_sub_{roi}_GSR{int(gsr_flag)}.csv"
         site_column = "site"
 
-        if (out_path / out_mat_file_name).exists():
+        if (output_path / out_mat_file_name).exists():
             print(
-                f"The harmonization output file already exists at: {outpute_file_path}"
+                f"The harmonization output file already exists at: {output_path / out_mat_file_name}"
             )
-            return
-
-        # Load the FC values
-        with h5py.File(f"{data_dir}{mat_name}", "r") as f:
-            fc_values = f["X"][:]
+            with h5py.File(f"{output_path}/{out_mat_file_name}", "r") as f:
+                connectivity_corrected = f["X"][:]
+            return connectivity_corrected
 
         # Load the subjects Dataframe
-        subjects_metadata_dataframe = d.read_csv(
-            f"{data_dir}{subjecs_metadata_file_name}"
+        subjects_metadata_dataframe = pd.read_csv(
+            f"{metadata_dir_path}/{subjects_metadata_file_name}"
         )
 
+        """
         # Exclude the FC with NaN or inf values
-        exclude_participants = np.where(
-            np.isnan(fc_values).any(axis=1) | np.isinf(fc_values).any(axis=1)
-        )[0]
+        valid_data_mask = ~(
+            np.isnan(connectivity).any(axis=1) | np.isinf(connectivity).any(axis=1)
+        )
+        connectivity = connectivity[valid_data_mask]
+        """
 
-        subjects_metadata_dataframe_filtered = subjects_metadata_dataframe.drop(
-            exclude_participants
-        ).reset_index(drop=True)
+        # Exclude the subjects with id in the ids_to_remove
+        valid_id_mask = ~subjects_metadata_dataframe["sub_id"].isin(ids_to_remove)
+        subjects_metadata_dataframe_filtered = subjects_metadata_dataframe[
+            valid_id_mask
+        ].reset_index(drop=True)
 
-        fc_values = np.delete(fc_values, exclude_participants, axis=0)
+        assert subjects_metadata_dataframe_filtered.shape != connectivity.shape
 
         # If we want to do TS harmonization
         if harm_type == "ts":
-            corrected_fc_values
-            subjects_metadata_dataframe_filtered["ts_harmonized"] = 0
+            connectivity_corrected = connectivity.copy()
+            subjects_metadata_dataframe_filtered["ts_harmonize"] = 0
 
             if dataset == "BMB":
-                # Set the w_ts, tau and lambda values to retrieve the correct file
+                # Set the ts_weight, tau and lambda values to retrieve the correct file
                 if ortho_flag == 1:
-                    if GSR_flag == 1:
-                        if ROI == "Glasser":
-                            optimal_w_ts, optimal_tau, optimal_lambda = (
+                    if gsr_flag == 1:
+                        if roi == "Glasser":
+                            optimal_ts_weight, optimal_tau, optimal_lambda = (
                                 1.0,
                                 0.18,
                                 5.6,
                             )
-                        elif ROI == "HCP_MMP":
-                            optimal_w_ts, optimal_tau, optimal_lambda = (
+                        elif roi == "HCP_MMP":
+                            optimal_ts_weight, optimal_tau, optimal_lambda = (
                                 1.0,
                                 0.18,
                                 5.2,
                             )
-                    elif GSR_flag == 0:
-                        optimal_w_ts, optimal_tau, optimal_lambda = 1.0, 0.2, 5.0
+                    elif gsr_flag == 0:
+                        optimal_ts_weight, optimal_tau, optimal_lambda = (
+                            1.0,
+                            0.2,
+                            5.0,
+                        )
                 elif ortho_flag == 0:
-                    if GSR_flag == 1:
-                        optimal_w_ts, optimal_tau, optimal_lambda = 1.0, 0.14, 5.3
-                    elif GSR_flag == 0:
-                        optimal_w_ts, optimal_tau, optimal_lambda = 1.0, 0.14, 5.3
-                    optimal_w_ts, optimal_tau, optimal_lambda = 1.0, 0.14, 5.3
-                file_name = f"{bias_path}EstimatedBias_{ROI}_GSR{GSR_flag}_protocol{prot_flag}_lambda{optimal_lambda}_ortho{ortho_flag}_wts{optimal_w_ts}_tdelta{optimal_tau}.mat"
+                    if gsr_flag == 1:
+                        optimal_ts_weight, optimal_tau, optimal_lambda = (
+                            1.0,
+                            0.14,
+                            5.3,
+                        )
+                    elif gsr_flag == 0:
+                        optimal_ts_weight, optimal_tau, optimal_lambda = (
+                            1.0,
+                            0.14,
+                            5.3,
+                        )
+                    optimal_ts_weight, optimal_tau, optimal_lambda = 1.0, 0.14, 5.3
 
                 # Load the bias from the correct file
-                bias, feature_dims_struct, LABEL_struct, gcv, mse, dof = (
-                    load_matlab_np_file(file_name)
-                )
-
-                # Extract the feature_dims_dict
-                for key in feature_dims_struct.dtype.names:
-                    feature_dims_dict[key] = int(feature_dims_struct[key][0, 0])
-
-                # Recover the labels
-                labels = []
-                for i, item in enumerate(LABEL_struct):
-                    labels.append(str(item[0][0]))
-                labels.append("const")
-
-                # Convert labels to a np array
-                labels = np.array(labels)
+                bias = bias_dictionnary["solution_matrix"]
+                dummy_labels = bias_dictionnary["dummy_labels"]
 
                 # Harmonize the different sites
                 site_info = subjects_metadata_dataframe_filtered[
@@ -3302,12 +3423,14 @@ def _(
                 for site_i in np.unique(site_info):
                     print(f"Harmonize {site_i}")
                     use_sub_index = np.where(site_info == site_i)[0]
-                    if np.sum(labels == site_i):
-                        fc_value_corrected[use_sub_index, :] = (
-                            fc_value_corrected[use_sub_index, :]
-                            - bias[labels == site_i, :]
+                    if np.sum(dummy_labels == site_i):
+                        connectivity_corrected[use_sub_index, :] = (
+                            connectivity_corrected[use_sub_index, :]
+                            - bias[dummy_labels == site_i, :]
                         )
-                        df.loc[use_sub_index, "ts_harmonize"] = 1
+                        subjects_metadata_dataframe_filtered.loc[
+                            use_sub_index, "ts_harmonize"
+                        ] = 1
                     else:
                         print(f"!!! {site_i} is not in bias label !!!")
 
@@ -3322,61 +3445,70 @@ def _(
                                 subjects_metadata_dataframe_filtered.protocol
                                 == protocol_i
                             )
-                            & (df.ts_harmonize == 1)
+                            & (
+                                subjects_metadata_dataframe_filtered.ts_harmonize
+                                == 1
+                            )
                         )[0]
-                        fc_value_corrected[use_sub_index, :] = (
-                            fc_value_corrected[use_sub_index, :]
-                            - bias[label == protocol_i, :]
+                        connectivity_corrected[use_sub_index, :] = (
+                            connectivity_corrected[use_sub_index, :]
+                            - bias[labels == protocol_i, :]
                         )
 
                 # Add the site column to the metadata dataframe
                 subjects_metadata_dataframe_filtered["site"] = site_info
 
-            # We now do the same for the SRPB datset
+            # We now do the same for the SRPB dataset
             elif dataset == "SRPB":
-                # Set the w_ts, tau and lambda values to retrieve the correct file
-
+                # Set the ts_weight, tau and lambda values to retrieve the correct file
                 if ortho_flag == 1:
-                    if GSR_flag == 1:
-                        if ROI == "Glasser":
-                            optimal_w_ts, optimal_tau, optimal_lambda = (
+                    if gsr_flag == 1:
+                        if roi == "Glasser":
+                            optimal_ts_weight, optimal_tau, optimal_lambda = (
                                 1.0,
                                 0.16,
                                 6.8,
                             )
-                        elif ROI == "HCP_MMP":
-                            optimal_w_ts, optimal_tau, optimal_lambda = (
+                        elif roi == "HCP_MMP":
+                            optimal_ts_weight, optimal_tau, optimal_lambda = (
                                 1.0,
                                 0.16,
                                 6.3,
                             )
-                    elif GSR_flag == 0:
-                        optimal_w_ts, optimal_tau, optimal_lambda = 1.0, 0.22, 6.1
+                    elif gsr_flag == 0:
+                        optimal_ts_weight, optimal_tau, optimal_lambda = (
+                            1.0,
+                            0.22,
+                            6.1,
+                        )
                 elif ortho_flag == 0:
-                    if GSR_flag == 1:
-                        optimal_w_ts, optimal_tau, optimal_lambda = 1.0, 0.46, 5.7
-                    elif GSR_flag == 0:
-                        optimal_w_ts, optimal_tau, optimal_lambda = 1.0, 0.46, 5.7
-                file_name = f"{bias_path}EstimatedBias_{ROI}_GSR{GSR_flag}_protocol{prot_flag}_lambda{optimal_lambda}_ortho{ortho_flag}_wts{optimal_w_ts}_tdelta{optimal_tau}.mat"
+                    if gsr_flag == 1:
+                        optimal_ts_weight, optimal_tau, optimal_lambda = (
+                            1.0,
+                            0.46,
+                            5.7,
+                        )
+                    elif gsr_flag == 0:
+                        optimal_ts_weight, optimal_tau, optimal_lambda = (
+                            1.0,
+                            0.46,
+                            5.7,
+                        )
 
                 # Load the bias from the correct file
+                bias = bias_dictionnary["solution_matrix"]
+                dummy_labels = bias_dictionnary["dummy_labels"]
 
-                bias, feature_dims_struct, LABEL_struct, gcv, mse, dof = (
-                    load_matlab_np_file(file_name)
+                dummy_labels_flatten = np.array(dummy_labels).flatten().astype(str)
+
+                dummy_labels_flatten = np.append(dummy_labels_flatten, "const")
+
+                # Verify alignment
+                assert len(dummy_labels_flatten) == bias.shape[0], (
+                    f"Label count ({len(dummy_labels_flatten)}) doesn't match bias rows ({bias.shape[0]})"
                 )
 
-                # Extract the feature_dims_dict
-                for key in feature_dims_struct.dtype.names:
-                    feature_dims_dict[key] = int(feature_dims_struct[key][0, 0])
-
-                # Recover the labels
-                labels = []
-                for i, item in enumerate(LABEL_struct):
-                    labels.append(str(item[0][0]))
-                labels.append("const")
-
-                # Convert labels to a np array
-                labels = np.array(labels)
+                print(f"Available labels: {dummy_labels_flatten}")
 
                 # Select the sites to harmonize
                 use_harmonize_site = ["SWA", "COI", "UTO", "KUT"]
@@ -3386,31 +3518,177 @@ def _(
                     use_sub_index = np.where(
                         subjects_metadata_dataframe_filtered[site_column] == site_i
                     )[0]
-                    if np.sum(labels == site_i):
-                        fc_value_corrected[use_sub_index, :] = (
-                            fc_value_corrected[use_sub_index, :]
-                            - bias[labels == site_i, :]
+
+                    if np.any(dummy_labels_flatten == site_i):
+                        connectivity_corrected[use_sub_index, :] = (
+                            connectivity_corrected[use_sub_index, :]
+                            - bias[dummy_labels_flatten == site_i, :]
                         )
-                        df.loc[use_sub_index, "ts_harmonize"] = 1
+                        subjects_metadata_dataframe_filtered.loc[
+                            use_sub_index, "ts_harmonize"
+                        ] = 1
+                    else:
+                        print(
+                            f"WARNING: '{site_i}' not found in labels - skipping"
+                        )
 
             print("Finished traveling subject harmonization!!")
 
             # Save the corrected fc values
-            with h5py.File(f"{out_path}{outmat_name}", "w") as f:
-                f.create_dataset("X", data=fc_value_corrected)
-            df.reset_index(drop=True).to_csv(f"{out_path}{sub_name}", index=False)
+            with h5py.File(f"{output_path}/{out_mat_file_name}", "w") as f:
+                f.create_dataset("X", data=connectivity_corrected)
 
-            # Collect the unique sites and make fraph
-            unique_sites = df["site"].unique()
-            site_colors = sns.color_palette("Set3", len(unique_sites))
-            site_color_map = dict(zip(unique_sites, site_colors))
-            row_colors = [site_color_map[site] for site in df["site"]]
+            # Save the harmonized metadata
+            subjects_metadata_dataframe_filtered.reset_index(drop=True).to_csv(
+                f"{output_path}/{subjects_metadata_file_name}", index=False
+            )
+
+            return connectivity_corrected
 
         elif harm_type == "ComBat":
             raise ValueError(
                 "The harmonization can only be done for the ts harm type"
             )
 
+    return (harmonize_connectivity,)
+
+
+@app.cell(hide_code=True)
+def _():
+    mo.md(r"""
+    We now want to extract the SRPB bias
+    """)
+    return
+
+
+@app.cell
+def _():
+    srpb_fc_matrices_bias_output_dir = Path(f"./res/pca-dim-reduction/srpb/bias/")
+    return (srpb_fc_matrices_bias_output_dir,)
+
+
+@app.cell(hide_code=True)
+def _():
+    mo.md(r"""
+    # TODO: Why is axis 1 needed?
+    """)
+    return
+
+
+@app.cell
+def _(
+    estimate_bias,
+    srpb_extracted_fc_matrices_df,
+    srpb_fc_matrices_bias_output_dir,
+):
+    srpb_bias_dict = estimate_bias(
+        output_dir_path=srpb_fc_matrices_bias_output_dir,
+        rs_connectivity=np.stack(
+            srpb_extracted_fc_matrices_df["fc_matrix"].to_numpy(), axis=1
+        ),
+        dataset="SRPB",
+    )
+    return (srpb_bias_dict,)
+
+
+@app.cell
+def _(srpb_bias_dict):
+    srpb_bias_dict
+    return
+
+
+@app.cell(hide_code=True)
+def _():
+    mo.md(r"""
+    And harmonize the extracted FC matrices
+    """)
+    return
+
+
+@app.cell
+def _():
+    srpb_harmonized_fc_matrices_output_dir = Path(
+        f"/home/cbi-biomark/olivier.amacker/harmonized-fc-matrices"
+    )
+    return (srpb_harmonized_fc_matrices_output_dir,)
+
+
+@app.cell
+def _(
+    harmonize_connectivity,
+    srpb_bias_dict,
+    srpb_extracted_fc_matrices_df,
+    srpb_harmonized_fc_matrices_output_dir,
+):
+    srbp_extracted_harmonized_fc_matrices = harmonize_connectivity(
+        bias_dictionnary=srpb_bias_dict,
+        connectivity=np.stack(
+            srpb_extracted_fc_matrices_df["fc_matrix"].to_numpy(), axis=0
+        ),
+        metadata_dir_path=Path("/home/cbi-biomark03/ayumu/HARP/data/preproc_srpb"),
+        dataset="SRPB",
+        output_path=srpb_harmonized_fc_matrices_output_dir,
+    )
+    return (srbp_extracted_harmonized_fc_matrices,)
+
+
+@app.cell
+def _(srbp_extracted_harmonized_fc_matrices, srpb_extracted_fc_matrices_df):
+    srpb_extracted_harmonized_fc_matrices_df = (
+        srpb_extracted_fc_matrices_df.with_columns(
+            harmonized_fc_matrix=srbp_extracted_harmonized_fc_matrices
+        )
+    )
+    return (srpb_extracted_harmonized_fc_matrices_df,)
+
+
+@app.cell(hide_code=True)
+def _():
+    mo.md(r"""
+    We now want to compare the previously obtained harmonized FC matrices and the provided ones
+    """)
+    return
+
+
+@app.cell
+def _(
+    harmonized_srpb_fc_matrices_df,
+    srpb_extracted_harmonized_fc_matrices_df,
+):
+    (
+        srpb_extracted_harmonized_fc_matrices_df["harmonized_fc_matrix"].to_numpy()
+        - harmonized_srpb_fc_matrices_df["harmonized_fc_matrix"].to_numpy()
+    ).sum() / len(
+        harmonized_srpb_fc_matrices_df["harmonized_fc_matrix"].to_numpy()
+    )
+    return
+
+
+@app.cell
+def _(regular_run_name):
+    srpb_extracted_harmonized_fc_matrices_correlation_output_dir = f"./res/pca-dim-reduction/srpb/extracted-harmonized-fc-matrices-correlation/{regular_run_name}"
+    return (srpb_extracted_harmonized_fc_matrices_correlation_output_dir,)
+
+
+@app.cell
+def _(
+    harmonized_srpb_fc_matrices_df,
+    srpb_extracted_harmonized_fc_matrices_correlation_output_dir,
+    srpb_extracted_harmonized_fc_matrices_df,
+):
+    srbp_extracted_harmonized_fc_matrices_comparison_results = compare_fc_matrices(
+        srpb_extracted_harmonized_fc_matrices_df,
+        "harmonized_fc_matrix",
+        harmonized_srpb_fc_matrices_df,
+        "harmonized_fc_matrix",
+        out_dir=srpb_extracted_harmonized_fc_matrices_correlation_output_dir,
+    )
+    return (srbp_extracted_harmonized_fc_matrices_comparison_results,)
+
+
+@app.cell
+def _(srbp_extracted_harmonized_fc_matrices_comparison_results):
+    srbp_extracted_harmonized_fc_matrices_comparison_results["ui"]
     return
 
 
