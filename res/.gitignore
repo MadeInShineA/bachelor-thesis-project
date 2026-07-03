@@ -12,3 +12,5 @@ fuzzy-fmriprep-analysis/*/*/*
 
 fuzzy-fmriprep-analysis/*/*/fc-matrices/*
 !fuzzy-fmriprep-analysis/*/*/fc-matrices/metadata.json
+
+*.svg

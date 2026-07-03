@@ -1,0 +1,41 @@
+{
+    "pc_index_0_based": 60,
+    "pc_number_1_based": 61,
+    "num_edges": 5,
+    "color_range": {
+        "vmin": -0.04476838379260195,
+        "vmax": 0.04476838379260195
+    },
+    "edge_indices": [
+        12964,
+        12977,
+        13028,
+        31373,
+        53164
+    ],
+    "network_statistics": {
+        "nodes_per_network": {
+            "DefaultMode": 3,
+            "DorsalAttention": 2,
+            "PrefrontalControlA": 1,
+            "Limbic": 1,
+            "SomatoMotor": 1
+        },
+        "per_network": {
+            "Limbic": 3,
+            "DefaultMode": 3,
+            "DorsalAttention": 2,
+            "PrefrontalControlA": 1,
+            "SomatoMotor": 1
+        },
+        "intra_network": {
+            "DefaultMode": 1
+        },
+        "inter_network": {
+            "DorsalAttention \u2194 Limbic": 1,
+            "Limbic \u2194 PrefrontalControlA": 1,
+            "DefaultMode \u2194 Limbic": 1,
+            "DorsalAttention \u2194 SomatoMotor": 1
+        }
+    }
+}

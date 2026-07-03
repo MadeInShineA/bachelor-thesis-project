@@ -25,7 +25,7 @@ with app.setup:
     import nibabel as nib
     from nilearn.image import resample_to_img
     import pickle
-    from concurrent.futures import ThreadPoolExecutor
+    from concurrent.futures import ThreadPoolExecutor, as_completed
     from tqdm import tqdm
     from scipy import stats
     from typing import Tuple
@@ -34,6 +34,9 @@ with app.setup:
     from scipy.io import savemat
     from scipy.linalg import lu_factor, lu_solve
     import matplotlib.image as mpimg
+    import subprocess
+    from functools import partial
+    import io
 
 
 @app.cell(hide_code=True)
@@ -448,6 +451,8 @@ def calculate_metrics(
         metric_image = mo.image(src=image_path)
 
         if is_binary_target:
+            plot_section = metric_image
+            """
             p_value_plot = plot_p_values(p_values, metric_name=metric)
             plot_section = mo.hstack(
                 [metric_image, p_value_plot],
@@ -456,6 +461,7 @@ def calculate_metrics(
                 gap=2,
                 widths=[1, 2],
             )
+            """
         else:
             plot_section = metric_image
 
@@ -504,10 +510,12 @@ def _():
 
 @app.cell
 def _():
-    srpb_plot_dir = "./res/pca-dim-reduction/srpb/plots/"
-    srpb_ttest_dir = "./res/pca-dim-reduction/srpb/t-tests/"
-    srpb_cache_dir = "./res/pca-dim-reduction/srpb/cache/"
-    srpb_metadata_dir = "./res/pca-dim-reduction/srpb/metadatas/"
+    srpb_plot_dir = "./res/pca-dim-reduction/srpb/features-extraction/plots/"
+    srpb_ttest_dir = "./res/pca-dim-reduction/srpb/features-extraction/t-tests/"
+    srpb_cache_dir = "./res/pca-dim-reduction/srpb/features-extraction/cache/"
+    srpb_metadata_dir = (
+        "./res/pca-dim-reduction/srpb/features-extraction/metadatas/"
+    )
     return srpb_cache_dir, srpb_metadata_dir, srpb_plot_dir, srpb_ttest_dir
 
 
@@ -1202,7 +1210,7 @@ def plot_pcs_publication_ready(
 
         # 5. Create description markdown
         description_md = f"""
-        ### Plot Description for PC {pc_idx + 1}
+        #### Plot Description for PC {pc_idx + 1}
         - **Total unique edges displayed:** {len(edges_to_plot)}
         - **Range:** `[{vmin:.3f}, {vmax:.3f}]`
         - **RED:** Over-connectivity in MDD (MDD > HC)
@@ -1520,10 +1528,10 @@ def _():
 
 @app.cell
 def _():
-    bmb_plot_dir = "./res/pca-dim-reduction/bmb/plots/"
-    bmb_ttest_dir = "./res/pca-dim-reduction/bmb/t-tests/"
-    bmb_cache_dir = "./res/pca-dim-reduction/bmb/cache/"
-    bmb_metadata_dir = "./res/pca-dim-reduction/bmb/metadatas/"
+    bmb_plot_dir = "./res/pca-dim-reduction/bmb/features-extraction/plots/"
+    bmb_ttest_dir = "./res/pca-dim-reduction/bmb/features-extraction/t-tests/"
+    bmb_cache_dir = "./res/pca-dim-reduction/bmb/features-extraction/cache/"
+    bmb_metadata_dir = "./res/pca-dim-reduction/bmb/features-extraction/metadatas/"
     return bmb_cache_dir, bmb_metadata_dir, bmb_plot_dir, bmb_ttest_dir
 
 
@@ -1632,14 +1640,6 @@ def _():
     We will start by extracting regular FC matrices extraction, to see if the extraction method is correct and compare them to the harmonized ones
     """)
     return
-
-
-@app.cell
-def _():
-    srpb_fuzzy_fc_matrices_output_path = (
-        "/home/cbi-biomark/olivier.amacker/fuzzy-fc-matrices/srpb"
-    )
-    return (srpb_fuzzy_fc_matrices_output_path,)
 
 
 @app.cell(hide_code=True)
@@ -1920,6 +1920,14 @@ def _():
     And extract each FC matrix in parallel
     """)
     return
+
+
+@app.cell
+def _():
+    srpb_fuzzy_fc_matrices_output_path = (
+        "/home/cbi-biomark/olivier.amacker/fuzzy-fc-matrices/srpb"
+    )
+    return (srpb_fuzzy_fc_matrices_output_path,)
 
 
 @app.cell
@@ -3563,8 +3571,18 @@ def _():
 
 @app.cell
 def _():
-    srpb_fc_matrices_bias_output_dir = Path(f"./res/pca-dim-reduction/srpb/bias/")
+    srpb_fc_matrices_bias_output_dir = Path(
+        f"/home/cbi-biomark/olivier.amacker/bias"
+    )
     return (srpb_fc_matrices_bias_output_dir,)
+
+
+@app.cell
+def _(regular_run_name, srpb_fc_matrices_bias_output_dir):
+    srpb_regular_fc_matrices_bias_output_dir = (
+        srpb_fc_matrices_bias_output_dir / regular_run_name
+    )
+    return (srpb_regular_fc_matrices_bias_output_dir,)
 
 
 @app.cell(hide_code=True)
@@ -3579,10 +3597,10 @@ def _():
 def _(
     estimate_bias,
     srpb_extracted_fc_matrices_df,
-    srpb_fc_matrices_bias_output_dir,
+    srpb_regular_fc_matrices_bias_output_dir,
 ):
     srpb_bias_dict = estimate_bias(
-        output_dir_path=srpb_fc_matrices_bias_output_dir,
+        output_dir_path=srpb_regular_fc_matrices_bias_output_dir,
         rs_connectivity=np.stack(
             srpb_extracted_fc_matrices_df["fc_matrix"].to_numpy(), axis=1
         ),
@@ -3614,11 +3632,19 @@ def _():
 
 
 @app.cell
+def _(regular_run_name, srpb_harmonized_fc_matrices_output_dir):
+    srpb_harmonized_regular_fc_matrices_output_dir = (
+        srpb_harmonized_fc_matrices_output_dir / regular_run_name
+    )
+    return (srpb_harmonized_regular_fc_matrices_output_dir,)
+
+
+@app.cell
 def _(
     harmonize_connectivity,
     srpb_bias_dict,
     srpb_extracted_fc_matrices_df,
-    srpb_harmonized_fc_matrices_output_dir,
+    srpb_harmonized_regular_fc_matrices_output_dir,
 ):
     srbp_extracted_harmonized_fc_matrices = harmonize_connectivity(
         bias_dictionnary=srpb_bias_dict,
@@ -3627,7 +3653,7 @@ def _(
         ),
         metadata_dir_path=Path("/home/cbi-biomark03/ayumu/HARP/data/preproc_srpb"),
         dataset="SRPB",
-        output_path=srpb_harmonized_fc_matrices_output_dir,
+        output_path=srpb_harmonized_regular_fc_matrices_output_dir,
     )
     return (srbp_extracted_harmonized_fc_matrices,)
 
@@ -3636,7 +3662,18 @@ def _(
 def _(srbp_extracted_harmonized_fc_matrices, srpb_extracted_fc_matrices_df):
     srpb_extracted_harmonized_fc_matrices_df = (
         srpb_extracted_fc_matrices_df.with_columns(
-            harmonized_fc_matrix=srbp_extracted_harmonized_fc_matrices
+            pl.Series(
+                name="harmonized_fc_matrix",
+                values=srbp_extracted_harmonized_fc_matrices,
+            )
+        ).select(
+            "sub_id",
+            "time_series_path",
+            "fc_matrix",
+            "harmonized_fc_matrix",
+            pl.exclude(
+                "sub_id", "time_series_path", "fc_matrix", "harmonized_fc_matrix"
+            ),
         )
     )
     return (srpb_extracted_harmonized_fc_matrices_df,)
@@ -3665,23 +3702,31 @@ def _(
 
 
 @app.cell
-def _(regular_run_name):
-    srpb_extracted_harmonized_fc_matrices_correlation_output_dir = f"./res/pca-dim-reduction/srpb/extracted-harmonized-fc-matrices-correlation/{regular_run_name}"
-    return (srpb_extracted_harmonized_fc_matrices_correlation_output_dir,)
+def _():
+    srpb_harmonized_fc_matrices_correlation_output_dir = f"./res/pca-dim-reduction/srpb/extracted-harmonized-fc-matrices-correlation"
+    return (srpb_harmonized_fc_matrices_correlation_output_dir,)
+
+
+@app.cell
+def _(regular_run_name, srpb_harmonized_fc_matrices_correlation_output_dir):
+    srpb_harmonized_regular_fc_matrices_correlation_output_dir = (
+        srpb_harmonized_fc_matrices_correlation_output_dir + f"/{regular_run_name}"
+    )
+    return (srpb_harmonized_regular_fc_matrices_correlation_output_dir,)
 
 
 @app.cell
 def _(
     harmonized_srpb_fc_matrices_df,
-    srpb_extracted_harmonized_fc_matrices_correlation_output_dir,
     srpb_extracted_harmonized_fc_matrices_df,
+    srpb_harmonized_regular_fc_matrices_correlation_output_dir,
 ):
     srbp_extracted_harmonized_fc_matrices_comparison_results = compare_fc_matrices(
         srpb_extracted_harmonized_fc_matrices_df,
         "harmonized_fc_matrix",
         harmonized_srpb_fc_matrices_df,
         "harmonized_fc_matrix",
-        out_dir=srpb_extracted_harmonized_fc_matrices_correlation_output_dir,
+        out_dir=srpb_harmonized_regular_fc_matrices_correlation_output_dir,
     )
     return (srbp_extracted_harmonized_fc_matrices_comparison_results,)
 
@@ -3695,7 +3740,7 @@ def _(srbp_extracted_harmonized_fc_matrices_comparison_results):
 @app.cell(hide_code=True)
 def _():
     mo.md(r"""
-    ## Extraction and harmonization of perturbated FC matrices
+    ## Extraction and harmonization of the SRPB perturbated FC matrices
     """)
     return
 
@@ -3703,100 +3748,118 @@ def _():
 @app.cell(hide_code=True)
 def _():
     mo.md(r"""
-    We start by defining the perturbated `corrcoef` function
+    ### Extraction of the fuzzy FC matrices
+    """)
+    return
+
+
+@app.cell(hide_code=True)
+def _():
+    mo.md(r"""
+    We start by defining  the functions needed for the fuzzy extraction
     """)
     return
 
 
 @app.cell
 def _():
-    fuzzy_numpy_container = (
+    fuzzy_container_image = (
         "verificarlo/fuzzy:v2.0.0-lapack-python3.8.5-numpy-scipy-sklearn"
     )
+    return (fuzzy_container_image,)
+
+
+@app.cell(hide_code=True)
+def _():
+    mo.md(r"""
+    Please note that this function was written by Qwen3.7-Plus
+    """)
     return
 
 
-@app.cell
-def _():
-    import base64
+@app.function
+def fuzzy_np_corrcoef(x, container_name: str, precision_binary64=53):
+    """
+    Run np.corrcoef with fuzzy perturbations inside an already running Docker container.
+    """
+    import io
+    import numpy as np
     import subprocess
 
+    # 1. Serialize the input array to raw bytes
+    input_buffer = io.BytesIO()
+    np.save(input_buffer, x)
+    input_bytes = input_buffer.getvalue()
 
-    def fuzzy_np_corrcoef(x, precision_binary64=53):
-        """
-        Run np.corrcoef with fuzzy perturbations inside Docker container.
+    # 2. Script to run inside the container
+    py_script = """
+import sys
+import io
+import numpy as np
 
-        Args:
-            x: Input array for correlation
-            precision_binary64: Precision level (53=standard, lower=more noise)
-                               Use 1-10 for testing, 53 for production
-        """
-        container = (
-            "verificarlo/fuzzy:v2.0.0-lapack-python3.8.5-numpy-scipy-sklearn"
-        )
+try:
+    input_bytes = sys.stdin.buffer.read()
+    x = np.load(io.BytesIO(input_bytes))
+    res = np.corrcoef(x)
+    
+    output_buffer = io.BytesIO()
+    np.save(output_buffer, res)
+    sys.stdout.buffer.write(output_buffer.getvalue())
+    
+except Exception as e:
+    sys.stderr.write(f"Error inside container: {str(e)}\\n")
+    import traceback
+    traceback.print_exc(file=sys.stderr)
+    sys.exit(1)
+"""
 
-        # Serialize input
-        x_b64 = base64.b64encode(pickle.dumps(x)).decode("ascii")
-
-        # Script to run inside container
-        py_script = """
-    import sys, base64, pickle, numpy as np
-
+    # 3. Execute in Docker with error catching
     try:
-        x_b64 = sys.stdin.read().strip()
-        x = pickle.loads(base64.b64decode(x_b64))
-        res = np.corrcoef(x)
-        res_b64 = base64.b64encode(pickle.dumps(res)).decode('ascii')
-        sys.stdout.write(res_b64)
-    except Exception as e:
-        sys.stderr.write(f"Error inside container: {str(e)}")
-        sys.exit(1)
-    """
-
-        # Use exact format from README
-        vfc_backends = f"libinterflop_mca.so -m mca --precision-binary32=24 --precision-binary64={precision_binary64}"
-
         result = subprocess.run(
             [
                 "docker",
-                "run",
-                "--rm",
+                "exec",
                 "-i",
-                "-e",
-                f"VFC_BACKENDS={vfc_backends}",
-                container,
+                container_name,
                 "python3",
                 "-c",
                 py_script,
             ],
-            input=x_b64,
+            input=input_bytes,
             capture_output=True,
-            text=True,
             check=True,
         )
+    except subprocess.CalledProcessError as e:
+        # THIS IS THE MAGIC: Print what actually failed inside the container
+        print(f"\n{'=' * 20} ERROR IN CONTAINER {container_name} {'=' * 20}")
+        print("STDERR OUTPUT:")
+        print(e.stderr.decode("utf-8", errors="ignore"))
+        print("=" * 70 + "\n")
+        raise
 
-        res = pickle.loads(base64.b64decode(result.stdout))
-        return res
+    # 4. Deserialize the output
+    output_buffer = io.BytesIO(result.stdout)
+    return np.load(output_buffer)
 
-    return (fuzzy_np_corrcoef,)
 
-
-@app.cell
+@app.cell(hide_code=True)
 def _():
-    num_fuzzy_run = 2
+    mo.md(r"""
+    Please note that this function was written by Qwen3.7-Plus but based on the function to run the extraction I wrote myself.
+    """)
     return
 
 
 @app.cell
 def _(
-    as_completed,
-    fuzzy_np_corrcoef,
     scrub_paths,
     srpb_fuzzy_fc_matrices_output_path,
     srpb_time_series_scrub_file_df,
     ts_paths,
 ):
-    def run_fuzzy_extraction_runs(num_fuzzy_run: int):
+    def run_fuzzy_extraction_runs(
+        num_fuzzy_run: int, container_name: str, container_image: str
+    ):
         all_dataframes = []
 
         for run_number in range(num_fuzzy_run):
@@ -3841,100 +3904,460 @@ def _(
                     all_dataframes.append(srpb_extracted_fc_matrices_df)
 
             else:
-                print(
-                    f"Computing and caching extracted FC matrices for run {run_number}..."
-                )
+                run_container_name = f"{container_name}-run-{run_number}"
 
-                results = []
-                with ThreadPoolExecutor() as executor:
-                    futures = [
-                        executor.submit(
-                            process_subject,
-                            ts,
-                            sc,
-                            fuzzy_np_corrcoef,
-                        )
-                        for ts, sc in zip(ts_paths, scrub_paths)
-                    ]
-
-                    for future in tqdm(
-                        as_completed(futures),
-                        total=len(futures),
-                        desc="Processing subjects",
-                    ):
-                        results.append(future.result())
-
-                srpb_fuzzy_fc_matrices_df = (
-                    srpb_time_series_scrub_file_df.with_columns(
-                        pl.Series(
-                            name="fc_matrix",
-                            values=results,
-                            dtype=pl.List(pl.Float64),
-                        )
-                    ).select(
-                        "sub_id",
-                        "time_series_path",
-                        "fc_matrix",
-                        pl.exclude("sub_id", "time_series_path", "fc_matrix"),
+                try:
+                    print(
+                        f"Computing and caching extracted FC matrices for run {run_number}"
                     )
-                )
 
-                all_dataframes.append(srpb_fuzzy_fc_matrices_df)
+                    print(
+                        f"Starting Docker container {run_container_name} with image {container_image}"
+                    )
+                    # Force remove just in case a zombie container exists from a previous crash
+                    subprocess.run(
+                        ["docker", "rm", "-f", run_container_name],
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                    )
 
-                # Ensure the output directory exists before saving
-                os.makedirs(run_fc_matrices_output_dir, exist_ok=True)
+                    subprocess.run(
+                        [
+                            "docker",
+                            "run",
+                            "-d",
+                            "--name",
+                            run_container_name,
+                            "--entrypoint",
+                            "sleep",
+                            container_image,
+                            "infinity",
+                        ],
+                        check=True,
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                    )
 
-                # Save to cache with the correct extension
-                with open(run_fc_matrices_cache_path, "wb") as _f:
-                    pickle.dump(results, _f)
+                    fuzzy_func = partial(
+                        fuzzy_np_corrcoef, container_name=run_container_name
+                    )
+
+                    results = []
+                    with ThreadPoolExecutor() as executor:
+                        futures = [
+                            executor.submit(
+                                process_subject,
+                                ts,
+                                sc,
+                                fuzzy_func,
+                            )
+                            for ts, sc in zip(ts_paths, scrub_paths)
+                        ]
+
+                        for future in tqdm(
+                            as_completed(futures),
+                            total=len(futures),
+                            desc="Processing subjects",
+                        ):
+                            results.append(future.result())
+
+                    srpb_fuzzy_fc_matrices_df = (
+                        srpb_time_series_scrub_file_df.with_columns(
+                            pl.Series(
+                                name="fc_matrix",
+                                values=results,
+                                dtype=pl.List(pl.Float64),
+                            )
+                        ).select(
+                            "sub_id",
+                            "time_series_path",
+                            "fc_matrix",
+                            pl.exclude("sub_id", "time_series_path", "fc_matrix"),
+                        )
+                    )
+
+                    all_dataframes.append(srpb_fuzzy_fc_matrices_df)
+
+                    # Ensure the output directory exists before saving
+                    os.makedirs(run_fc_matrices_output_dir, exist_ok=True)
+
+                    # Save to cache with the correct extension
+                    with open(run_fc_matrices_cache_path, "wb") as _f:
+                        pickle.dump(results, _f)
+
+                finally:
+                    print(
+                        f"Stopping and removing Docker container {run_container_name}"
+                    )
+                    subprocess.run(
+                        ["docker", "stop", run_container_name],
+                        check=False,
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                    )
+                    subprocess.run(
+                        ["docker", "rm", run_container_name],
+                        check=False,
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                    )
 
         return all_dataframes
 
-    return
+    return (run_fuzzy_extraction_runs,)
 
 
 @app.cell
 def _():
-    # fuzzy_runs_df = run_fuzzy_extraction_runs(num_fuzzy_run)
-    return
+    num_fuzzy_run = 2
+    return (num_fuzzy_run,)
 
 
-@app.cell
-def _(fuzzy_runs_df, srpb_extracted_fc_matrices_df):
-    fuzzy_runs_df[0]["fc_matrix"] == srpb_extracted_fc_matrices_df["fc_matrix"]
-    return
-
-
-@app.cell
-def _(srpb_extracted_fc_matrices_df):
-    srpb_extracted_fc_matrices_df.head(1)
-    return
-
-
-@app.cell
+@app.cell(hide_code=True)
 def _():
-    srpb_fc_matrices_correlation_run_0_output_dir = (
-        f"./res/pca-dim-reduction/srpb/fc_matrices_correlation/run-0"
+    mo.md(r"""
+    And extract the fuzzy FC matrices
+    """)
+    return
+
+
+@app.cell
+def _(fuzzy_container_image, num_fuzzy_run, run_fuzzy_extraction_runs):
+    srpb_fuzzy_extracted_fc_matrices_df_list = run_fuzzy_extraction_runs(
+        num_fuzzy_run,
+        container_name="fuzzy-container",
+        container_image=fuzzy_container_image,
     )
-    return (srpb_fc_matrices_correlation_run_0_output_dir,)
+    return (srpb_fuzzy_extracted_fc_matrices_df_list,)
+
+
+@app.cell(hide_code=True)
+def _():
+    mo.md(r"""
+    We also calculate the mean difference between the fuzzy-extracted and standard FC matrices.
+    """)
+    return
+
+
+@app.function
+def calculate_mean_difference_between_fc_matrices(
+    first_df_list,
+    first_df_fc_matrix_column_name,
+    baseline_df,
+    baseline_df_fc_matrix_column_name,
+):
+    srpb_fuzzy_mean_differences = []
+
+    for i, run_df in enumerate(first_df_list):
+        print(f"Comparing run {i} against baseline df")
+
+        abs_diff = np.abs(
+            np.stack(baseline_df[baseline_df_fc_matrix_column_name].to_list())
+            - np.stack(run_df[first_df_fc_matrix_column_name].to_list())
+        )
+
+        global_mean = abs_diff.mean()
+
+        srpb_fuzzy_mean_differences.append(global_mean)
+        print(f"Global mean absolute difference: {global_mean:}")
+
+    print(
+        f"Mean of fuzzy runs absolute differences: {np.array(srpb_fuzzy_mean_differences).mean()}"
+    )
+
+
+@app.cell
+def _(srpb_extracted_fc_matrices_df, srpb_fuzzy_extracted_fc_matrices_df_list):
+    calculate_mean_difference_between_fc_matrices(
+        srpb_fuzzy_extracted_fc_matrices_df_list,
+        "fc_matrix",
+        srpb_extracted_fc_matrices_df,
+        "fc_matrix",
+    )
+    return
+
+
+@app.cell(hide_code=True)
+def _():
+    mo.md(r"""
+    ### Harmonization of the fuzzy FC matrices
+    """)
+    return
 
 
 @app.cell
 def _(
-    fuzzy_runs_df,
+    estimate_bias,
+    harmonize_connectivity,
     srpb_extracted_fc_matrices_df,
-    srpb_fc_matrices_correlation_run_0_output_dir,
+    srpb_fc_matrices_bias_output_dir,
+    srpb_fuzzy_extracted_fc_matrices_df_list,
+    srpb_harmonized_fc_matrices_output_dir,
 ):
-    fc_matrices_comparison_run_0_results = compare_fc_matrices(
-        srpb_extracted_fc_matrices_df["fc_matrix"],
-        fuzzy_runs_df[0]["fc_matrix"],
-        out_dir=srpb_fc_matrices_correlation_run_0_output_dir,
+    srpb_fuzzy_extracted_harmonized_fc_matrices_df_list = []
+
+    for _run_idx, fuzzy_srpb_extracted_fc_matrices_df in enumerate(
+        srpb_fuzzy_extracted_fc_matrices_df_list
+    ):
+        print(f"Harmonizing run {_run_idx}")
+        srpb_fuzzy_extracted_bias_dict = estimate_bias(
+            output_dir_path=srpb_fc_matrices_bias_output_dir / f"run-{_run_idx}",
+            rs_connectivity=np.stack(
+                srpb_extracted_fc_matrices_df["fc_matrix"].to_numpy(), axis=1
+            ),
+            dataset="SRPB",
+        )
+
+        srbp_fuzzy_extracted_harmonized_fc_matrices = harmonize_connectivity(
+            bias_dictionnary=srpb_fuzzy_extracted_bias_dict,
+            connectivity=np.stack(
+                fuzzy_srpb_extracted_fc_matrices_df["fc_matrix"].to_numpy(), axis=0
+            ),
+            metadata_dir_path=Path(
+                "/home/cbi-biomark03/ayumu/HARP/data/preproc_srpb"
+            ),
+            dataset="SRPB",
+            output_path=srpb_harmonized_fc_matrices_output_dir / f"run-{_run_idx}",
+        )
+
+        srpb_fuzzy_extracted_harmonized_fc_matrices_df = (
+            fuzzy_srpb_extracted_fc_matrices_df.with_columns(
+                pl.Series(
+                    name="harmonized_fc_matrix",
+                    values=srbp_fuzzy_extracted_harmonized_fc_matrices,
+                )
+            ).select(
+                "sub_id",
+                "time_series_path",
+                "fc_matrix",
+                "harmonized_fc_matrix",
+                pl.exclude(
+                    "sub_id",
+                    "time_series_path",
+                    "fc_matrix",
+                    "harmonized_fc_matrix",
+                ),
+            )
+        )
+
+        srpb_fuzzy_extracted_harmonized_fc_matrices_df_list.append(
+            srpb_fuzzy_extracted_harmonized_fc_matrices_df
+        )
+    return (srpb_fuzzy_extracted_harmonized_fc_matrices_df_list,)
+
+
+@app.cell(hide_code=True)
+def _():
+    mo.md(r"""
+    We also calculate the mean difference between the harmonized fuzzy-extracted and standard harmonize FC matrices.
+    """)
+    return
+
+
+@app.cell
+def _(
+    srpb_extracted_harmonized_fc_matrices_df,
+    srpb_fuzzy_extracted_harmonized_fc_matrices_df_list,
+):
+    calculate_mean_difference_between_fc_matrices(
+        srpb_fuzzy_extracted_harmonized_fc_matrices_df_list,
+        "harmonized_fc_matrix",
+        srpb_extracted_harmonized_fc_matrices_df,
+        "harmonized_fc_matrix",
     )
+    return
+
+
+@app.cell(hide_code=True)
+def _():
+    mo.md(r"""
+    ## Comparison of the SRPB PCA features extraction with regular and perturbated FC matrices
+    """)
     return
 
 
 @app.cell
 def _():
+    srpb_fuzzy_plot_dir = (
+        "./res/pca-dim-reduction/srpb/fuzzy-features-extraction/plots"
+    )
+    srpb_fuzzy_ttest_dir = (
+        "./res/pca-dim-reduction/srpb/fuzzy-features-extraction/t-tests"
+    )
+    srpb_fuzzy_cache_dir = (
+        "./res/pca-dim-reduction/srpb/fuzzy-features-extraction/cache"
+    )
+    srpb_fuzzy_metadata_dir = (
+        "./res/pca-dim-reduction/srpb/fuzzy-features-extraction/metadatas"
+    )
+    return (
+        srpb_fuzzy_cache_dir,
+        srpb_fuzzy_metadata_dir,
+        srpb_fuzzy_plot_dir,
+        srpb_fuzzy_ttest_dir,
+    )
+
+
+@app.cell(hide_code=True)
+def _():
+    mo.md(r"""
+    Filter the srpb_fuzzy_extracted_harmonized_fc_matrices_df_list to only keep the MDD and HC subjects
+    """)
+    return
+
+
+@app.cell
+def _(srpb_fuzzy_extracted_harmonized_fc_matrices_df_list):
+    fuzzy_extracted_harmonized_fc_matrices_hc_mdd_df_list = []
+    for (
+        _run_idx,
+        fuzzy_extracted_harmonized_fc_matrices_df,
+    ) in enumerate(srpb_fuzzy_extracted_harmonized_fc_matrices_df_list):
+        fuzzy_extracted_harmonized_fc_matrices_hc_mdd_df_list.append(
+            fuzzy_extracted_harmonized_fc_matrices_df.filter(
+                pl.col("diag").is_in([0, 2])
+            )
+        )
+    return (fuzzy_extracted_harmonized_fc_matrices_hc_mdd_df_list,)
+
+
+@app.cell
+def _(
+    fuzzy_extracted_harmonized_fc_matrices_hc_mdd_df_list,
+    metric_dict,
+    srpb_fuzzy_cache_dir,
+    srpb_fuzzy_plot_dir,
+    srpb_fuzzy_ttest_dir,
+):
+    srpb_fuzzy_metrics_results_list = []
+    srpb_fuzzy_metrics_ui_list = []
+
+
+    for (
+        _run_idx,
+        fuzzy_extracted_harmonized_fc_matrices_hc_mdd_df,
+    ) in enumerate(fuzzy_extracted_harmonized_fc_matrices_hc_mdd_df_list):
+        print(f"Calculating metris for run {_run_idx}")
+
+        srpb_fuzy_metrics_dict = calculate_metrics(
+            df=fuzzy_extracted_harmonized_fc_matrices_hc_mdd_df,
+            metric_dict=metric_dict,
+            alpha_threshold=0.05,
+            plot_dir=srpb_fuzzy_plot_dir + f"/run-{_run_idx}/",
+            ttest_dir=srpb_fuzzy_ttest_dir + f"/run-{_run_idx}/",
+            cache_dir=srpb_fuzzy_cache_dir + f"/run-{_run_idx}/",
+        )
+
+        srpb_fuzzy_metrics_results_list.append(srpb_fuzy_metrics_dict["results"])
+        srpb_fuzzy_metrics_ui_list.append(srpb_fuzy_metrics_dict["ui"])
+    return srpb_fuzzy_metrics_results_list, srpb_fuzzy_metrics_ui_list
+
+
+@app.cell(hide_code=True)
+def _():
+    mo.md(r"""
+    ### Comparison of the Fuzzy and Regular PC metrics graphs
+    """)
+    return
+
+
+@app.cell
+def _(srpb_fuzzy_metrics_ui_list, srpb_ui):
+    pc_metrics_comparison = []
+
+    for _run_idx, _srpb_fuzzy_metrics_ui_list in enumerate(
+        srpb_fuzzy_metrics_ui_list
+    ):
+        pc_metrics_comparison.append(
+            mo.vstack(
+                [
+                    mo.md(
+                        f"### Comparison of the Fuzzy run {_run_idx} vs Regular PC metrics graphs"
+                    ),
+                    mo.hstack(
+                        [
+                            _srpb_fuzzy_metrics_ui_list,
+                            srpb_ui,
+                        ]
+                    ),
+                ]
+            )
+        )
+
+    pc_metrics_comparison
+    return
+
+
+@app.cell(hide_code=True)
+def _():
+    mo.md(r"""
+    ### Comparison of the Fuzzy and Regular PC metrics results
+    """)
+    return
+
+
+@app.cell
+def _(srpb_fuzzy_metrics_results_list):
+    srpb_fuzzy_selected_mdd_pcs_list = list(
+        map(lambda x: select_mdd_pc(x, ["bdi"]), srpb_fuzzy_metrics_results_list)
+    )
+
+    srpb_fuzzy_selected_mdd_pcs_list
+    return
+
+
+@app.cell
+def _(
+    coords_mni,
+    network_assignments,
+    srpb_fuzzy_extracted_harmonized_fc_matrices_df_list,
+    srpb_fuzzy_metadata_dir,
+    srpb_fuzzy_metrics_results_list,
+    srpb_fuzzy_plot_dir,
+):
+    srpb_fuzzy_target_pcs_to_plot = [1.0, 7.0, 60.0]
+
+
+    srpb_fuzzy_pc_plots_result_list = [
+        plot_pcs_publication_ready(
+            srpb_results=x,
+            fc_matrices_df=srpb_fuzzy_extracted_harmonized_fc_matrices_df_list[i],
+            node_coords=coords_mni,
+            pcs_to_plot=srpb_fuzzy_target_pcs_to_plot,
+            plot_dir=srpb_fuzzy_plot_dir,
+            metadata_dir=srpb_fuzzy_metadata_dir,
+            show_legend=True,
+            network_assignments=network_assignments,
+        )
+        for i, x in enumerate(srpb_fuzzy_metrics_results_list)
+    ]
+    return (srpb_fuzzy_pc_plots_result_list,)
+
+
+@app.cell
+def _(srpb_fuzzy_pc_plots_result_list, srpb_pc_plots_results):
+    pc_plots_result_comparison = []
+
+    for _run_idx, srpb_fuzzy_pc_plots_result in enumerate(
+        srpb_fuzzy_pc_plots_result_list
+    ):
+        pc_plots_result_comparison.append(
+            mo.vstack(
+                [
+                    mo.md(
+                        f"### Comparison of the Fuzzy run {_run_idx} vs Regular PC plots"
+                    ),
+                    mo.hstack(
+                        [
+                            srpb_fuzzy_pc_plots_result["ui"],
+                            srpb_pc_plots_results["ui"],
+                        ]
+                    ),
+                ]
+            )
+        )
+
+    pc_plots_result_comparison
     return
 
 
