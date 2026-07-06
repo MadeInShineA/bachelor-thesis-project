@@ -3801,11 +3801,11 @@ try:
     input_bytes = sys.stdin.buffer.read()
     x = np.load(io.BytesIO(input_bytes))
     res = np.corrcoef(x)
-    
+
     output_buffer = io.BytesIO()
     np.save(output_buffer, res)
     sys.stdout.buffer.write(output_buffer.getvalue())
-    
+
 except Exception as e:
     sys.stderr.write(f"Error inside container: {str(e)}\\n")
     import traceback
@@ -4009,7 +4009,7 @@ def _(
 
 @app.cell
 def _():
-    num_fuzzy_run = 2
+    num_fuzzy_run = 100
     return (num_fuzzy_run,)
 
 
