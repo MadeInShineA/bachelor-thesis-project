@@ -38,6 +38,8 @@ with app.setup:
     from functools import partial
     import io
 
+    from joblib import Parallel, delayed
+
 
 @app.cell(hide_code=True)
 def _():
@@ -4046,24 +4048,20 @@ def calculate_mean_difference_between_fc_matrices(
     baseline_df,
     baseline_df_fc_matrix_column_name,
 ):
-    srpb_fuzzy_mean_differences = []
-
-    for i, run_df in enumerate(first_df_list):
-        print(f"Comparing run {i} against baseline df")
-
-        abs_diff = np.abs(
-            np.stack(baseline_df[baseline_df_fc_matrix_column_name].to_list())
-            - np.stack(run_df[first_df_fc_matrix_column_name].to_list())
-        )
-
-        global_mean = abs_diff.mean()
-
-        srpb_fuzzy_mean_differences.append(global_mean)
-        print(f"Global mean absolute difference: {global_mean:}")
-
-    print(
-        f"Mean of fuzzy runs absolute differences: {np.array(srpb_fuzzy_mean_differences).mean()}"
+    # Stack baseline once
+    baseline = np.stack(baseline_df[baseline_df_fc_matrix_column_name].to_list())
+    
+    # Worker function
+    def _compute_diff(run_df):
+        run = np.stack(run_df[first_df_fc_matrix_column_name].to_list())
+        return np.abs(baseline - run).mean()
+    
+    # Parallel execution
+    diffs = Parallel(n_jobs=-1, backend="loky", verbose=10)(
+        delayed(_compute_diff)(run_df) for run_df in first_df_list
     )
+    
+    return np.mean(diffs)
 
 
 @app.cell
@@ -4119,7 +4117,7 @@ def _(
             dataset="SRPB",
             output_path=srpb_harmonized_fc_matrices_output_dir / f"run-{_run_idx}",
         )
-
+ 
         srpb_fuzzy_extracted_harmonized_fc_matrices_df = (
             fuzzy_srpb_extracted_fc_matrices_df.with_columns(
                 pl.Series(
@@ -4144,28 +4142,6 @@ def _(
             srpb_fuzzy_extracted_harmonized_fc_matrices_df
         )
     return (srpb_fuzzy_extracted_harmonized_fc_matrices_df_list,)
-
-
-@app.cell(hide_code=True)
-def _():
-    mo.md(r"""
-    We also calculate the mean difference between the harmonized fuzzy-extracted and standard harmonize FC matrices.
-    """)
-    return
-
-
-@app.cell
-def _(
-    srpb_extracted_harmonized_fc_matrices_df,
-    srpb_fuzzy_extracted_harmonized_fc_matrices_df_list,
-):
-    calculate_mean_difference_between_fc_matrices(
-        srpb_fuzzy_extracted_harmonized_fc_matrices_df_list,
-        "harmonized_fc_matrix",
-        srpb_extracted_harmonized_fc_matrices_df,
-        "harmonized_fc_matrix",
-    )
-    return
 
 
 @app.cell(hide_code=True)
@@ -4229,6 +4205,7 @@ def _(
     srpb_fuzzy_plot_dir,
     srpb_fuzzy_ttest_dir,
 ):
+
     srpb_fuzzy_metrics_results_list = []
     srpb_fuzzy_metrics_ui_list = []
 
@@ -4321,15 +4298,15 @@ def _(
     srpb_fuzzy_pc_plots_result_list = [
         plot_pcs_publication_ready(
             srpb_results=x,
-            fc_matrices_df=srpb_fuzzy_extracted_harmonized_fc_matrices_df_list[i],
+            fc_matrices_df=srpb_fuzzy_extracted_harmonized_fc_matrices_df_list[_run_idx],
             node_coords=coords_mni,
             pcs_to_plot=srpb_fuzzy_target_pcs_to_plot,
-            plot_dir=srpb_fuzzy_plot_dir,
-            metadata_dir=srpb_fuzzy_metadata_dir,
+            plot_dir=srpb_fuzzy_plot_dir + f"/run-{_run_idx}/",
+            metadata_dir=srpb_fuzzy_metadata_dir + f"/run-{_run_idx}/",
             show_legend=True,
             network_assignments=network_assignments,
         )
-        for i, x in enumerate(srpb_fuzzy_metrics_results_list)
+        for _run_idx, x in enumerate(srpb_fuzzy_metrics_results_list)
     ]
     return (srpb_fuzzy_pc_plots_result_list,)
 
@@ -4358,6 +4335,11 @@ def _(srpb_fuzzy_pc_plots_result_list, srpb_pc_plots_results):
         )
 
     pc_plots_result_comparison
+    return
+
+
+@app.cell
+def _():
     return
 
 
