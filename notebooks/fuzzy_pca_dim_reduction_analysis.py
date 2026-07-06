@@ -824,11 +824,15 @@ def plot_pcs_publication_ready(
     node_colors=None,
     show_legend=True,
     network_assignments=None,
+    skip_existing: bool = True,
 ) -> dict:
     """
     Generates a complete Marimo UI for a list of Principal Components.
     Returns a dictionary with 'results' (keyed by PC index) and 'ui'.
     Saves a JSON metadata file for each PC with sorted network statistics.
+
+    If skip_existing=True, checks if plot files already exist and skips
+    regeneration for PCs that are already cached.
     """
     res = {"results": {}}
     ui_elements = []
@@ -917,6 +921,107 @@ def plot_pcs_publication_ready(
 
     # 2. Loop through each requested PC
     for pc_idx in pcs_to_plot:
+        # Check if plot already exists
+        image_path = os.path.join(plot_dir, f"brain_pc_{pc_idx + 1}fc.png")
+        json_path = os.path.join(
+            metadata_dir, f"brain_pc_{pc_idx + 1}_metadata.json"
+        )
+
+        plot_exists = os.path.exists(image_path) and os.path.exists(json_path)
+
+        if skip_existing and plot_exists:
+            print(
+                f"PC {pc_idx + 1} (Index {pc_idx}) already exists, loading from cache: {image_path}"
+            )
+
+            # Load existing metadata
+            with open(json_path, "r") as f:
+                metadata = json.load(f)
+
+            # Reconstruct adjacency matrix from saved edge indices
+            adj_matrix = np.zeros((n_nodes, n_nodes))
+            i_idx, j_idx = np.tril_indices(n_nodes, k=1)
+            for edge_idx in metadata["edge_indices"]:
+                i, j = i_idx[edge_idx], j_idx[edge_idx]
+                adj_matrix[i, j] = mean_diff[edge_idx]
+                adj_matrix[j, i] = mean_diff[edge_idx]
+
+            # Store results
+            res["results"][pc_idx] = {
+                "adj_matrix": adj_matrix,
+                "edges": metadata["edge_indices"],
+                "num_edges": metadata["num_edges"],
+            }
+
+            # Load existing image
+            pc_image = mo.image(src=image_path)
+
+            # Create description markdown
+            vmin = metadata["color_range"]["vmin"]
+            vmax = metadata["color_range"]["vmax"]
+            description_md = f"""
+            #### Plot Description for PC {pc_idx + 1}
+            - **Total unique edges displayed:** {metadata["num_edges"]}
+            - **Range:** `[{vmin:.3f}, {vmax:.3f}]`
+            - **RED:** Over-connectivity in MDD (MDD > HC)
+            - **BLUE:** Under-connectivity in MDD (MDD < HC)
+            """
+
+            # Reconstruct network stats markdown if available
+            network_stats_md = ""
+            if "network_statistics" in metadata:
+                net_stats = metadata["network_statistics"]
+
+                # Nodes table
+                network_stats_md = "#### Participating Nodes per Network\n\n"
+                network_stats_md += (
+                    "| Network | Node Count |\n| :--- | :---: |\n"
+                )
+                for net_name, node_count in net_stats.get(
+                    "nodes_per_network", {}
+                ).items():
+                    network_stats_md += f"| {net_name} | {node_count} |\n"
+
+                # Edges table
+                network_stats_md += "\n#### FC Edges per Network\n\n"
+                network_stats_md += "| Network | Total Edges | Intra-Network | % of Total |\n| :--- | :---: | :---: | :---: |\n"
+                per_network = net_stats.get("per_network", {})
+                intra_network = net_stats.get("intra_network", {})
+                for net_name, total_count in per_network.items():
+                    intra_count = intra_network.get(net_name, 0)
+                    percentage = (
+                        total_count / (2 * metadata["num_edges"])
+                    ) * 100
+                    network_stats_md += f"| {net_name} | {total_count} | {intra_count} | {percentage:.1f}% |\n"
+
+                # Inter-network table
+                network_stats_md += "\n#### Top Inter-Network Connections\n\n| Connection Pair | Count |\n| :--- | :---: |\n"
+                for pair_name, count in list(
+                    net_stats.get("inter_network", {}).items()
+                )[:10]:
+                    network_stats_md += f"| {pair_name} | {count} |\n"
+                network_stats_md += "\n---\n\n"
+
+            # Assemble the UI section for this PC
+            pc_ui_elements = [mo.md(description_md)]
+            if network_stats_md:
+                pc_ui_elements.append(mo.md(network_stats_md))
+
+            pc_ui_elements.append(pc_image)
+
+            pc_ui = mo.vstack(
+                [
+                    mo.vstack(pc_ui_elements, gap=2),
+                    mo.md("---"),
+                ],
+                gap=2,
+            )
+
+            ui_elements.append(pc_ui)
+            continue  # Skip to next PC
+
+        print(f"Generating plot for PC {pc_idx + 1} (Index {pc_idx})...")
+
         # Extract edges for this specific PC
         diag_data = srpb_results["diag"]
         mask_pc = np.isclose(diag_data["cons_pc"], pc_idx)
@@ -1104,7 +1209,6 @@ def plot_pcs_publication_ready(
                         )
                     )
 
-            # Always include the connectivity direction legend elements
             legend_elements.append(
                 Line2D(
                     [0],
@@ -1150,7 +1254,6 @@ def plot_pcs_publication_ready(
         # ==========================================
 
         # 1. Save the figure to disk
-        image_path = os.path.join(plot_dir, f"brain_pc_{pc_idx + 1}fc.png")
         fig.savefig(
             image_path, dpi=150, bbox_inches="tight", facecolor="white"
         )
@@ -1198,9 +1301,6 @@ def plot_pcs_publication_ready(
             },
         }
 
-        json_path = os.path.join(
-            metadata_dir, f"brain_pc_{pc_idx + 1}_metadata.json"
-        )
         with open(json_path, "w") as f:
             json.dump(metadata, f, indent=4)
 
@@ -4049,18 +4149,20 @@ def calculate_mean_difference_between_fc_matrices(
     baseline_df_fc_matrix_column_name,
 ):
     # Stack baseline once
-    baseline = np.stack(baseline_df[baseline_df_fc_matrix_column_name].to_list())
-    
+    baseline = np.stack(
+        baseline_df[baseline_df_fc_matrix_column_name].to_list()
+    )
+
     # Worker function
     def _compute_diff(run_df):
         run = np.stack(run_df[first_df_fc_matrix_column_name].to_list())
         return np.abs(baseline - run).mean()
-    
+
     # Parallel execution
     diffs = Parallel(n_jobs=-1, backend="loky", verbose=10)(
         delayed(_compute_diff)(run_df) for run_df in first_df_list
     )
-    
+
     return np.mean(diffs)
 
 
@@ -4117,7 +4219,7 @@ def _(
             dataset="SRPB",
             output_path=srpb_harmonized_fc_matrices_output_dir / f"run-{_run_idx}",
         )
- 
+
         srpb_fuzzy_extracted_harmonized_fc_matrices_df = (
             fuzzy_srpb_extracted_fc_matrices_df.with_columns(
                 pl.Series(
@@ -4205,7 +4307,6 @@ def _(
     srpb_fuzzy_plot_dir,
     srpb_fuzzy_ttest_dir,
 ):
-
     srpb_fuzzy_metrics_results_list = []
     srpb_fuzzy_metrics_ui_list = []
 
@@ -4292,13 +4393,14 @@ def _(
     srpb_fuzzy_metrics_results_list,
     srpb_fuzzy_plot_dir,
 ):
-    srpb_fuzzy_target_pcs_to_plot = [1.0, 7.0, 60.0]
-
+    srpb_fuzzy_target_pcs_to_plot = [1.0]
 
     srpb_fuzzy_pc_plots_result_list = [
         plot_pcs_publication_ready(
             srpb_results=x,
-            fc_matrices_df=srpb_fuzzy_extracted_harmonized_fc_matrices_df_list[_run_idx],
+            fc_matrices_df=srpb_fuzzy_extracted_harmonized_fc_matrices_df_list[
+                _run_idx
+            ],
             node_coords=coords_mni,
             pcs_to_plot=srpb_fuzzy_target_pcs_to_plot,
             plot_dir=srpb_fuzzy_plot_dir + f"/run-{_run_idx}/",
@@ -4308,7 +4410,7 @@ def _(
         )
         for _run_idx, x in enumerate(srpb_fuzzy_metrics_results_list)
     ]
-    return (srpb_fuzzy_pc_plots_result_list,)
+    return srpb_fuzzy_pc_plots_result_list, srpb_fuzzy_target_pcs_to_plot
 
 
 @app.cell
@@ -4338,8 +4440,1300 @@ def _(srpb_fuzzy_pc_plots_result_list, srpb_pc_plots_results):
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _():
+    mo.md(r"""
+    Please note that this code was written by Qwen3.7-Plus and needs to be double-checked
+    """)
+    return
+
+
+@app.function
+def plot_pcs_consensus_publication_ready(
+    srpb_results_list: list[dict],
+    fc_matrices_df_list: list,  # list of pl.DataFrame
+    node_coords: np.ndarray,
+    pcs_to_plot: list,
+    plot_dir: str,
+    metadata_dir: str,
+    consensus_thresholds: list[float] = [1.0, 0.75, 0.50, 0.25],
+    node_colors=None,
+    show_legend=True,
+    network_assignments=None,
+    skip_existing: bool = True,
+) -> dict:
+    """
+    Generates consensus connectome plots across multiple bootstrap/fuzzy runs.
+
+    If skip_existing=True, checks if plot files already exist FIRST and skips
+    data extraction if all plots are cached.
+
+    Parameters
+    ----------
+    skip_existing : bool
+        If True, skip regenerating plots that already exist on disk.
+        Checks cache BEFORE any data extraction.
+
+    Returns
+    -------
+    dict with keys 'results' (nested by PC → threshold) and 'ui'.
+    """
+
+    res: dict = {"results": {}}
+    ui_elements: list = []
+    n_runs = len(srpb_results_list)
+
+    os.makedirs(plot_dir, exist_ok=True)
+    os.makedirs(metadata_dir, exist_ok=True)
+
+    print(f"Processing {n_runs} runs for consensus analysis...")
+    print(f"Plot directory: {plot_dir}")
+    print(f"Metadata directory: {metadata_dir}")
+    print(f"Skip existing: {skip_existing}")
+
+    # ==================================================================
+    # 0.  CHECK CACHE FIRST - before any data extraction
+    # ==================================================================
+    print(
+        f"\n[0/3] Checking cache for {len(pcs_to_plot)} PCs × {len(consensus_thresholds)} thresholds..."
+    )
+
+    all_cached = True
+    cache_status = {}
+
+    if skip_existing:
+        for pc_idx in pcs_to_plot:
+            cache_status[pc_idx] = {}
+            for thresh in consensus_thresholds:
+                pct_label = int(thresh * 100)
+                safe_thresh = str(pct_label)
+                # Use pc_idx + 1 directly (will be float like 2.0) to match existing files
+                pc_label = pc_idx + 1
+                image_path = os.path.join(
+                    plot_dir,
+                    f"brain_pc_{pc_label}_consensus_{safe_thresh}pct.png",
+                )
+                json_path = os.path.join(
+                    metadata_dir,
+                    f"brain_pc_{pc_label}_consensus_{safe_thresh}pct_metadata.json",
+                )
+
+                img_exists = os.path.exists(image_path)
+                json_exists = os.path.exists(json_path)
+                is_cached = img_exists and json_exists
+
+                cache_status[pc_idx][thresh] = {
+                    "cached": is_cached,
+                    "image_path": image_path,
+                    "json_path": json_path,
+                }
+
+                if not is_cached:
+                    all_cached = False
+
+        cached_count = sum(
+            1
+            for pc in cache_status.values()
+            for t in pc.values()
+            if t["cached"]
+        )
+        total_count = len(pcs_to_plot) * len(consensus_thresholds)
+        print(
+            f"  Cache status: {cached_count}/{total_count} plots already exist"
+        )
+
+        if all_cached:
+            print(
+                "  ✓ All plots cached! Loading from cache without data extraction..."
+            )
+    else:
+        print("  skip_existing=False, will regenerate all plots")
+
+    # ── colour map ──────────────────────────────────────────────────
+    glasser_network_colors = {
+        "Visual": "#00BFC4",
+        "SomatoMotor": "#F8766D",
+        "DorsalAttention": "#7CAE00",
+        "DefaultMode": "#FFC300",
+        "Limbic": "#FF61C3",
+        "Salience": "#C77CFF",
+        "PrefrontalControlA": "#00BAFF",
+        "PrefrontalControlB": "#0097A7",
+        "Subcortical": "#333333",
+        "Cerebellum": "#D2691E",
+        "Unknown": "#000000",
+    }
+
+    # ==================================================================
+    # 1.  PER-RUN EXTRACTION (only if not all cached)
+    # ==================================================================
+    if not all_cached:
+        print(f"\n[1/3] Extracting data from {n_runs} runs...")
+        per_run_mean_diff: list[np.ndarray] = []
+        per_run_pc_edges: list[dict[float, np.ndarray]] = []
+        n_nodes: int | None = None
+
+        for run_idx, (srpb_res, fc_df) in enumerate(
+            zip(srpb_results_list, fc_matrices_df_list)
+        ):
+            if (run_idx + 1) % 10 == 0 or run_idx == 0:
+                print(f"  Processing run {run_idx + 1}/{n_runs}...")
+
+            # --- mean difference vector ---
+            target_col = fc_df["diag"]
+            mask = (
+                (target_col != -1000)
+                & (target_col.is_not_null())
+                & ((target_col == 0) | (target_col == 2))
+            )
+            filtered = fc_df.filter(mask)
+            g0 = filtered.filter(pl.col("diag") == 0)[
+                "harmonized_fc_matrix"
+            ].to_list()
+            g2 = filtered.filter(pl.col("diag") == 2)[
+                "harmonized_fc_matrix"
+            ].to_list()
+
+            md = np.mean(np.array(g2), axis=0) - np.mean(np.array(g0), axis=0)
+            per_run_mean_diff.append(md)
+
+            if n_nodes is None:
+                n_nodes = int((1 + np.sqrt(1 + 8 * len(md))) / 2)
+
+            # --- edge sets per PC for this run ---
+            diag_data = srpb_res["diag"]
+            pc_edge_map: dict[float, np.ndarray] = {}
+            for pc in pcs_to_plot:
+                mask_pc = np.isclose(diag_data["cons_pc"], pc)
+                pc_edge_map[pc] = np.array(
+                    diag_data["cons"][mask_pc], dtype=int
+                )
+            per_run_pc_edges.append(pc_edge_map)
+
+        # Average mean_diff across runs
+        avg_mean_diff = np.mean(np.array(per_run_mean_diff), axis=0)
+    else:
+        # If all cached, we still need n_nodes from the first cached file
+        print("\n[1/3] Skipping data extraction")
+        # Get the first cached JSON path correctly
+        first_pc_idx = list(cache_status.keys())[0]
+        first_thresh = list(cache_status[first_pc_idx].keys())[0]
+        first_json = cache_status[first_pc_idx][first_thresh]["json_path"]
+
+        with open(first_json, "r") as f:
+            first_metadata = json.load(f)
+        # Infer n_nodes from edge indices
+        max_edge_idx = (
+            max(first_metadata["edge_indices"])
+            if first_metadata["edge_indices"]
+            else 0
+        )
+        n_nodes = int((1 + np.sqrt(1 + 8 * (max_edge_idx + 1))) / 2)
+        avg_mean_diff = None  # Not needed if all cached
+        per_run_pc_edges = None
+
+    # ==================================================================
+    # 2.  PAD COORDINATES / COLOURS / ASSIGNMENTS ONCE
+    # ==================================================================
+    node_coords = np.array(node_coords, dtype=float)
+    if n_nodes > len(node_coords):
+        pad = np.zeros((n_nodes - len(node_coords), 3))
+        node_coords = np.vstack([node_coords, pad])
+        if network_assignments is not None:
+            network_assignments = list(network_assignments) + ["Unknown"] * (
+                n_nodes - len(network_assignments)
+            )
+
+    if node_colors is None:
+        if network_assignments is not None:
+            node_colors = [
+                glasser_network_colors.get(str(net), "#000000")
+                for net in network_assignments
+            ]
+        else:
+            node_colors = [
+                "#a6cee3" if c[0] < 0 else "#fb9a99" for c in node_coords
+            ]
+    elif isinstance(node_colors, list) and len(node_colors) < n_nodes:
+        node_colors = node_colors + ["#000000"] * (n_nodes - len(node_colors))
+
+    i_idx, j_idx = np.tril_indices(n_nodes, k=1)
+
+    # ==================================================================
+    # 3.  LOOP:  PC  ×  THRESHOLD
+    # ==================================================================
+    print(
+        f"\n[2/3] Processing {len(pcs_to_plot)} PCs × {len(consensus_thresholds)} thresholds..."
+    )
+
+    for pc_idx in pcs_to_plot:
+        pc_ui_elements: list = []
+        pc_ui_elements.append(
+            mo.md(
+                f"### PC {pc_idx + 1} (Index {pc_idx}) — Consensus across {n_runs} runs"
+            )
+        )
+
+        res["results"][pc_idx] = {}
+
+        for thresh in consensus_thresholds:
+            min_runs = max(1, int(np.ceil(thresh * n_runs)))
+            pct_label = int(thresh * 100)
+            safe_thresh = str(pct_label)
+
+            cache_info = cache_status[pc_idx][thresh]
+
+            # --- check if plot already exists ---
+            if skip_existing and cache_info["cached"]:
+                print(
+                    f"  ✓ PC {pc_idx + 1} @ {pct_label}% - Loading from cache"
+                )
+
+                # Load existing metadata
+                with open(cache_info["json_path"], "r") as f:
+                    metadata = json.load(f)
+
+                # Reconstruct adjacency matrix from saved edge indices
+                adj = np.zeros((n_nodes, n_nodes))
+                for e in metadata["edge_indices"]:
+                    i, j = i_idx[e], j_idx[e]
+                    # Use stored weight if available, otherwise recompute
+                    if avg_mean_diff is not None:
+                        adj[i, j] = avg_mean_diff[e]
+                        adj[j, i] = avg_mean_diff[e]
+                    else:
+                        # Find weight from edge_details if available
+                        for edge_detail in metadata.get("edge_details", []):
+                            if edge_detail["edge_idx"] == e:
+                                adj[i, j] = edge_detail["weight"]
+                                adj[j, i] = edge_detail["weight"]
+                                break
+
+                # Store results
+                res["results"][pc_idx][thresh] = {
+                    "adj_matrix": adj,
+                    "edges": metadata["edge_indices"],
+                    "num_edges": metadata["num_edges"],
+                }
+
+                # UI fragment
+                desc_md = f"""
+#### {pct_label}% Consensus (≥{min_runs}/{n_runs} runs) — PC {pc_idx + 1}
+- **Edges displayed:** {metadata["num_edges"]}
+- **Range:** `[{metadata["color_range"]["vmin"]:.3f}, {metadata["color_range"]["vmax"]:.3f}]`
+- **RED:** Over-connectivity in MDD (MDD > HC)
+- **BLUE:** Under-connectivity in MDD (MDD < HC)
+"""
+                pc_ui_elements.append(mo.md(desc_md))
+
+                # Reconstruct network stats markdown if available
+                if "network_statistics" in metadata:
+                    net_stats = metadata["network_statistics"]
+
+                    # Nodes table
+                    network_stats_md = (
+                        "#### Participating Nodes per Network\n\n"
+                    )
+                    network_stats_md += (
+                        "| Network | Node Count |\n| :--- | :---: |\n"
+                    )
+                    for net_name, node_count in net_stats.get(
+                        "nodes_per_network", {}
+                    ).items():
+                        network_stats_md += f"| {net_name} | {node_count} |\n"
+
+                    # Edges table
+                    network_stats_md += "\n#### FC Edges per Network\n\n"
+                    network_stats_md += "| Network | Total Edges | Intra-Network | % of Total |\n| :--- | :---: | :---: | :---: |\n"
+                    per_network = net_stats.get("per_network", {})
+                    intra_network = net_stats.get("intra_network", {})
+                    for net_name, total_count in per_network.items():
+                        intra_count = intra_network.get(net_name, 0)
+                        percentage = (
+                            total_count / (2 * metadata["num_edges"])
+                        ) * 100
+                        network_stats_md += f"| {net_name} | {total_count} | {intra_count} | {percentage:.1f}% |\n"
+
+                    # Inter-network table
+                    network_stats_md += "\n#### Top Inter-Network Connections\n\n| Connection Pair | Count |\n| :--- | :---: |\n"
+                    for pair_name, count in list(
+                        net_stats.get("inter_network", {}).items()
+                    )[:10]:
+                        network_stats_md += f"| {pair_name} | {count} |\n"
+                    network_stats_md += "\n---\n\n"
+
+                    pc_ui_elements.append(mo.md(network_stats_md))
+
+                # Reconstruct edge details table if available
+                if "edge_details" in metadata:
+                    edge_details_md = (
+                        "\n#### Edge Details (Top 20 by |Weight|)\n\n"
+                    )
+                    edge_details_md += "| Edge Index | Node i | Node j | Network i | Network j | Weight | Runs | Type |\n"
+                    edge_details_md += "| :---: | :---: | :---: | :--- | :--- | :---: | :---: | :---: |\n"
+
+                    # Sort by absolute weight
+                    sorted_edges = sorted(
+                        metadata["edge_details"],
+                        key=lambda x: abs(x["weight"]),
+                        reverse=True,
+                    )[:20]
+
+                    for edge_info in sorted_edges:
+                        edge_type = (
+                            "Intra"
+                            if edge_info["network_i"] == edge_info["network_j"]
+                            else "Inter"
+                        )
+                        edge_details_md += f"| {edge_info['edge_idx']} | {edge_info['node_i']} | {edge_info['node_j']} | {edge_info['network_i']} | {edge_info['network_j']} | {edge_info['weight']:.3f} | {edge_info['run_count']}/{n_runs} | {edge_type} |\n"
+                    edge_details_md += "\n---\n\n"
+                    pc_ui_elements.append(mo.md(edge_details_md))
+
+                pc_ui_elements.append(mo.image(src=cache_info["image_path"]))
+                pc_ui_elements.append(mo.md("---"))
+                continue
+
+            # --- need to generate this plot ---
+            print(f"  ⟳ PC {pc_idx + 1} @ {pct_label}% - Generating...")
+
+            # Collect edge counts across runs
+            edge_run_count: dict[int, int] = {}
+            for run_idx in range(n_runs):
+                for e in per_run_pc_edges[run_idx].get(pc_idx, []):
+                    edge_run_count[int(e)] = edge_run_count.get(int(e), 0) + 1
+
+            consensus_edges = [
+                e for e, cnt in edge_run_count.items() if cnt >= min_runs
+            ]
+
+            # --- regenerate plot ---
+            if not consensus_edges:
+                pc_ui_elements.append(
+                    mo.md(
+                        f"**{pct_label}% consensus** (≥{min_runs}/{n_runs} runs): "
+                        f"*no edges*"
+                    )
+                )
+                res["results"][pc_idx][thresh] = {
+                    "adj_matrix": np.zeros((n_nodes, n_nodes)),
+                    "edges": [],
+                    "num_edges": 0,
+                }
+                continue
+
+            # --- adjacency matrix ---
+            adj = np.zeros((n_nodes, n_nodes))
+            for e in consensus_edges:
+                i, j = i_idx[e], j_idx[e]
+                adj[i, j] = avg_mean_diff[e]
+                adj[j, i] = avg_mean_diff[e]
+
+            # --- participating nodes ---
+            participating = np.zeros(n_nodes, dtype=bool)
+            for e in consensus_edges:
+                participating[i_idx[e]] = True
+                participating[j_idx[e]] = True
+            node_sizes = np.where(participating, 20, 0)
+
+            # --- network stats ---
+            network_node_counts: dict[str, int] = {}
+            network_edge_counts: dict[str, int] = {}
+            intra_network_edges: dict[str, int] = {}
+            inter_network_edges: dict[str, int] = {}
+            network_stats_md = ""
+
+            # --- edge details ---
+            edge_details_list = []
+
+            if network_assignments is not None:
+                for ni in range(n_nodes):
+                    if participating[ni]:
+                        net = (
+                            network_assignments[ni]
+                            if ni < len(network_assignments)
+                            else "Unknown"
+                        )
+                        network_node_counts[net] = (
+                            network_node_counts.get(net, 0) + 1
+                        )
+
+                for e in consensus_edges:
+                    i, j = i_idx[e], j_idx[e]
+                    ni = (
+                        network_assignments[i]
+                        if i < len(network_assignments)
+                        else "Unknown"
+                    )
+                    nj = (
+                        network_assignments[j]
+                        if j < len(network_assignments)
+                        else "Unknown"
+                    )
+                    network_edge_counts[ni] = (
+                        network_edge_counts.get(ni, 0) + 1
+                    )
+                    network_edge_counts[nj] = (
+                        network_edge_counts.get(nj, 0) + 1
+                    )
+                    if ni == nj:
+                        intra_network_edges[ni] = (
+                            intra_network_edges.get(ni, 0) + 1
+                        )
+                    else:
+                        si, sj = str(ni), str(nj)
+                        pair = f"{si} ↔ {sj}" if si < sj else f"{sj} ↔ {si}"
+                        inter_network_edges[pair] = (
+                            inter_network_edges.get(pair, 0) + 1
+                        )
+
+                    # Store edge details
+                    edge_details_list.append(
+                        {
+                            "edge_idx": int(e),
+                            "node_i": int(i),
+                            "node_j": int(j),
+                            "network_i": str(ni),
+                            "network_j": str(nj),
+                            "weight": float(avg_mean_diff[e]),
+                            "run_count": int(edge_run_count[e]),
+                            "type": "Intra" if ni == nj else "Inter",
+                        }
+                    )
+
+                network_stats_md = (
+                    f"#### {pct_label}% Consensus — Participating Nodes\n\n"
+                )
+                network_stats_md += (
+                    "| Network | Node Count |\n| :--- | :---: |\n"
+                )
+                for net, cnt in sorted(
+                    network_node_counts.items(),
+                    key=lambda x: x[1],
+                    reverse=True,
+                ):
+                    network_stats_md += f"| {net} | {cnt} |\n"
+
+                network_stats_md += (
+                    f"\n#### {pct_label}% Consensus — FC Edges per Network\n\n"
+                )
+                network_stats_md += "| Network | Total Edges | Intra-Network | % of Total |\n| :--- | :---: | :---: | :---: |\n"
+                for net, total in sorted(
+                    network_edge_counts.items(),
+                    key=lambda x: x[1],
+                    reverse=True,
+                ):
+                    intra = intra_network_edges.get(net, 0)
+                    pct = (total / (2 * len(consensus_edges))) * 100
+                    network_stats_md += (
+                        f"| {net} | {total} | {intra} | {pct:.1f}% |\n"
+                    )
+
+                network_stats_md += (
+                    f"\n#### {pct_label}% Consensus — Top Inter-Network\n\n"
+                )
+                network_stats_md += (
+                    "| Connection Pair | Count |\n| :--- | :---: |\n"
+                )
+                for pair, cnt in sorted(
+                    inter_network_edges.items(),
+                    key=lambda x: x[1],
+                    reverse=True,
+                )[:10]:
+                    network_stats_md += f"| {pair} | {cnt} |\n"
+                network_stats_md += "\n---\n\n"
+
+            # --- colour scale ---
+            abs_vals = np.abs(adj[adj != 0])
+            vmax = (
+                float(np.percentile(abs_vals, 95))
+                if len(abs_vals) > 0
+                else 0.1
+            )
+            vmin = -vmax
+
+            # --- figure ---
+            if show_legend:
+                fig = plt.figure(figsize=(16, 12))
+                gs = fig.add_gridspec(
+                    2, 3, width_ratios=[1, 1, 0.5], wspace=0.3, hspace=0.3
+                )
+                ax1 = fig.add_subplot(gs[0, 0])
+                ax2 = fig.add_subplot(gs[0, 1])
+                ax3 = fig.add_subplot(gs[1, 0])
+                ax4 = fig.add_subplot(gs[1, 1])
+                ax_legend = fig.add_subplot(gs[:, 2])
+                axes = [ax1, ax2, ax3, ax4]
+            else:
+                fig, axes = plt.subplots(2, 2, figsize=(12, 12))
+                axes = axes.flatten()
+
+            views = [
+                ("l", "Left Lateral", False),
+                ("z", "Axial", True),
+                ("r", "Right Lateral", False),
+                ("z", "Axial (different slice)", False),
+            ]
+            for ax, (mode, title_text, show_cbar) in zip(axes, views):
+                plotting.plot_connectome(
+                    adj,
+                    node_coords,
+                    edge_cmap="bwr",
+                    edge_vmin=vmin,
+                    edge_vmax=vmax,
+                    node_size=node_sizes,
+                    node_color=node_colors,
+                    display_mode=mode,
+                    axes=ax,
+                    title=title_text,
+                    colorbar=show_cbar,
+                    alpha=0.8,
+                    edge_threshold=0.01,
+                )
+
+            # --- legend ---
+            if show_legend:
+                legend_elements = []
+                if network_assignments is not None and network_node_counts:
+                    for net_name in sorted(
+                        network_node_counts,
+                        key=lambda x: network_node_counts[x],
+                        reverse=True,
+                    ):
+                        color = glasser_network_colors.get(
+                            str(net_name), "#000000"
+                        )
+                        legend_elements.append(
+                            Line2D(
+                                [0],
+                                [0],
+                                marker="o",
+                                color="w",
+                                markerfacecolor=color,
+                                markersize=12,
+                                label=net_name,
+                                markeredgecolor="black",
+                                markeredgewidth=0.5,
+                            )
+                        )
+                legend_elements.append(
+                    Line2D(
+                        [0],
+                        [0],
+                        color="red",
+                        linewidth=2,
+                        label="Over-connectivity (MDD > HC)",
+                    )
+                )
+                legend_elements.append(
+                    Line2D(
+                        [0],
+                        [0],
+                        color="blue",
+                        linewidth=2,
+                        label="Under-connectivity (MDD < HC)",
+                    )
+                )
+                ax_legend.axis("off")
+                ax_legend.legend(
+                    handles=legend_elements,
+                    loc="center",
+                    fontsize=10,
+                    frameon=True,
+                    fancybox=True,
+                    shadow=True,
+                    title="Glasser Networks",
+                    title_fontsize=11,
+                )
+
+            plt.suptitle(
+                f"PC {pc_idx + 1} (Index {pc_idx}) — {pct_label}% Consensus "
+                f"(≥{min_runs}/{n_runs} runs) — {len(consensus_edges)} edges",
+                fontsize=14,
+                fontweight="bold",
+                y=0.98,
+            )
+            plt.tight_layout()
+            fig.patch.set_facecolor("white")
+
+            # --- save image ---
+            fig.savefig(
+                cache_info["image_path"],
+                dpi=150,
+                bbox_inches="tight",
+                facecolor="white",
+            )
+
+            # --- save metadata ---
+            metadata = {
+                "pc_index_0_based": int(pc_idx),
+                "pc_number_1_based": int(pc_idx + 1),
+                "consensus_threshold": float(thresh),
+                "min_runs_required": int(min_runs),
+                "total_runs": int(n_runs),
+                "num_edges": int(len(consensus_edges)),
+                "color_range": {"vmin": float(vmin), "vmax": float(vmax)},
+                "edge_indices": [int(e) for e in consensus_edges],
+                "edge_run_counts": {
+                    str(e): edge_run_count[e] for e in consensus_edges
+                },
+                "edge_details": edge_details_list,
+                "network_statistics": {
+                    "nodes_per_network": {
+                        k: int(v)
+                        for k, v in sorted(
+                            network_node_counts.items(),
+                            key=lambda x: x[1],
+                            reverse=True,
+                        )
+                    },
+                    "per_network": {
+                        k: int(v)
+                        for k, v in sorted(
+                            network_edge_counts.items(),
+                            key=lambda x: x[1],
+                            reverse=True,
+                        )
+                    },
+                    "intra_network": {
+                        k: int(v)
+                        for k, v in sorted(
+                            intra_network_edges.items(),
+                            key=lambda x: x[1],
+                            reverse=True,
+                        )
+                    },
+                    "inter_network": {
+                        k: int(v)
+                        for k, v in sorted(
+                            inter_network_edges.items(),
+                            key=lambda x: x[1],
+                            reverse=True,
+                        )
+                    },
+                },
+            }
+            with open(cache_info["json_path"], "w") as f:
+                json.dump(metadata, f, indent=4)
+
+            plt.close(fig)
+
+            # --- store results ---
+            res["results"][pc_idx][thresh] = {
+                "adj_matrix": adj,
+                "edges": consensus_edges,
+                "num_edges": len(consensus_edges),
+            }
+
+            # --- UI fragment ---
+            desc_md = f"""
+#### {pct_label}% Consensus (≥{min_runs}/{n_runs} runs) — PC {pc_idx + 1}
+- **Edges displayed:** {len(consensus_edges)}
+- **Range:** `[{vmin:.3f}, {vmax:.3f}]`
+- **RED:** Over-connectivity in MDD (MDD > HC)
+- **BLUE:** Under-connectivity in MDD (MDD < HC)
+"""
+            frag = [mo.md(desc_md)]
+            if network_stats_md:
+                frag.append(mo.md(network_stats_md))
+
+            # Add edge details table
+            if edge_details_list:
+                edge_details_md = (
+                    "\n#### Edge Details (Top 20 by |Weight|)\n\n"
+                )
+                edge_details_md += "| Edge Index | Node i | Node j | Network i | Network j | Weight | Runs | Type |\n"
+                edge_details_md += "| :---: | :---: | :---: | :--- | :--- | :---: | :---: | :---: |\n"
+
+                # Sort by absolute weight
+                sorted_edges = sorted(
+                    edge_details_list,
+                    key=lambda x: abs(x["weight"]),
+                    reverse=True,
+                )[:20]
+
+                for edge_info in sorted_edges:
+                    edge_details_md += f"| {edge_info['edge_idx']} | {edge_info['node_i']} | {edge_info['node_j']} | {edge_info['network_i']} | {edge_info['network_j']} | {edge_info['weight']:.3f} | {edge_info['run_count']}/{n_runs} | {edge_info['type']} |\n"
+                edge_details_md += "\n---\n\n"
+                frag.append(mo.md(edge_details_md))
+
+            frag.append(mo.image(src=cache_info["image_path"]))
+            pc_ui_elements.append(mo.vstack(frag, gap=2))
+            pc_ui_elements.append(mo.md("---"))
+
+        # end threshold loop
+        ui_elements.append(mo.vstack(pc_ui_elements, gap=2))
+
+    # end PC loop
+    print(f"\n[3/3] Complete!")
+    res["ui"] = mo.vstack(ui_elements, gap=3)
+    return res
+
+
+@app.cell
+def _(
+    coords_mni,
+    network_assignments,
+    srpb_fuzzy_extracted_harmonized_fc_matrices_df_list,
+    srpb_fuzzy_metadata_dir,
+    srpb_fuzzy_metrics_results_list,
+    srpb_fuzzy_plot_dir,
+    srpb_fuzzy_target_pcs_to_plot,
+):
+    srpb_fuzzy_consensus_target_pcs_to_plot = [1.0]
+
+    srpb_fuzzy_consensus_pc_plots_result = plot_pcs_consensus_publication_ready(
+        srpb_results_list=srpb_fuzzy_metrics_results_list,
+        fc_matrices_df_list=srpb_fuzzy_extracted_harmonized_fc_matrices_df_list,
+        node_coords=coords_mni,
+        pcs_to_plot=srpb_fuzzy_target_pcs_to_plot,
+        plot_dir=srpb_fuzzy_plot_dir + "/consensus-thresholds/",
+        metadata_dir=srpb_fuzzy_metadata_dir + "/consensus-thresholds/",
+        consensus_thresholds=[1.0, 0.75, 0.50, 0.25],
+        show_legend=True,
+        network_assignments=network_assignments,
+    )
+    return (srpb_fuzzy_consensus_pc_plots_result,)
+
+
+@app.cell
+def _(srpb_fuzzy_consensus_pc_plots_result):
+    srpb_fuzzy_consensus_pc_plots_result["ui"]
+    return
+
+
+@app.cell(hide_code=True)
+def _():
+    mo.md(r"""
+    We also want to run some other analysis
+    """)
+    return
+
+
+@app.cell(hide_code=True)
+def _():
+    mo.md(r"""
+    Please note that this code was written by Qwen3.7-Plus and needs to be double-checked
+    """)
+    return
+
+
+@app.function
+def plot_robustness_comparison_analysis(
+    srpb_results_list: list[dict],
+    fc_matrices_df_list: list,  # list of pl.DataFrame
+    node_coords: np.ndarray,
+    pcs_to_plot: list,
+    plot_dir: str,
+    metadata_dir: str,
+    consensus_thresholds: list[float] = [1.0, 0.75, 0.50, 0.25],
+    network_assignments=None,
+    skip_existing: bool = True,
+) -> dict:
+    """
+    robustness comparison analysis across bootstrap/fuzzy runs.
+
+    Performs 8 different analyses:
+    1. Edge weight stability (CV)
+    2. Jaccard similarity between runs
+    3. Effect sizes with confidence intervals
+    4. Convergence analysis
+    5. Network topology comparison
+    6. Statistical testing (permutation with sign-flipping)
+    7. Rich club analysis
+    8. Cross-threshold comparison
+
+    Returns
+    -------
+    dict with keys 'results' and 'ui'.
+    """
+    import os, json
+    import numpy as np
+    import polars as pl
+    import matplotlib.pyplot as plt
+    import marimo as mo
+    import seaborn as sns
+    import networkx as nx
+
+    res: dict = {"results": {}, "plots": {}}
+    ui_elements: list = []
+    n_runs = len(srpb_results_list)
+
+    os.makedirs(plot_dir, exist_ok=True)
+    os.makedirs(metadata_dir, exist_ok=True)
+
+    print(f"Robustness comparison analysis for {n_runs} runs...")
+    print(f"Plot directory: {plot_dir}")
+    print(f"Metadata directory: {metadata_dir}")
+
+    # ==================================================================
+    # 0.  CHECK CACHE FIRST
+    # ==================================================================
+    print(f"\n[0/2] Checking cache...")
+
+    pc_plot_names = [
+        "weight_stability", "jaccard_similarity", "effect_sizes", 
+        "convergence", "topology_metrics", "pvalue_distribution", 
+        "rich_club", "cross_threshold_comparison"
+    ]
+
+    all_plots = []
+    all_metas = []
+    for pc_idx in pcs_to_plot:
+        for p in pc_plot_names:
+            all_plots.append(os.path.join(plot_dir, f"pc_{pc_idx}_{p}.png"))
+        all_metas.append(os.path.join(metadata_dir, f"pc_{pc_idx}_analysis_metadata.json"))
+
+    all_cached = all(os.path.exists(p) for p in all_plots) and all(os.path.exists(m) for m in all_metas)
+
+    if skip_existing and all_cached:
+        print("  ✓ All plots and metadata cached! Loading from cache...")
+    else:
+        print(f"  Generating {len(all_plots)} plots and metadata...")
+
+    # ==================================================================
+    # 1.  DATA EXTRACTION (only if not fully cached)
+    # ==================================================================
+    per_run_mean_diff = None
+    per_run_pc_edges = None
+    avg_mean_diff = None
+    i_idx, j_idx = None, None
+    n_nodes = None
+
+    if not (skip_existing and all_cached):
+        print(f"\n[1/2] Extracting data from {n_runs} runs...")
+        per_run_mean_diff = []
+        per_run_pc_edges = []
+
+        for run_idx, (srpb_res, fc_df) in enumerate(
+            zip(srpb_results_list, fc_matrices_df_list)
+        ):
+            if (run_idx + 1) % 20 == 0 or run_idx == 0:
+                print(f"  Processing run {run_idx + 1}/{n_runs}...")
+
+            target_col = fc_df["diag"]
+            mask = (
+                (target_col != -1000)
+                & (target_col.is_not_null())
+                & ((target_col == 0) | (target_col == 2))
+            )
+            filtered = fc_df.filter(mask)
+            g0 = filtered.filter(pl.col("diag") == 0)["harmonized_fc_matrix"].to_list()
+            g2 = filtered.filter(pl.col("diag") == 2)["harmonized_fc_matrix"].to_list()
+
+            md = np.mean(np.array(g2), axis=0) - np.mean(np.array(g0), axis=0)
+            per_run_mean_diff.append(md)
+
+            if n_nodes is None:
+                n_nodes = int((1 + np.sqrt(1 + 8 * len(md))) / 2)
+
+            diag_data = srpb_res["diag"]
+            pc_edge_map = {}
+            for pc in pcs_to_plot:
+                mask_pc = np.isclose(diag_data["cons_pc"], pc)
+                pc_edge_map[pc] = np.array(diag_data["cons"][mask_pc], dtype=int)
+            per_run_pc_edges.append(pc_edge_map)
+
+        avg_mean_diff = np.mean(np.array(per_run_mean_diff), axis=0)
+        i_idx, j_idx = np.tril_indices(n_nodes, k=1)
+    else:
+        print("\n[1/2] Skipping data extraction")
+        # Load n_nodes from the first available metadata file
+        with open(all_metas[0], "r") as f:
+            meta = json.load(f)
+        n_nodes = meta["n_nodes"]
+        i_idx, j_idx = np.tril_indices(n_nodes, k=1)
+
+    # ==================================================================
+    # 2.  ANALYSIS LOOP
+    # ==================================================================
+    print(f"\n[2/2] Running analyses for {len(pcs_to_plot)} PCs...")
+
+    for pc_idx in pcs_to_plot:
+        print(f"\n  Processing PC {pc_idx + 1} (Index {pc_idx})...")
+
+        pc_results = {}
+        pc_ui_elements = []
+        pc_ui_elements.append(
+            mo.md(f"### Robustness Analysis — PC {pc_idx + 1} (Index {pc_idx})")
+        )
+
+        # Check if this specific PC is fully cached
+        meta_path = os.path.join(metadata_dir, f"pc_{pc_idx}_analysis_metadata.json")
+        is_pc_cached = (
+            skip_existing 
+            and os.path.exists(meta_path) 
+            and all(os.path.exists(os.path.join(plot_dir, f"pc_{pc_idx}_{p}.png")) for p in pc_plot_names)
+        )
+
+        # ==================================================================
+        # IF CACHED: Just load the JSON
+        # ==================================================================
+        if is_pc_cached:
+            print(f"    Loading PC {pc_idx + 1} results from cache...")
+            with open(meta_path, "r") as f:
+                cached_meta = json.load(f)
+            
+            # Restore all analysis results directly from the saved JSON
+            pc_results = {
+                "weight_stability": cached_meta.get("weight_stability", {}),
+                "jaccard_similarity": cached_meta.get("jaccard_similarity", {}),
+                "effect_sizes": cached_meta.get("effect_sizes", {}),
+                "convergence": cached_meta.get("convergence", {}),
+                "topology": cached_meta.get("topology", {}),
+                "permutation_test": cached_meta.get("permutation_test", {}),
+                "rich_club": cached_meta.get("rich_club", {}),
+                "cross_threshold": cached_meta.get("cross_threshold", {}),
+            }
+            n_nodes = cached_meta.get("n_nodes", n_nodes)
+
+        # ==================================================================
+        # IF NOT CACHED: Run the 8 heavy analyses
+        # ==================================================================
+        else:
+            print(f"    Generating PC {pc_idx + 1} analyses from scratch...")
+            
+            # Collect all edges across runs
+            all_edges = set()
+            edge_run_count = {}
+            for run_idx in range(n_runs):
+                for e in per_run_pc_edges[run_idx].get(pc_idx, []):
+                    all_edges.add(int(e))
+                    edge_run_count[int(e)] = edge_run_count.get(int(e), 0) + 1
+            all_edges = sorted(all_edges)
+
+            # --- ANALYSIS 1: Edge Weight Stability ---
+            if not (skip_existing and os.path.exists(os.path.join(plot_dir, f"pc_{pc_idx}_weight_stability.png"))):
+                print("    [1/8] Edge weight stability...")
+                edge_stability = {}
+                for e in all_edges:
+                    weights = [per_run_mean_diff[r][e] for r in range(n_runs) if e in per_run_pc_edges[r].get(pc_idx, [])]
+                    if len(weights) > 1:
+                        mean_w, std_w = np.mean(weights), np.std(weights)
+                        cv = std_w / np.abs(mean_w) if mean_w != 0 else np.inf
+                        edge_stability[e] = {"mean": mean_w, "std": std_w, "cv": cv, "n_runs": len(weights)}
+
+                fig, axes = plt.subplots(1, 2, figsize=(14, 5))
+                cv_vals = [edge_stability[e]["cv"] for e in edge_stability if edge_stability[e]["cv"] < 10]
+                axes[0].hist(cv_vals, bins=30, edgecolor="black", alpha=0.7)
+                axes[0].set_title("Edge Weight Stability (CV)")
+                axes[0].axvline(1.0, color="red", linestyle="--", label="CV=1")
+                axes[0].legend()
+
+                means = [edge_stability[e]["mean"] for e in edge_stability]
+                stds = [edge_stability[e]["std"] for e in edge_stability]
+                axes[1].scatter(means, stds, alpha=0.5, s=10)
+                axes[1].set_title("Mean vs Variability")
+                axes[1].axhline(0, color="gray", linestyle="--", alpha=0.5)
+
+                plt.tight_layout()
+                plt.savefig(os.path.join(plot_dir, f"pc_{pc_idx}_weight_stability.png"), dpi=150)
+                plt.close(fig)
+                pc_results["weight_stability"] = edge_stability
+
+            # --- ANALYSIS 2: Jaccard Similarity ---
+            if not (skip_existing and os.path.exists(os.path.join(plot_dir, f"pc_{pc_idx}_jaccard_similarity.png"))):
+                print("    [2/8] Jaccard similarity...")
+                jaccard_matrix = np.zeros((n_runs, n_runs))
+                for i in range(n_runs):
+                    edges_i = set(per_run_pc_edges[i].get(pc_idx, []))
+                    for j in range(i, n_runs):
+                        edges_j = set(per_run_pc_edges[j].get(pc_idx, []))
+                        intersection = len(edges_i & edges_j)
+                        union = len(edges_i | edges_j)
+                        jaccard_matrix[i, j] = intersection / union if union > 0 else 0
+                        jaccard_matrix[j, i] = jaccard_matrix[i, j]
+
+                fig, ax = plt.subplots(figsize=(10, 8))
+                sns.heatmap(jaccard_matrix, cmap="YlOrRd", ax=ax, xticklabels=False, yticklabels=False)
+                ax.set_title(f"PC {pc_idx + 1} — Jaccard Similarity Between Runs")
+                plt.tight_layout()
+                plt.savefig(os.path.join(plot_dir, f"pc_{pc_idx}_jaccard_similarity.png"), dpi=150)
+                plt.close(fig)
+
+                pc_results["jaccard_similarity"] = {
+                    "matrix": jaccard_matrix.tolist(),
+                    "mean": float(np.mean(jaccard_matrix[np.triu_indices(n_runs, k=1)])),
+                    "std": float(np.std(jaccard_matrix[np.triu_indices(n_runs, k=1)])),
+                }
+
+            # --- ANALYSIS 3: Effect Sizes with CIs ---
+            if not (skip_existing and os.path.exists(os.path.join(plot_dir, f"pc_{pc_idx}_effect_sizes.png"))):
+                print("    [3/8] Effect sizes...")
+                effect_sizes = {}
+                for e in all_edges:
+                    diffs = [per_run_mean_diff[r][e] for r in range(n_runs) if e in per_run_pc_edges[r].get(pc_idx, [])]
+                    if len(diffs) > 1:
+                        mean_diff, std_diff = np.mean(diffs), np.std(diffs)
+                        cohens_d = mean_diff / std_diff if std_diff > 0 else 0
+                        ci_lower, ci_upper = np.percentile(diffs, [2.5, 97.5])
+                        effect_sizes[e] = {"cohens_d": float(cohens_d), "mean": float(mean_diff), "ci_95": (float(ci_lower), float(ci_upper)), "significant": not (ci_lower <= 0 <= ci_upper)}
+
+                sorted_edges = sorted(effect_sizes.keys(), key=lambda e: abs(effect_sizes[e]["cohens_d"]), reverse=True)[:20]
+                fig, ax = plt.subplots(figsize=(12, 8))
+                y_pos = np.arange(len(sorted_edges))
+                means = [effect_sizes[e]["mean"] for e in sorted_edges]
+                ci_lowers = [effect_sizes[e]["ci_95"][0] for e in sorted_edges]
+                ci_uppers = [effect_sizes[e]["ci_95"][1] for e in sorted_edges]
+
+                ax.barh(y_pos, means, xerr=[np.array(means) - np.array(ci_lowers), np.array(ci_uppers) - np.array(means)], color="steelblue", alpha=0.7, capsize=3)
+                ax.set_yticks(y_pos)
+                ax.set_yticklabels([f"Edge {e}" for e in sorted_edges])
+                ax.set_xlabel("Mean Difference (MDD - HC)")
+                ax.set_title(f"PC {pc_idx + 1} — Top 20 Edges by Effect Size (95% CI)")
+                ax.axvline(0, color="red", linestyle="--", alpha=0.5)
+                plt.tight_layout()
+                plt.savefig(os.path.join(plot_dir, f"pc_{pc_idx}_effect_sizes.png"), dpi=150)
+                plt.close(fig)
+                pc_results["effect_sizes"] = effect_sizes
+
+            # --- ANALYSIS 4: Convergence Analysis ---
+            if not (skip_existing and os.path.exists(os.path.join(plot_dir, f"pc_{pc_idx}_convergence.png"))):
+                print("    [4/8] Convergence analysis...")
+                convergence_curve = []
+                for n in range(10, n_runs + 1, max(1, n_runs // 20)):
+                    edge_counts = {}
+                    for r in range(n):
+                        for e in per_run_pc_edges[r].get(pc_idx, []):
+                            edge_counts[int(e)] = edge_counts.get(int(e), 0) + 1
+                    convergence_curve.append({
+                        "n_runs": n,
+                        "stable_100": sum(1 for cnt in edge_counts.values() if cnt >= 1.0 * n),
+                        "stable_75": sum(1 for cnt in edge_counts.values() if cnt >= 0.75 * n),
+                        "stable_50": sum(1 for cnt in edge_counts.values() if cnt >= 0.50 * n),
+                    })
+
+                fig, ax = plt.subplots(figsize=(10, 6))
+                n_vals = [c["n_runs"] for c in convergence_curve]
+                ax.plot(n_vals, [c["stable_100"] for c in convergence_curve], "o-", label="100% consensus", linewidth=2)
+                ax.plot(n_vals, [c["stable_75"] for c in convergence_curve], "s-", label="75% consensus", linewidth=2)
+                ax.plot(n_vals, [c["stable_50"] for c in convergence_curve], "^-", label="50% consensus", linewidth=2)
+                ax.set_title(f"PC {pc_idx + 1} — Convergence Analysis")
+                ax.legend(); ax.grid(True, alpha=0.3)
+                plt.tight_layout()
+                plt.savefig(os.path.join(plot_dir, f"pc_{pc_idx}_convergence.png"), dpi=150)
+                plt.close(fig)
+                pc_results["convergence"] = convergence_curve
+
+            # --- ANALYSIS 5: Network Topology ---
+            if not (skip_existing and os.path.exists(os.path.join(plot_dir, f"pc_{pc_idx}_topology_metrics.png"))):
+                print("    [5/8] Network topology...")
+                topology_metrics = {}
+                for thresh in consensus_thresholds:
+                    min_runs = max(1, int(np.ceil(thresh * n_runs)))
+                    consensus_edges = [e for e, cnt in edge_run_count.items() if cnt >= min_runs]
+                    if consensus_edges:
+                        adj = np.zeros((n_nodes, n_nodes))
+                        for e in consensus_edges:
+                            i, j = i_idx[e], j_idx[e]
+                            adj[i, j] = 1; adj[j, i] = 1
+                        G = nx.from_numpy_array(adj)
+                        G.remove_nodes_from(list(nx.isolates(G)))
+                        if len(G.nodes()) > 0:
+                            topology_metrics[thresh] = {
+                                "n_nodes": len(G.nodes()), "n_edges": len(G.edges()),
+                                "density": nx.density(G), "clustering": nx.average_clustering(G),
+                                "avg_degree": np.mean([d for _, d in G.degree()]), "connected": nx.is_connected(G),
+                            }
+                        else:
+                            topology_metrics[thresh] = None
+                    else:
+                        topology_metrics[thresh] = None
+
+                fig, axes = plt.subplots(2, 2, figsize=(12, 10))
+                thresh_vals = [t for t in consensus_thresholds if topology_metrics.get(t) is not None]
+                if thresh_vals:
+                    axes[0, 0].plot(thresh_vals, [topology_metrics[t]["n_nodes"] for t in thresh_vals], "o-", linewidth=2); axes[0, 0].set_title("Nodes vs Threshold"); axes[0, 0].grid(True, alpha=0.3)
+                    axes[0, 1].plot(thresh_vals, [topology_metrics[t]["n_edges"] for t in thresh_vals], "s-", linewidth=2); axes[0, 1].set_title("Edges vs Threshold"); axes[0, 1].grid(True, alpha=0.3)
+                    axes[1, 0].plot(thresh_vals, [topology_metrics[t]["density"] for t in thresh_vals], "^-", linewidth=2); axes[1, 0].set_title("Density vs Threshold"); axes[1, 0].grid(True, alpha=0.3)
+                    axes[1, 1].plot(thresh_vals, [topology_metrics[t]["clustering"] for t in thresh_vals], "D-", linewidth=2); axes[1, 1].set_title("Clustering vs Threshold"); axes[1, 1].grid(True, alpha=0.3)
+                plt.suptitle(f"PC {pc_idx + 1} — Network Topology Metrics", fontsize=14, fontweight="bold")
+                plt.tight_layout()
+                plt.savefig(os.path.join(plot_dir, f"pc_{pc_idx}_topology_metrics.png"), dpi=150)
+                plt.close(fig)
+                pc_results["topology"] = topology_metrics
+
+            # --- ANALYSIS 6: Statistical Testing (Permutation) ---
+            if not (skip_existing and os.path.exists(os.path.join(plot_dir, f"pc_{pc_idx}_pvalue_distribution.png"))):
+                print("    [6/8] Statistical testing...")
+                permutation_pvalues = {}
+                n_permutations = 1000
+                for idx, e in enumerate(all_edges[:100]):
+                    if idx % 10 == 0: print(f"      Permutation test: {idx}/100 edges...")
+                    observed_weight = avg_mean_diff[e]
+                    edge_weights = [per_run_mean_diff[r][e] for r in range(n_runs) if e in per_run_pc_edges[r].get(pc_idx, [])]
+                    if len(edge_weights) < 2: continue
+                    
+                    null_weights = []
+                    for _ in range(n_permutations):
+                        permuted = np.array(edge_weights) * np.random.choice([-1, 1], size=len(edge_weights))
+                        null_weights.append(np.mean(permuted))
+                    p_value = np.mean(np.abs(null_weights) >= np.abs(observed_weight))
+                    permutation_pvalues[e] = float(p_value)
+
+                fig, ax = plt.subplots(figsize=(10, 6))
+                pvals = list(permutation_pvalues.values())
+                ax.hist(pvals, bins=20, edgecolor="black", alpha=0.7)
+                ax.set_title(f"PC {pc_idx + 1} — Permutation Test P-value Distribution")
+                ax.axvline(0.05, color="red", linestyle="--", label="α=0.05 (uncorrected)")
+                if pvals:
+                    sorted_pvals = sorted(pvals)
+                    fdr_threshold = 0.05 * np.arange(1, len(sorted_pvals) + 1) / len(sorted_pvals)
+                    significant = sorted_pvals <= fdr_threshold
+                    if np.any(significant):
+                        fdr_line = sorted_pvals[np.max(np.where(significant)[0])]
+                        ax.axvline(fdr_line, color="green", linestyle="--", label=f"FDR q=0.05 (p≤{fdr_line:.3f})")
+                ax.legend()
+                plt.tight_layout()
+                plt.savefig(os.path.join(plot_dir, f"pc_{pc_idx}_pvalue_distribution.png"), dpi=150)
+                plt.close(fig)
+                pc_results["permutation_test"] = permutation_pvalues
+
+            # --- ANALYSIS 7: Rich Club Analysis ---
+            if not (skip_existing and os.path.exists(os.path.join(plot_dir, f"pc_{pc_idx}_rich_club.png"))):
+                print("    [7/8] Rich club analysis...")
+                min_runs = max(1, int(np.ceil(0.75 * n_runs)))
+                consensus_edges = [e for e, cnt in edge_run_count.items() if cnt >= min_runs]
+                adj = np.zeros((n_nodes, n_nodes))
+                for e in consensus_edges:
+                    i, j = i_idx[e], j_idx[e]; adj[i, j] = 1; adj[j, i] = 1
+                G = nx.from_numpy_array(adj)
+                degrees = np.array([d for _, d in G.degree()])
+                rich_club = {}
+                max_degree = int(np.percentile(degrees, 95)) if len(degrees) > 0 else 0
+                for k in range(1, max_degree + 1):
+                    rich_nodes = np.where(degrees >= k)[0]
+                    if len(rich_nodes) > 1:
+                        rich_edges = adj[np.ix_(rich_nodes, rich_nodes)]
+                        n_possible = len(rich_nodes) * (len(rich_nodes) - 1)
+                        rich_club[k] = np.sum(rich_edges) / n_possible if n_possible > 0 else 0
+
+                fig, ax = plt.subplots(figsize=(10, 6))
+                if rich_club:
+                    ax.plot(list(rich_club.keys()), list(rich_club.values()), "o-", linewidth=2)
+                    ax.set_title(f"PC {pc_idx + 1} — Rich Club Analysis (75% consensus)")
+                    ax.grid(True, alpha=0.3)
+                else:
+                    ax.text(0.5, 0.5, "No edges at 75% consensus", ha="center", va="center", transform=ax.transAxes)
+                plt.tight_layout()
+                plt.savefig(os.path.join(plot_dir, f"pc_{pc_idx}_rich_club.png"), dpi=150)
+                plt.close(fig)
+                pc_results["rich_club"] = rich_club
+
+            # --- ANALYSIS 8: Cross-Threshold Comparison ---
+            if not (skip_existing and os.path.exists(os.path.join(plot_dir, f"pc_{pc_idx}_cross_threshold_comparison.png"))):
+                print("    [8/8] Cross-threshold comparison...")
+                edge_presence = {}
+                for e in all_edges:
+                    edge_presence[e] = {thresh: (edge_run_count.get(e, 0) >= max(1, int(np.ceil(thresh * n_runs)))) for thresh in consensus_thresholds}
+                
+                always_present = [e for e in all_edges if all(edge_presence[e].values())]
+                never_present = [e for e in all_edges if not any(edge_presence[e].values())]
+                threshold_dependent = [e for e in all_edges if any(edge_presence[e].values()) and not all(edge_presence[e].values())]
+
+                fig, ax = plt.subplots(figsize=(10, 6))
+                categories = ["Always Present", "Threshold Dependent", "Never Present"]
+                counts = [len(always_present), len(threshold_dependent), len(never_present)]
+                colors = ["#2ecc71", "#f39c12", "#e74c3c"]
+                bars = ax.bar(categories, counts, color=colors, edgecolor="black", alpha=0.7)
+                ax.set_title(f"PC {pc_idx + 1} — Edge Stability Across Thresholds")
+                for bar, count in zip(bars, counts):
+                    ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + 1, str(count), ha="center", va="bottom", fontweight="bold")
+                plt.tight_layout()
+                plt.savefig(os.path.join(plot_dir, f"pc_{pc_idx}_cross_threshold_comparison.png"), dpi=150)
+                plt.close(fig)
+
+                pc_results["cross_threshold"] = {
+                    "always_present": len(always_present), "threshold_dependent": len(threshold_dependent), "never_present": len(never_present),
+                    "edge_presence": {str(e): {str(t): v for t, v in presence.items()} for e, presence in edge_presence.items()},
+                }
+
+            # --- SAVE METADATA ---
+            print("    Saving metadata to JSON...")
+            metadata = {
+                "pc_index": int(pc_idx), "n_runs": n_runs, "n_nodes": n_nodes,
+                "total_edges_seen": len(all_edges), "consensus_thresholds": consensus_thresholds,
+                "weight_stability": pc_results.get("weight_stability", {}),
+                "jaccard_similarity": pc_results.get("jaccard_similarity", {}),
+                "effect_sizes": pc_results.get("effect_sizes", {}),
+                "convergence": pc_results.get("convergence", {}),
+                "topology": pc_results.get("topology", {}),
+                "permutation_test": pc_results.get("permutation_test", {}),
+                "rich_club": pc_results.get("rich_club", {}),
+                "cross_threshold": pc_results.get("cross_threshold", {}),
+            }
+            with open(meta_path, "w") as f:
+                json.dump(metadata, f, indent=4)
+
+        # ==================================================================
+        # BUILD UI (Runs for BOTH cached and newly generated plots)
+        # ==================================================================
+        print(f"    Building UI for PC {pc_idx + 1}...")
+        
+        summary_md = f"""
+#### Analysis Summary
+- **Total runs:** {n_runs}
+- **Consensus thresholds:** {consensus_thresholds}
+"""
+        if "cross_threshold" in pc_results:
+            ct = pc_results["cross_threshold"]
+            summary_md += f"- **Always Present:** {ct.get('always_present', 0)}\n"
+            summary_md += f"- **Threshold Dependent:** {ct.get('threshold_dependent', 0)}\n"
+            summary_md += f"- **Never Present:** {ct.get('never_present', 0)}\n"
+        
+        pc_ui_elements.append(mo.md(summary_md))
+
+        # Add all plots to UI
+        plot_titles = [
+            ("Weight Stability", "weight_stability"),
+            ("Jaccard Similarity", "jaccard_similarity"),
+            ("Effect Sizes", "effect_sizes"),
+            ("Convergence", "convergence"),
+            ("Network Topology", "topology_metrics"),
+            ("P-value Distribution", "pvalue_distribution"),
+            ("Rich Club", "rich_club"),
+            ("Cross-Threshold Comparison", "cross_threshold_comparison"),
+        ]
+
+        for title, filename_suffix in plot_titles:
+            plot_path = os.path.join(plot_dir, f"pc_{pc_idx}_{filename_suffix}.png")
+            if os.path.exists(plot_path):
+                pc_ui_elements.append(mo.md(f"#### {title}"))
+                pc_ui_elements.append(mo.image(src=plot_path))
+
+        ui_elements.append(mo.vstack(pc_ui_elements, gap=2))
+        res["results"][pc_idx] = pc_results
+
+    print("\nRobustness analysis complete!")
+    res["ui"] = mo.vstack(ui_elements, gap=3)
+    return res
+
+
+@app.cell
+def _(
+    coords_mni,
+    network_assignments,
+    srpb_fuzzy_extracted_harmonized_fc_matrices_df_list,
+    srpb_fuzzy_metadata_dir,
+    srpb_fuzzy_metrics_results_list,
+    srpb_fuzzy_plot_dir,
+):
+    robustness_analysis_result = plot_robustness_comparison_analysis(
+        srpb_results_list=srpb_fuzzy_metrics_results_list,
+        fc_matrices_df_list=srpb_fuzzy_extracted_harmonized_fc_matrices_df_list,
+        node_coords=coords_mni,
+        pcs_to_plot=[1.0],
+        plot_dir=srpb_fuzzy_plot_dir + "/robustness-analysis/",
+        metadata_dir=srpb_fuzzy_metadata_dir + "/robustness-analysis/",
+        consensus_thresholds=[1.0, 0.75, 0.50, 0.25],
+        network_assignments=network_assignments,
+        skip_existing=True,
+    )
+    return (robustness_analysis_result,)
+
+
+@app.cell
+def _(robustness_analysis_result):
+    robustness_analysis_result["ui"]
     return
 
 
