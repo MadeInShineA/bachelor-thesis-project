@@ -796,7 +796,7 @@ def _():
     with open(os.path.join(out_dir, "network_assignments_446.txt"), "w") as _f:
         for net in network_assignments:
             _f.write(f"{net}\n")
-    return coords_mni, labels, network_assignments
+    return coords_mni, network_assignments
 
 
 @app.cell(hide_code=True)
@@ -817,7 +817,7 @@ def _():
 
 @app.function(hide_code=True)
 def plot_pcs_publication_ready(
-    srpb_results: dict,
+    results: dict,
     fc_matrices_df,  # pl.DataFrame
     node_coords: np.ndarray,
     pcs_to_plot: list,
@@ -829,38 +829,31 @@ def plot_pcs_publication_ready(
     skip_existing: bool = True,
 ) -> dict:
     """
-    Generates a complete Marimo UI for a list of Principal Components.
-    Returns a dictionary with 'results' (keyed by PC index) and 'ui'.
-    Saves a JSON metadata file for each PC with sorted network statistics.
-
-    If skip_existing=True, checks if plot files already exist and skips
-    regeneration for PCs that are already cached.
+    Generates publication-ready brain plots for a list of Principal Components.
+    Returns a dictionary with:
+      - 'results': adjacency matrices keyed by PC index
+      - 'ui_elements': individual Marimo UI elements keyed by PC index
     """
-    res = {"results": {}}
-    ui_elements = []
+    res = {"results": {}, "ui_elements": {}}
 
-    # Ensure the plot directory exists
     os.makedirs(plot_dir, exist_ok=True)
     os.makedirs(metadata_dir, exist_ok=True)
 
-    # ==========================================
-    # DEFINE COLOR MAP ONCE AT THE TOP
-    # ==========================================
     glasser_network_colors = {
-        "Visual": "#00BFC4",  # Cyan
-        "SomatoMotor": "#F8766D",  # Red
-        "DorsalAttention": "#7CAE00",  # Green
-        "DefaultMode": "#FFC300",  # Yellow/Orange
-        "Limbic": "#FF61C3",  # Pink
-        "Salience": "#C77CFF",  # Purple
-        "PrefrontalControlA": "#00BAFF",  # Light Blue
-        "PrefrontalControlB": "#0097A7",  # Darker Cyan/Teal
-        "Subcortical": "#333333",  # Dark Gray
-        "Cerebellum": "#D2691E",  # Brown/Orange
-        "Unknown": "#000000",  # Black
+        "Visual": "#00BFC4",
+        "SomatoMotor": "#F8766D",
+        "DorsalAttention": "#7CAE00",
+        "DefaultMode": "#FFC300",
+        "Limbic": "#FF61C3",
+        "Salience": "#C77CFF",
+        "PrefrontalControlA": "#00BAFF",
+        "PrefrontalControlB": "#0097A7",
+        "Subcortical": "#333333",
+        "Cerebellum": "#D2691E",
+        "Unknown": "#000000",
     }
 
-    # 1. Extract Data (Done once for all PCs)
+    # 1. Extract Data (once for all PCs)
     target_col = fc_matrices_df["diag"]
     mask = (
         (target_col != -1000)
@@ -878,8 +871,8 @@ def plot_pcs_publication_ready(
         np.array(group0_fc), axis=0
     )
     n_nodes = int((1 + np.sqrt(1 + 8 * len(mean_diff))) / 2)
+    max_edge_idx = n_nodes * (n_nodes - 1) // 2 - 1
 
-    # Pad coordinates and colors once
     if n_nodes > len(node_coords):
         padding = np.zeros((n_nodes - len(node_coords), 3))
         node_coords = np.vstack([node_coords, padding])
@@ -888,18 +881,13 @@ def plot_pcs_publication_ready(
                 n_nodes - len(network_assignments)
             )
 
-    # ==========================================
-    # NEW LOGIC: Color nodes by Network
-    # ==========================================
     if node_colors is None:
         if network_assignments is not None:
-            # Map each node's network name to its hex color!
             node_colors = [
                 glasser_network_colors.get(str(net), "#000000")
                 for net in network_assignments
             ]
         else:
-            # Fallback to hemisphere coloring if no network info is provided
             node_colors = [
                 "#a6cee3" if coord[0] < 0 else "#fb9a99"
                 for coord in node_coords
@@ -923,42 +911,53 @@ def plot_pcs_publication_ready(
 
     # 2. Loop through each requested PC
     for pc_idx in pcs_to_plot:
-        # Check if plot already exists
         image_path = os.path.join(plot_dir, f"brain_pc_{pc_idx + 1}fc.png")
         json_path = os.path.join(
             metadata_dir, f"brain_pc_{pc_idx + 1}_metadata.json"
         )
 
         plot_exists = os.path.exists(image_path) and os.path.exists(json_path)
+        cache_valid = False
 
         if skip_existing and plot_exists:
+            try:
+                with open(json_path, "r") as f:
+                    metadata = json.load(f)
+                saved_edges = metadata.get("edge_indices", [])
+                if saved_edges:
+                    max_saved = max(int(float(e)) for e in saved_edges)
+                    if max_saved <= max_edge_idx:
+                        cache_valid = True
+                    else:
+                        print(
+                            f"Cache incompatible for PC {pc_idx + 1}, regenerating..."
+                        )
+                else:
+                    cache_valid = True
+            except Exception as e:
+                print(f"Cache corrupt for PC {pc_idx + 1}, regenerating: {e}")
+                cache_valid = False
+
+        if skip_existing and cache_valid:
             print(
                 f"PC {pc_idx + 1} (Index {pc_idx}) already exists, loading from cache: {image_path}"
             )
 
-            # Load existing metadata
-            with open(json_path, "r") as f:
-                metadata = json.load(f)
-
-            # Reconstruct adjacency matrix from saved edge indices
             adj_matrix = np.zeros((n_nodes, n_nodes))
             i_idx, j_idx = np.tril_indices(n_nodes, k=1)
             for edge_idx in metadata["edge_indices"]:
+                edge_idx = int(float(edge_idx))
                 i, j = i_idx[edge_idx], j_idx[edge_idx]
                 adj_matrix[i, j] = mean_diff[edge_idx]
                 adj_matrix[j, i] = mean_diff[edge_idx]
 
-            # Store results
             res["results"][pc_idx] = {
                 "adj_matrix": adj_matrix,
                 "edges": metadata["edge_indices"],
                 "num_edges": metadata["num_edges"],
             }
 
-            # Load existing image
             pc_image = mo.image(src=image_path)
-
-            # Create description markdown
             vmin = metadata["color_range"]["vmin"]
             vmax = metadata["color_range"]["vmax"]
             description_md = f"""
@@ -969,24 +968,16 @@ def plot_pcs_publication_ready(
             - **BLUE:** Under-connectivity in MDD (MDD < HC)
             """
 
-            # Reconstruct network stats markdown if available
             network_stats_md = ""
             if "network_statistics" in metadata:
                 net_stats = metadata["network_statistics"]
-
-                # Nodes table
-                network_stats_md = "#### Participating Nodes per Network\n\n"
-                network_stats_md += (
-                    "| Network | Node Count |\n| :--- | :---: |\n"
-                )
+                network_stats_md = "#### Participating Nodes per Network\n\n| Network | Node Count |\n| :--- | :---: |\n"
                 for net_name, node_count in net_stats.get(
                     "nodes_per_network", {}
                 ).items():
                     network_stats_md += f"| {net_name} | {node_count} |\n"
 
-                # Edges table
-                network_stats_md += "\n#### FC Edges per Network\n\n"
-                network_stats_md += "| Network | Total Edges | Intra-Network | % of Total |\n| :--- | :---: | :---: | :---: |\n"
+                network_stats_md += "\n#### FC Edges per Network\n\n| Network | Total Edges | Intra-Network | % of Total |\n| :--- | :---: | :---: | :---: |\n"
                 per_network = net_stats.get("per_network", {})
                 intra_network = net_stats.get("intra_network", {})
                 for net_name, total_count in per_network.items():
@@ -996,7 +987,6 @@ def plot_pcs_publication_ready(
                     ) * 100
                     network_stats_md += f"| {net_name} | {total_count} | {intra_count} | {percentage:.1f}% |\n"
 
-                # Inter-network table
                 network_stats_md += "\n#### Top Inter-Network Connections\n\n| Connection Pair | Count |\n| :--- | :---: |\n"
                 for pair_name, count in list(
                     net_stats.get("inter_network", {}).items()
@@ -1004,60 +994,106 @@ def plot_pcs_publication_ready(
                     network_stats_md += f"| {pair_name} | {count} |\n"
                 network_stats_md += "\n---\n\n"
 
-            # Assemble the UI section for this PC
             pc_ui_elements = [mo.md(description_md)]
             if network_stats_md:
                 pc_ui_elements.append(mo.md(network_stats_md))
-
             pc_ui_elements.append(pc_image)
 
             pc_ui = mo.vstack(
-                [
-                    mo.vstack(pc_ui_elements, gap=2),
-                    mo.md("---"),
-                ],
-                gap=2,
+                [mo.vstack(pc_ui_elements, gap=2), mo.md("---")], gap=2
             )
+            res["ui_elements"][pc_idx] = pc_ui
+            continue
 
-            ui_elements.append(pc_ui)
-            continue  # Skip to next PC
-
+        # GENERATION BRANCH
         print(f"Generating plot for PC {pc_idx + 1} (Index {pc_idx})...")
 
-        # Extract edges for this specific PC
-        diag_data = srpb_results["diag"]
+        diag_data = results["diag"]
         mask_pc = np.isclose(diag_data["cons_pc"], pc_idx)
         edges_to_plot = list(diag_data["cons"][mask_pc])
 
         if not edges_to_plot:
-            continue  # Skip if no edges found for this PC
+            print(
+                f"  PC {pc_idx + 1} has no edges in results — creating empty placeholder."
+            )
 
-        # Create Adjacency Matrix
+            fig, ax = plt.subplots(figsize=(8, 6))
+            ax.text(
+                0.5,
+                0.5,
+                f"PC {pc_idx + 1}\nNo significant edges",
+                ha="center",
+                va="center",
+                fontsize=16,
+                transform=ax.transAxes,
+            )
+            ax.set_xlim(0, 1)
+            ax.set_ylim(0, 1)
+            ax.axis("off")
+            fig.patch.set_facecolor("white")
+            fig.savefig(
+                image_path, dpi=150, bbox_inches="tight", facecolor="white"
+            )
+            plt.close(fig)
+
+            metadata = {
+                "pc_index_0_based": float(pc_idx),
+                "pc_number_1_based": float(pc_idx + 1),
+                "num_edges": 0,
+                "color_range": {"vmin": 0.0, "vmax": 0.0},
+                "edge_indices": [],
+                "network_statistics": {
+                    "nodes_per_network": {},
+                    "per_network": {},
+                    "intra_network": {},
+                    "inter_network": {},
+                },
+            }
+            with open(json_path, "w") as f:
+                json.dump(metadata, f, indent=4)
+
+            pc_image = mo.image(src=image_path)
+            description_md = f"#### Plot Description for PC {pc_idx + 1}\n- **No edges found** — this PC was not selected."
+            pc_ui = mo.vstack(
+                [mo.md(description_md), pc_image, mo.md("---")], gap=2
+            )
+            res["ui_elements"][pc_idx] = pc_ui
+
+            res["results"][pc_idx] = {
+                "adj_matrix": np.zeros((n_nodes, n_nodes)),
+                "edges": [],
+                "num_edges": 0,
+            }
+            continue
+
+        if max(int(float(e)) for e in edges_to_plot) > max_edge_idx:
+            raise ValueError(
+                f"Data mismatch! PC {pc_idx + 1} has edge indices that don't fit "
+                f"current n_nodes={n_nodes}. Max allowed: {max_edge_idx}, got {max(edges_to_plot)}."
+            )
+
         adj_matrix = np.zeros((n_nodes, n_nodes))
         i_idx, j_idx = np.tril_indices(n_nodes, k=1)
         for edge_idx in edges_to_plot:
+            edge_idx = int(float(edge_idx))
             i, j = i_idx[edge_idx], j_idx[edge_idx]
             adj_matrix[i, j] = mean_diff[edge_idx]
             adj_matrix[j, i] = mean_diff[edge_idx]
 
-        # ── hide nodes that aren't part of any drawn edge ──
         participating = np.zeros(n_nodes, dtype=bool)
         for edge_idx in edges_to_plot:
+            edge_idx = int(float(edge_idx))
             participating[i_idx[edge_idx]] = True
             participating[j_idx[edge_idx]] = True
-        node_sizes = np.where(participating, 20, 0)  # 0 = invisible
-        # ──────────────────────────────────────────────────────────
+        node_sizes = np.where(participating, 20, 0)
 
-        # Initialize stats dictionaries to prevent NameError if network_assignments is None
         network_node_counts = {}
         network_edge_counts = {}
         intra_network_edges = {}
         inter_network_edges = {}
 
-        # Network Stats Markdown
         network_stats_md = ""
         if network_assignments is not None:
-            # Count participating nodes per network
             for node_idx in range(n_nodes):
                 if participating[node_idx]:
                     net = (
@@ -1070,6 +1106,7 @@ def plot_pcs_publication_ready(
                     )
 
             for edge_idx in edges_to_plot:
+                edge_idx = int(float(edge_idx))
                 i, j = i_idx[edge_idx], j_idx[edge_idx]
                 net_i = (
                     network_assignments[i]
@@ -1092,7 +1129,6 @@ def plot_pcs_publication_ready(
                         intra_network_edges.get(net_i, 0) + 1
                     )
                 else:
-                    # Force conversion to string to prevent TypeError when comparing int/float to str
                     str_i, str_j = str(net_i), str(net_j)
                     pair_name = (
                         f"{str_i} ↔ {str_j}"
@@ -1103,41 +1139,31 @@ def plot_pcs_publication_ready(
                         inter_network_edges.get(pair_name, 0) + 1
                     )
 
-            # 1. Nodes Table
-            network_stats_md = "#### Participating Nodes per Network\n\n"
-            network_stats_md += "| Network | Node Count |\n| :--- | :---: |\n"
-            sorted_node_nets = sorted(
+            network_stats_md = "#### Participating Nodes per Network\n\n| Network | Node Count |\n| :--- | :---: |\n"
+            for net_name, node_count in sorted(
                 network_node_counts.items(), key=lambda x: x[1], reverse=True
-            )
-            for net_name, node_count in sorted_node_nets:
+            ):
                 network_stats_md += f"| {net_name} | {node_count} |\n"
 
-            # 2. Edges Table
-            network_stats_md += "\n#### FC Edges per Network\n\n"
-            network_stats_md += "| Network | Total Edges | Intra-Network | % of Total |\n| :--- | :---: | :---: | :---: |\n"
-            sorted_networks = sorted(
+            network_stats_md += "\n#### FC Edges per Network\n\n| Network | Total Edges | Intra-Network | % of Total |\n| :--- | :---: | :---: | :---: |\n"
+            for net_name, total_count in sorted(
                 network_edge_counts.items(), key=lambda x: x[1], reverse=True
-            )
-            for net_name, total_count in sorted_networks:
+            ):
                 intra_count = intra_network_edges.get(net_name, 0)
                 percentage = (total_count / (2 * len(edges_to_plot))) * 100
                 network_stats_md += f"| {net_name} | {total_count} | {intra_count} | {percentage:.1f}% |\n"
 
-            # 3. Inter-Network Table
             network_stats_md += "\n#### Top Inter-Network Connections\n\n| Connection Pair | Count |\n| :--- | :---: |\n"
-            sorted_inter = sorted(
+            for pair_name, count in sorted(
                 inter_network_edges.items(), key=lambda x: x[1], reverse=True
-            )
-            for pair_name, count in sorted_inter[:10]:
+            )[:10]:
                 network_stats_md += f"| {pair_name} | {count} |\n"
             network_stats_md += "\n---\n\n"
 
-        # Color Scale
         abs_vals = np.abs(adj_matrix[adj_matrix != 0])
         vmax = np.percentile(abs_vals, 95) if len(abs_vals) > 0 else 0.1
         vmin = -vmax
 
-        # Plotting
         if show_legend:
             fig = plt.figure(figsize=(16, 12))
             gs = fig.add_gridspec(
@@ -1178,22 +1204,14 @@ def plot_pcs_publication_ready(
                 edge_threshold=0.01,
             )
 
-        # ==========================================
-        # LEGEND LOGIC
-        # ==========================================
         if show_legend:
             legend_elements = []
-
-            # Only include networks that are actually participating in the current PC's plot
             if network_assignments is not None and network_node_counts:
-                # Sort by node count descending for a cleaner, consistent legend
-                unique_nets_in_plot = sorted(
+                for net_name in sorted(
                     network_node_counts.keys(),
                     key=lambda x: network_node_counts[x],
                     reverse=True,
-                )
-
-                for net_name in unique_nets_in_plot:
+                ):
                     color = glasser_network_colors.get(
                         str(net_name), "#000000"
                     )
@@ -1210,7 +1228,6 @@ def plot_pcs_publication_ready(
                             markeredgewidth=0.5,
                         )
                     )
-
             legend_elements.append(
                 Line2D(
                     [0],
@@ -1229,7 +1246,6 @@ def plot_pcs_publication_ready(
                     label="Under-connectivity (MDD < HC)",
                 )
             )
-
             ax_legend.axis("off")
             ax_legend.legend(
                 handles=legend_elements,
@@ -1250,23 +1266,16 @@ def plot_pcs_publication_ready(
         )
         plt.tight_layout()
         fig.patch.set_facecolor("white")
-
-        # ==========================================
-        # SAVE IMAGE & JSON METADATA
-        # ==========================================
-
-        # 1. Save the figure to disk
         fig.savefig(
             image_path, dpi=150, bbox_inches="tight", facecolor="white"
         )
 
-        # 2. Save the metadata to JSON
         metadata = {
-            "pc_index_0_based": int(pc_idx),
-            "pc_number_1_based": int(pc_idx + 1),
+            "pc_index_0_based": float(pc_idx),
+            "pc_number_1_based": float(pc_idx + 1),
             "num_edges": int(len(edges_to_plot)),
             "color_range": {"vmin": float(vmin), "vmax": float(vmax)},
-            "edge_indices": [int(e) for e in edges_to_plot],
+            "edge_indices": [int(float(e)) for e in edges_to_plot],
             "network_statistics": {
                 "nodes_per_network": {
                     k: int(v)
@@ -1302,17 +1311,12 @@ def plot_pcs_publication_ready(
                 },
             },
         }
-
         with open(json_path, "w") as f:
             json.dump(metadata, f, indent=4)
 
-        # 3. Close the figure to free memory (CRITICAL in loops)
         plt.close(fig)
-
-        # 4. Load the image into Marimo
         pc_image = mo.image(src=image_path)
 
-        # 5. Create description markdown
         description_md = f"""
         #### Plot Description for PC {pc_idx + 1}
         - **Total unique edges displayed:** {len(edges_to_plot)}
@@ -1321,32 +1325,22 @@ def plot_pcs_publication_ready(
         - **BLUE:** Under-connectivity in MDD (MDD < HC)
         """
 
-        # 6. Assemble the UI section for this PC
         pc_ui_elements = [mo.md(description_md)]
         if network_stats_md:
             pc_ui_elements.append(mo.md(network_stats_md))
-
         pc_ui_elements.append(pc_image)
 
         pc_ui = mo.vstack(
-            [
-                mo.vstack(pc_ui_elements, gap=2),
-                mo.md("---"),
-            ],
-            gap=2,
+            [mo.vstack(pc_ui_elements, gap=2), mo.md("---")], gap=2
         )
+        res["ui_elements"][pc_idx] = pc_ui
 
-        ui_elements.append(pc_ui)
-
-        # 7. Store results keyed by PC index
         res["results"][pc_idx] = {
             "adj_matrix": adj_matrix,
             "edges": edges_to_plot,
             "num_edges": len(edges_to_plot),
         }
 
-    # 3. Combine all PCs into one complete UI
-    res["ui"] = mo.vstack(ui_elements, gap=3)
     return res
 
 
@@ -1362,7 +1356,7 @@ def _(
     srpb_target_pcs_to_plot = [1.0, 69.0]
 
     srpb_pc_plots_results = plot_pcs_publication_ready(
-        srpb_results=srpb_results,
+        results=srpb_results,
         fc_matrices_df=harmonized_srpb_fc_matrices_hc_mdd_df,
         node_coords=coords_mni,
         pcs_to_plot=srpb_target_pcs_to_plot,
@@ -1376,7 +1370,7 @@ def _(
 
 @app.cell
 def _(srpb_pc_plots_results):
-    srpb_pc_plots_results["ui"]
+    mo.vstack(list(srpb_pc_plots_results["ui_elements"].values()), gap=3)
     return
 
 
@@ -1688,7 +1682,7 @@ def _(
     bmb_target_pcs_to_plot = [1.0, 7.0, 60.0]
 
     bmb_pc_plots_results = plot_pcs_publication_ready(
-        srpb_results=bmb_results,
+        results=bmb_results,
         fc_matrices_df=harmonized_bmb_fc_matrices_hc_mdd_df,
         node_coords=coords_mni,
         pcs_to_plot=bmb_target_pcs_to_plot,
@@ -1702,7 +1696,7 @@ def _(
 
 @app.cell
 def _(bmb_pc_plots_results):
-    bmb_pc_plots_results["ui"]
+    mo.vstack(list(bmb_pc_plots_results["ui_elements"].values()), gap=3)
     return
 
 
@@ -2032,28 +2026,24 @@ def _():
 def _(srpb_fuzzy_fc_matrices_output_path):
     regular_run_name = "regular-matrices"
 
-    run_fc_matrices_output_dir = (
+    srpb_run_fc_matrices_output_dir = (
         f"{srpb_fuzzy_fc_matrices_output_path}/{regular_run_name}/"
     )
 
-    run_fc_matrices_cache_filename = (
+    srpb_run_fc_matrices_cache_filename = (
         "Glasser_filtering1_GSR1_fuzzy_fc_matrices.pkl"
     )
-    run_fc_matrices_cache_path = os.path.join(
-        run_fc_matrices_output_dir, run_fc_matrices_cache_filename
+    srpb_run_fc_matrices_cache_path = os.path.join(
+        srpb_run_fc_matrices_output_dir, srpb_run_fc_matrices_cache_filename
     )
-    return (
-        regular_run_name,
-        run_fc_matrices_cache_path,
-        run_fc_matrices_output_dir,
-    )
+    return (regular_run_name,)
 
 
 @app.cell
 def _(srpb_time_series_scrub_file_df):
-    ts_paths = srpb_time_series_scrub_file_df["time_series_path"].to_list()
-    scrub_paths = srpb_time_series_scrub_file_df["scrub_path"].to_list()
-    return scrub_paths, ts_paths
+    srpb_ts_paths = srpb_time_series_scrub_file_df["time_series_path"].to_list()
+    srpb_scrub_paths = srpb_time_series_scrub_file_df["scrub_path"].to_list()
+    return srpb_scrub_paths, srpb_ts_paths
 
 
 @app.function
@@ -2073,13 +2063,13 @@ def process_subject(
     )
 
 
-@app.cell
-def _(
+@app.function
+def extract_regular_fc_matrices(
     run_fc_matrices_cache_path,
     run_fc_matrices_output_dir,
-    scrub_paths,
-    srpb_time_series_scrub_file_df,
+    time_series_scrub_file_df,
     ts_paths,
+    scrub_paths,
 ):
     if os.path.exists(
         run_fc_matrices_cache_path,
@@ -2092,17 +2082,15 @@ def _(
             results = pickle.load(f)
 
         # Reconstruct the DataFrame from the cached list
-        srpb_extracted_fc_matrices_df = (
-            srpb_time_series_scrub_file_df.with_columns(
-                pl.Series(
-                    name="fc_matrix", values=results, dtype=pl.List(pl.Float64)
-                )
-            ).select(
-                "sub_id",
-                "time_series_path",
-                "fc_matrix",
-                pl.exclude("sub_id", "time_series_path", "fc_matrix"),
+        extracted_fc_matrices_df = time_series_scrub_file_df.with_columns(
+            pl.Series(
+                name="fc_matrix", values=results, dtype=pl.List(pl.Float64)
             )
+        ).select(
+            "sub_id",
+            "time_series_path",
+            "fc_matrix",
+            pl.exclude("sub_id", "time_series_path", "fc_matrix"),
         )
 
     else:
@@ -2118,17 +2106,15 @@ def _(
             for future in tqdm(futures, desc="Processing subjects"):
                 results.append(future.result())
 
-        srpb_extracted_fc_matrices_df = (
-            srpb_time_series_scrub_file_df.with_columns(
-                pl.Series(
-                    name="fc_matrix", values=results, dtype=pl.List(pl.Float64)
-                )
-            ).select(
-                "sub_id",
-                "time_series_path",
-                "fc_matrix",
-                pl.exclude("sub_id", "time_series_path", "fc_matrix"),
+        extracted_fc_matrices_df = time_series_scrub_file_df.with_columns(
+            pl.Series(
+                name="fc_matrix", values=results, dtype=pl.List(pl.Float64)
             )
+        ).select(
+            "sub_id",
+            "time_series_path",
+            "fc_matrix",
+            pl.exclude("sub_id", "time_series_path", "fc_matrix"),
         )
 
         # Ensure the output directory exists before saving
@@ -2137,7 +2123,22 @@ def _(
         # Save to cache with the correct extension
         with open(run_fc_matrices_cache_path, "wb") as _f:
             pickle.dump(results, _f)
-    return (srpb_extracted_fc_matrices_df,)
+
+    return extracted_fc_matrices_df
+
+
+app._unparsable_cell(
+    r"""
+    srpb_extracted_fc_matrices_df = extract_regular_fc_matrices(
+        srpb_run_fc_matrices_cache_path,
+        srpb_run_fc_matrices_output_dir
+        srpb_time_series_scrub_file_df,
+        srpb_ts_paths,
+        srpb_scrub_paths,
+    )
+    """,
+    name="_"
+)
 
 
 @app.cell
@@ -2835,7 +2836,9 @@ def _(Dict, get_dummy_values_and_labels, p, stack_np_array_by_common_columns):
         output_dir_path: Path,
         rs_connectivity: list,
         dataset: str = "BMB",
-        ids_to_remove=[],
+        subjects_to_remove_df=pl.DataFrame(
+            schema={"participants_id": pl.Int64, "session": pl.Int64}
+        ),
         roi: str = "Glasser",
         gsr_flag: bool = True,
         protocol_flag: bool = True,
@@ -2959,7 +2962,9 @@ def _(Dict, get_dummy_values_and_labels, p, stack_np_array_by_common_columns):
             )
         elif dataset == "BMB":
             ts_subject_dummy_values, ts_subject_dummy_labels = (
-                get_dummy_values_and_labels(ts_metadata_dataframe["subject_id"])
+                get_dummy_values_and_labels(
+                    ts_metadata_dataframe["participants_id"]
+                )
             )
         else:
             raise ValueError(f"Unexpected dataset value: {dataset}")
@@ -2987,6 +2992,8 @@ def _(Dict, get_dummy_values_and_labels, p, stack_np_array_by_common_columns):
             / f"all_data_sub_{roi}_GSR{int(gsr_flag)}.csv"
         )
 
+        print(f"{rs_metadata_path=}")
+
         """
         rs_connectivity = load_matlab_np_file(rs_connectivity_path)
         """
@@ -2994,16 +3001,25 @@ def _(Dict, get_dummy_values_and_labels, p, stack_np_array_by_common_columns):
 
         # TODO: Check if the 3000 range subjects should be included
 
-        if dataset == "SRPB":
-            rs_metadata_dataframe = rs_metadata_dataframe[
-                ~rs_metadata_dataframe["sub_id"].isin(ids_to_remove)
+        # Remove the unwanted subjects
+
+        if len(subjects_to_remove_df) > 0:
+            subjects_to_remove_df = subjects_to_remove_df.to_pandas()
+            keys = [
+                col
+                for col in subjects_to_remove_df.columns
+                if col in rs_metadata_dataframe.columns
             ]
-        elif dataset == "BMB":
+
+            rs_metadata_dataframe = rs_metadata_dataframe.merge(
+                subjects_to_remove_df,
+                on=keys,
+                how="left",
+                indicator=True,
+            )
             rs_metadata_dataframe = rs_metadata_dataframe[
-                ~rs_metadata_dataframe["subject_id"].isin(ids_to_remove)
-            ]
-        else:
-            raise ValueError(f"Unsupported dataset: {dataset}")
+                rs_metadata_dataframe["_merge"] == "left_only"
+            ].drop(columns=["_merge"])
 
         if dataset == "BMB":
             columns_to_remove = ~np.isfinite(rs_connectivity).all(axis=0)
@@ -3156,7 +3172,7 @@ def _(Dict, get_dummy_values_and_labels, p, stack_np_array_by_common_columns):
                 + list(combined_protocol_dummy_labels)
             )
 
-            num: Dict[str, int] = {
+            feature_dims: Dict[str, int] = {
                 "sub": combined_subject_dummy_values.shape[1],
                 "mea": combined_site_dummy_values.shape[1],
                 "sampling": combined_sampling_dummy_values.shape[1],
@@ -3423,240 +3439,254 @@ def _(Dict, get_dummy_values_and_labels, p, stack_np_array_by_common_columns):
     return (estimate_bias,)
 
 
-@app.cell
-def _(labels):
-    def harmonize_connectivity(
-        bias_dictionnary: dict,
-        connectivity: np.ndarray,
-        metadata_dir_path: Path,
-        output_path: Path,
-        ids_to_remove=[],
-        dataset: str = "BMB",
-        roi: str = "Glasser",
-        gsr_flag: bool = True,
-        ortho_flag: bool = True,
-        prot_flag: bool = True,
-        harm_type: str = "ts",
-    ):
+@app.function
+def harmonize_connectivity(
+    bias_dictionnary: dict,
+    connectivity: np.ndarray,
+    subjects_metadata_dataframe: pd.DataFrame,
+    output_path: Path,
+    ids_to_remove=[],
+    dataset: str = "BMB",
+    roi: str = "Glasser",
+    gsr_flag: bool = True,
+    ortho_flag: bool = True,
+    prot_flag: bool = True,
+    harm_type: str = "ts",
+):
 
-        # Make sure the output path exists
-        output_path.mkdir(exist_ok=True)
+    # Make sure the output path exists
+    output_path.mkdir(parents=True, exist_ok=True)
 
-        # Assign the different file names
-        out_mat_file_name = f"all_data_con_{roi}_GSR{int(gsr_flag)}_ortho{int(ortho_flag)}_harmonized.mat"
-        subjects_metadata_file_name = f"all_data_sub_{roi}_GSR{int(gsr_flag)}.csv"
-        site_column = "site"
+    # Assign the different file names
+    out_mat_file_name = f"all_data_con_{roi}_GSR{int(gsr_flag)}_ortho{int(ortho_flag)}_harmonized.mat"
+    subjects_metadata_file_name = f"all_data_sub_{roi}_GSR{int(gsr_flag)}.csv"
+    site_column = "site"
 
-        if (output_path / out_mat_file_name).exists():
-            print(
-                f"The harmonization output file already exists at: {output_path / out_mat_file_name}"
+    if (output_path / out_mat_file_name).exists():
+        print(
+            f"The harmonization output file already exists at: {output_path / out_mat_file_name}"
+        )
+        with h5py.File(f"{output_path}/{out_mat_file_name}", "r") as f:
+            connectivity_corrected = f["X"][:]
+        return connectivity_corrected
+
+    """
+    # Exclude the FC with NaN or inf values
+    valid_data_mask = ~(
+        np.isnan(connectivity).any(axis=1) | np.isinf(connectivity).any(axis=1)
+    )
+    connectivity = connectivity[valid_data_mask]
+    """
+
+    # Exclude the subjects with id in the ids_to_remove
+    valid_id_mask = ~subjects_metadata_dataframe["sub_id"].isin(ids_to_remove)
+    subjects_metadata_dataframe_filtered = subjects_metadata_dataframe[
+        valid_id_mask
+    ].reset_index(drop=True)
+
+    assert subjects_metadata_dataframe_filtered.shape != connectivity.shape
+
+    # If we want to do TS harmonization
+    if harm_type == "ts":
+        connectivity_corrected = connectivity.copy()
+        subjects_metadata_dataframe_filtered["ts_harmonize"] = 0
+
+        if dataset == "BMB":
+            # Set the ts_weight, tau and lambda values to retrieve the correct file
+            if ortho_flag == 1:
+                if gsr_flag == 1:
+                    if roi == "Glasser":
+                        optimal_ts_weight, optimal_tau, optimal_lambda = (
+                            1.0,
+                            0.18,
+                            5.6,
+                        )
+                    elif roi == "HCP_MMP":
+                        optimal_ts_weight, optimal_tau, optimal_lambda = (
+                            1.0,
+                            0.18,
+                            5.2,
+                        )
+                elif gsr_flag == 0:
+                    optimal_ts_weight, optimal_tau, optimal_lambda = (
+                        1.0,
+                        0.2,
+                        5.0,
+                    )
+            elif ortho_flag == 0:
+                if gsr_flag == 1:
+                    optimal_ts_weight, optimal_tau, optimal_lambda = (
+                        1.0,
+                        0.14,
+                        5.3,
+                    )
+                elif gsr_flag == 0:
+                    optimal_ts_weight, optimal_tau, optimal_lambda = (
+                        1.0,
+                        0.14,
+                        5.3,
+                    )
+                optimal_ts_weight, optimal_tau, optimal_lambda = 1.0, 0.14, 5.3
+
+            # Load the bias from the correct file
+            bias = bias_dictionnary["solution_matrix"]
+            dummy_labels = bias_dictionnary["dummy_labels"]
+
+            dummy_labels_flatten = np.array(dummy_labels).flatten().astype(str)
+            dummy_labels_flatten = np.append(dummy_labels_flatten, "const")
+
+            # Verify alignment
+            assert len(dummy_labels_flatten) == bias.shape[0], (
+                f"Label count ({len(dummy_labels_flatten)}) doesn't match bias rows ({bias.shape[0]})"
             )
-            with h5py.File(f"{output_path}/{out_mat_file_name}", "r") as f:
-                connectivity_corrected = f["X"][:]
-            return connectivity_corrected
 
-        # Load the subjects Dataframe
-        subjects_metadata_dataframe = pd.read_csv(
-            f"{metadata_dir_path}/{subjects_metadata_file_name}"
-        )
+            print(f"Available labels: {dummy_labels_flatten}")
 
-        """
-        # Exclude the FC with NaN or inf values
-        valid_data_mask = ~(
-            np.isnan(connectivity).any(axis=1) | np.isinf(connectivity).any(axis=1)
-        )
-        connectivity = connectivity[valid_data_mask]
-        """
+            # Harmonize the different sites
+            site_info = subjects_metadata_dataframe_filtered[
+                "participants_id"
+            ].str[:3]
 
-        # Exclude the subjects with id in the ids_to_remove
-        valid_id_mask = ~subjects_metadata_dataframe["sub_id"].isin(ids_to_remove)
-        subjects_metadata_dataframe_filtered = subjects_metadata_dataframe[
-            valid_id_mask
-        ].reset_index(drop=True)
+            # Add the site column to the metadata dataframe FIRST
+            subjects_metadata_dataframe_filtered["site"] = site_info
 
-        assert subjects_metadata_dataframe_filtered.shape != connectivity.shape
+            for site_i in np.unique(site_info):
+                print(f"Harmonize {site_i}")
+                use_sub_index = np.where(
+                    subjects_metadata_dataframe_filtered[site_column] == site_i
+                )[0]
 
-        # If we want to do TS harmonization
-        if harm_type == "ts":
-            connectivity_corrected = connectivity.copy()
-            subjects_metadata_dataframe_filtered["ts_harmonize"] = 0
+                if np.any(dummy_labels_flatten == site_i):
+                    connectivity_corrected[use_sub_index, :] = (
+                        connectivity_corrected[use_sub_index, :]
+                        - bias[dummy_labels_flatten == site_i, :]
+                    )
+                    subjects_metadata_dataframe_filtered.loc[
+                        use_sub_index, "ts_harmonize"
+                    ] = 1
+                else:
+                    print(
+                        f"WARNING: '{site_i}' not found in labels - skipping"
+                    )
 
-            if dataset == "BMB":
-                # Set the ts_weight, tau and lambda values to retrieve the correct file
-                if ortho_flag == 1:
-                    if gsr_flag == 1:
-                        if roi == "Glasser":
-                            optimal_ts_weight, optimal_tau, optimal_lambda = (
-                                1.0,
-                                0.18,
-                                5.6,
-                            )
-                        elif roi == "HCP_MMP":
-                            optimal_ts_weight, optimal_tau, optimal_lambda = (
-                                1.0,
-                                0.18,
-                                5.2,
-                            )
-                    elif gsr_flag == 0:
-                        optimal_ts_weight, optimal_tau, optimal_lambda = (
-                            1.0,
-                            0.2,
-                            5.0,
-                        )
-                elif ortho_flag == 0:
-                    if gsr_flag == 1:
-                        optimal_ts_weight, optimal_tau, optimal_lambda = (
-                            1.0,
-                            0.14,
-                            5.3,
-                        )
-                    elif gsr_flag == 0:
-                        optimal_ts_weight, optimal_tau, optimal_lambda = (
-                            1.0,
-                            0.14,
-                            5.3,
-                        )
-                    optimal_ts_weight, optimal_tau, optimal_lambda = 1.0, 0.14, 5.3
-
-                # Load the bias from the correct file
-                bias = bias_dictionnary["solution_matrix"]
-                dummy_labels = bias_dictionnary["dummy_labels"]
-
-                # Harmonize the different sites
-                site_info = subjects_metadata_dataframe_filtered[
-                    "participants_id"
-                ].str[:3]
-                for site_i in np.unique(site_info):
-                    print(f"Harmonize {site_i}")
-                    use_sub_index = np.where(site_info == site_i)[0]
-                    if np.sum(dummy_labels == site_i):
-                        connectivity_corrected[use_sub_index, :] = (
-                            connectivity_corrected[use_sub_index, :]
-                            - bias[dummy_labels == site_i, :]
-                        )
-                        subjects_metadata_dataframe_filtered.loc[
-                            use_sub_index, "ts_harmonize"
-                        ] = 1
-                    else:
-                        print(f"!!! {site_i} is not in bias label !!!")
-
-                # Harmonize the different protocols
-                if prot_flag:
-                    for protocol_i in np.unique(
-                        subjects_metadata_dataframe_filtered.protocol
-                    ):
-                        print(f"Harmonize {protocol_i}")
-                        use_sub_index = np.where(
-                            (
-                                subjects_metadata_dataframe_filtered.protocol
-                                == protocol_i
-                            )
-                            & (
-                                subjects_metadata_dataframe_filtered.ts_harmonize
-                                == 1
-                            )
-                        )[0]
-                        connectivity_corrected[use_sub_index, :] = (
-                            connectivity_corrected[use_sub_index, :]
-                            - bias[labels == protocol_i, :]
-                        )
-
-                # Add the site column to the metadata dataframe
-                subjects_metadata_dataframe_filtered["site"] = site_info
-
-            # We now do the same for the SRPB dataset
-            elif dataset == "SRPB":
-                # Set the ts_weight, tau and lambda values to retrieve the correct file
-                if ortho_flag == 1:
-                    if gsr_flag == 1:
-                        if roi == "Glasser":
-                            optimal_ts_weight, optimal_tau, optimal_lambda = (
-                                1.0,
-                                0.16,
-                                6.8,
-                            )
-                        elif roi == "HCP_MMP":
-                            optimal_ts_weight, optimal_tau, optimal_lambda = (
-                                1.0,
-                                0.16,
-                                6.3,
-                            )
-                    elif gsr_flag == 0:
-                        optimal_ts_weight, optimal_tau, optimal_lambda = (
-                            1.0,
-                            0.22,
-                            6.1,
-                        )
-                elif ortho_flag == 0:
-                    if gsr_flag == 1:
-                        optimal_ts_weight, optimal_tau, optimal_lambda = (
-                            1.0,
-                            0.46,
-                            5.7,
-                        )
-                    elif gsr_flag == 0:
-                        optimal_ts_weight, optimal_tau, optimal_lambda = (
-                            1.0,
-                            0.46,
-                            5.7,
-                        )
-
-                # Load the bias from the correct file
-                bias = bias_dictionnary["solution_matrix"]
-                dummy_labels = bias_dictionnary["dummy_labels"]
-
-                dummy_labels_flatten = np.array(dummy_labels).flatten().astype(str)
-
-                dummy_labels_flatten = np.append(dummy_labels_flatten, "const")
-
-                # Verify alignment
-                assert len(dummy_labels_flatten) == bias.shape[0], (
-                    f"Label count ({len(dummy_labels_flatten)}) doesn't match bias rows ({bias.shape[0]})"
-                )
-
-                print(f"Available labels: {dummy_labels_flatten}")
-
-                # Select the sites to harmonize
-                use_harmonize_site = ["SWA", "COI", "UTO", "KUT"]
-
-                for site_i in use_harmonize_site:
-                    print(f"{dataset}: Harmonizing in {site_i}")
+            # Harmonize the different protocols
+            if prot_flag:
+                for protocol_i in np.unique(
+                    subjects_metadata_dataframe_filtered.protocol
+                ):
+                    print(f"Harmonize {protocol_i}")
                     use_sub_index = np.where(
-                        subjects_metadata_dataframe_filtered[site_column] == site_i
+                        (
+                            subjects_metadata_dataframe_filtered.protocol
+                            == protocol_i
+                        )
+                        & (
+                            subjects_metadata_dataframe_filtered.ts_harmonize
+                            == 1
+                        )
                     )[0]
 
-                    if np.any(dummy_labels_flatten == site_i):
+                    if np.any(dummy_labels_flatten == protocol_i):
                         connectivity_corrected[use_sub_index, :] = (
                             connectivity_corrected[use_sub_index, :]
-                            - bias[dummy_labels_flatten == site_i, :]
+                            - bias[dummy_labels_flatten == protocol_i, :]
                         )
-                        subjects_metadata_dataframe_filtered.loc[
-                            use_sub_index, "ts_harmonize"
-                        ] = 1
                     else:
                         print(
-                            f"WARNING: '{site_i}' not found in labels - skipping"
+                            f"WARNING: '{protocol_i}' not found in labels - skipping"
                         )
 
-            print("Finished traveling subject harmonization!!")
+        # We now do the same for the SRPB dataset
+        elif dataset == "SRPB":
+            # Set the ts_weight, tau and lambda values to retrieve the correct file
+            if ortho_flag == 1:
+                if gsr_flag == 1:
+                    if roi == "Glasser":
+                        optimal_ts_weight, optimal_tau, optimal_lambda = (
+                            1.0,
+                            0.16,
+                            6.8,
+                        )
+                    elif roi == "HCP_MMP":
+                        optimal_ts_weight, optimal_tau, optimal_lambda = (
+                            1.0,
+                            0.16,
+                            6.3,
+                        )
+                elif gsr_flag == 0:
+                    optimal_ts_weight, optimal_tau, optimal_lambda = (
+                        1.0,
+                        0.22,
+                        6.1,
+                    )
+            elif ortho_flag == 0:
+                if gsr_flag == 1:
+                    optimal_ts_weight, optimal_tau, optimal_lambda = (
+                        1.0,
+                        0.46,
+                        5.7,
+                    )
+                elif gsr_flag == 0:
+                    optimal_ts_weight, optimal_tau, optimal_lambda = (
+                        1.0,
+                        0.46,
+                        5.7,
+                    )
 
-            # Save the corrected fc values
-            with h5py.File(f"{output_path}/{out_mat_file_name}", "w") as f:
-                f.create_dataset("X", data=connectivity_corrected)
+            # Load the bias from the correct file
+            bias = bias_dictionnary["solution_matrix"]
+            dummy_labels = bias_dictionnary["dummy_labels"]
 
-            # Save the harmonized metadata
-            subjects_metadata_dataframe_filtered.reset_index(drop=True).to_csv(
-                f"{output_path}/{subjects_metadata_file_name}", index=False
+            dummy_labels_flatten = np.array(dummy_labels).flatten().astype(str)
+
+            dummy_labels_flatten = np.append(dummy_labels_flatten, "const")
+
+            # Verify alignment
+            assert len(dummy_labels_flatten) == bias.shape[0], (
+                f"Label count ({len(dummy_labels_flatten)}) doesn't match bias rows ({bias.shape[0]})"
             )
 
-            return connectivity_corrected
+            print(f"Available labels: {dummy_labels_flatten}")
 
-        elif harm_type == "ComBat":
-            raise ValueError(
-                "The harmonization can only be done for the ts harm type"
-            )
+            # Select the sites to harmonize
+            use_harmonize_site = ["SWA", "COI", "UTO", "KUT"]
 
-    return (harmonize_connectivity,)
+            for site_i in use_harmonize_site:
+                print(f"{dataset}: Harmonizing in {site_i}")
+                use_sub_index = np.where(
+                    subjects_metadata_dataframe_filtered[site_column] == site_i
+                )[0]
+
+                if np.any(dummy_labels_flatten == site_i):
+                    connectivity_corrected[use_sub_index, :] = (
+                        connectivity_corrected[use_sub_index, :]
+                        - bias[dummy_labels_flatten == site_i, :]
+                    )
+                    subjects_metadata_dataframe_filtered.loc[
+                        use_sub_index, "ts_harmonize"
+                    ] = 1
+                else:
+                    print(
+                        f"WARNING: '{site_i}' not found in labels - skipping"
+                    )
+
+        print("Finished traveling subject harmonization!!")
+
+        # Save the corrected fc values
+        with h5py.File(f"{output_path}/{out_mat_file_name}", "w") as f:
+            f.create_dataset("X", data=connectivity_corrected)
+
+        # Save the harmonized metadata
+        subjects_metadata_dataframe_filtered.reset_index(drop=True).to_csv(
+            f"{output_path}/{subjects_metadata_file_name}", index=False
+        )
+
+        return connectivity_corrected
+
+    elif harm_type == "ComBat":
+        raise ValueError(
+            "The harmonization can only be done for the ts harm type"
+        )
 
 
 @app.cell(hide_code=True)
@@ -3670,7 +3700,7 @@ def _():
 @app.cell
 def _():
     srpb_fc_matrices_bias_output_dir = Path(
-        f"/home/cbi-biomark/olivier.amacker/bias"
+        f"/home/cbi-biomark/olivier.amacker/bias/srpb"
     )
     return (srpb_fc_matrices_bias_output_dir,)
 
@@ -3724,7 +3754,7 @@ def _():
 @app.cell
 def _():
     srpb_harmonized_fc_matrices_output_dir = Path(
-        f"/home/cbi-biomark/olivier.amacker/harmonized-fc-matrices"
+        f"/home/cbi-biomark/olivier.amacker/harmonized-fc-matrices/srpb"
     )
     return (srpb_harmonized_fc_matrices_output_dir,)
 
@@ -3739,7 +3769,6 @@ def _(regular_run_name, srpb_harmonized_fc_matrices_output_dir):
 
 @app.cell
 def _(
-    harmonize_connectivity,
     srpb_bias_dict,
     srpb_extracted_fc_matrices_df,
     srpb_harmonized_regular_fc_matrices_output_dir,
@@ -3749,7 +3778,7 @@ def _(
         connectivity=np.stack(
             srpb_extracted_fc_matrices_df["fc_matrix"].to_numpy(), axis=0
         ),
-        metadata_dir_path=Path("/home/cbi-biomark03/ayumu/HARP/data/preproc_srpb"),
+        subjects_metadata_dataframe=srpb_extracted_fc_matrices_df,
         dataset="SRPB",
         output_path=srpb_harmonized_regular_fc_matrices_output_dir,
     )
@@ -3948,161 +3977,157 @@ def _():
     return
 
 
-@app.cell
-def _(
-    scrub_paths,
-    srpb_fuzzy_fc_matrices_output_path,
-    srpb_time_series_scrub_file_df,
-    ts_paths,
+@app.function
+def run_fuzzy_extraction_runs(
+    num_fuzzy_run: int,
+    container_name: str,
+    container_image: str,
+    time_series_scrub_file_df: str,
+    ts_paths: list,
+    scrub_paths: list,
+    fuzzy_fc_matrices_output_path: str,
 ):
-    def run_fuzzy_extraction_runs(
-        num_fuzzy_run: int, container_name: str, container_image: str
-    ):
-        all_dataframes = []
+    all_dataframes = []
 
-        for run_number in range(num_fuzzy_run):
-            run_fc_matrices_output_dir = (
-                f"{srpb_fuzzy_fc_matrices_output_path}/run-{run_number}/"
+    for run_number in range(num_fuzzy_run):
+        run_fc_matrices_output_dir = (
+            f"{fuzzy_fc_matrices_output_path}/run-{run_number}/"
+        )
+
+        run_fc_matrices_cache_filename = (
+            "Glasser_filtering1_GSR1_fuzzy_fc_matrices.pkl"
+        )
+
+        run_fc_matrices_cache_path = os.path.join(
+            run_fc_matrices_output_dir, run_fc_matrices_cache_filename
+        )
+
+        if os.path.exists(
+            run_fc_matrices_cache_path,
+        ):
+            print(
+                f"Loading cached results for extracted FC matrices run {run_number} from {run_fc_matrices_cache_path}"
             )
 
-            run_fc_matrices_cache_filename = (
-                "Glasser_filtering1_GSR1_fuzzy_fc_matrices.pkl"
-            )
+            with open(run_fc_matrices_cache_path, "rb") as f:
+                results = pickle.load(f)
 
-            run_fc_matrices_cache_path = os.path.join(
-                run_fc_matrices_output_dir, run_fc_matrices_cache_filename
-            )
-
-            if os.path.exists(
-                run_fc_matrices_cache_path,
-            ):
-                print(
-                    f"Loading cached results for extracted FC matrices run {run_number} from {run_fc_matrices_cache_path}"
+                # Reconstruct the DataFrame from the cached list
+                extracted_fc_matrices_df = (
+                    time_series_scrub_file_df.with_columns(
+                        pl.Series(
+                            name="fc_matrix",
+                            values=results,
+                            dtype=pl.List(pl.Float64),
+                        )
+                    ).select(
+                        "sub_id",
+                        "time_series_path",
+                        "fc_matrix",
+                        pl.exclude("sub_id", "time_series_path", "fc_matrix"),
+                    )
                 )
 
-                with open(run_fc_matrices_cache_path, "rb") as f:
-                    results = pickle.load(f)
+                all_dataframes.append(extracted_fc_matrices_df)
 
-                    # Reconstruct the DataFrame from the cached list
-                    srpb_extracted_fc_matrices_df = (
-                        srpb_time_series_scrub_file_df.with_columns(
-                            pl.Series(
-                                name="fc_matrix",
-                                values=results,
-                                dtype=pl.List(pl.Float64),
-                            )
-                        ).select(
-                            "sub_id",
-                            "time_series_path",
-                            "fc_matrix",
-                            pl.exclude("sub_id", "time_series_path", "fc_matrix"),
+        else:
+            run_container_name = f"{container_name}-run-{run_number}"
+
+            try:
+                print(
+                    f"Computing and caching extracted FC matrices for run {run_number}"
+                )
+
+                print(
+                    f"Starting Docker container {run_container_name} with image {container_image}"
+                )
+                # Force remove just in case a zombie container exists from a previous crash
+                subprocess.run(
+                    ["docker", "rm", "-f", run_container_name],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+
+                subprocess.run(
+                    [
+                        "docker",
+                        "run",
+                        "-d",
+                        "--name",
+                        run_container_name,
+                        "--entrypoint",
+                        "sleep",
+                        container_image,
+                        "infinity",
+                    ],
+                    check=True,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+
+                fuzzy_func = partial(
+                    fuzzy_np_corrcoef, container_name=run_container_name
+                )
+
+                results = []
+                with ThreadPoolExecutor() as executor:
+                    futures = [
+                        executor.submit(
+                            process_subject,
+                            ts,
+                            sc,
+                            fuzzy_func,
                         )
+                        for ts, sc in zip(ts_paths, scrub_paths)
+                    ]
+
+                    for future in tqdm(
+                        as_completed(futures),
+                        total=len(futures),
+                        desc="Processing subjects",
+                    ):
+                        results.append(future.result())
+
+                fuzzy_fc_matrices_df = time_series_scrub_file_df.with_columns(
+                    pl.Series(
+                        name="fc_matrix",
+                        values=results,
+                        dtype=pl.List(pl.Float64),
                     )
+                ).select(
+                    "sub_id",
+                    "time_series_path",
+                    "fc_matrix",
+                    pl.exclude("sub_id", "time_series_path", "fc_matrix"),
+                )
 
-                    all_dataframes.append(srpb_extracted_fc_matrices_df)
+                all_dataframes.append(fuzzy_fc_matrices_df)
 
-            else:
-                run_container_name = f"{container_name}-run-{run_number}"
+                # Ensure the output directory exists before saving
+                os.makedirs(run_fc_matrices_output_dir, exist_ok=True)
 
-                try:
-                    print(
-                        f"Computing and caching extracted FC matrices for run {run_number}"
-                    )
+                # Save to cache with the correct extension
+                with open(run_fc_matrices_cache_path, "wb") as _f:
+                    pickle.dump(results, _f)
 
-                    print(
-                        f"Starting Docker container {run_container_name} with image {container_image}"
-                    )
-                    # Force remove just in case a zombie container exists from a previous crash
-                    subprocess.run(
-                        ["docker", "rm", "-f", run_container_name],
-                        stdout=subprocess.DEVNULL,
-                        stderr=subprocess.DEVNULL,
-                    )
+            finally:
+                print(
+                    f"Stopping and removing Docker container {run_container_name}"
+                )
+                subprocess.run(
+                    ["docker", "stop", run_container_name],
+                    check=False,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+                subprocess.run(
+                    ["docker", "rm", run_container_name],
+                    check=False,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
 
-                    subprocess.run(
-                        [
-                            "docker",
-                            "run",
-                            "-d",
-                            "--name",
-                            run_container_name,
-                            "--entrypoint",
-                            "sleep",
-                            container_image,
-                            "infinity",
-                        ],
-                        check=True,
-                        stdout=subprocess.DEVNULL,
-                        stderr=subprocess.DEVNULL,
-                    )
-
-                    fuzzy_func = partial(
-                        fuzzy_np_corrcoef, container_name=run_container_name
-                    )
-
-                    results = []
-                    with ThreadPoolExecutor() as executor:
-                        futures = [
-                            executor.submit(
-                                process_subject,
-                                ts,
-                                sc,
-                                fuzzy_func,
-                            )
-                            for ts, sc in zip(ts_paths, scrub_paths)
-                        ]
-
-                        for future in tqdm(
-                            as_completed(futures),
-                            total=len(futures),
-                            desc="Processing subjects",
-                        ):
-                            results.append(future.result())
-
-                    srpb_fuzzy_fc_matrices_df = (
-                        srpb_time_series_scrub_file_df.with_columns(
-                            pl.Series(
-                                name="fc_matrix",
-                                values=results,
-                                dtype=pl.List(pl.Float64),
-                            )
-                        ).select(
-                            "sub_id",
-                            "time_series_path",
-                            "fc_matrix",
-                            pl.exclude("sub_id", "time_series_path", "fc_matrix"),
-                        )
-                    )
-
-                    all_dataframes.append(srpb_fuzzy_fc_matrices_df)
-
-                    # Ensure the output directory exists before saving
-                    os.makedirs(run_fc_matrices_output_dir, exist_ok=True)
-
-                    # Save to cache with the correct extension
-                    with open(run_fc_matrices_cache_path, "wb") as _f:
-                        pickle.dump(results, _f)
-
-                finally:
-                    print(
-                        f"Stopping and removing Docker container {run_container_name}"
-                    )
-                    subprocess.run(
-                        ["docker", "stop", run_container_name],
-                        check=False,
-                        stdout=subprocess.DEVNULL,
-                        stderr=subprocess.DEVNULL,
-                    )
-                    subprocess.run(
-                        ["docker", "rm", run_container_name],
-                        check=False,
-                        stdout=subprocess.DEVNULL,
-                        stderr=subprocess.DEVNULL,
-                    )
-
-        return all_dataframes
-
-    return (run_fuzzy_extraction_runs,)
+    return all_dataframes
 
 
 @app.cell
@@ -4120,11 +4145,20 @@ def _():
 
 
 @app.cell
-def _(fuzzy_container_image, num_fuzzy_run, run_fuzzy_extraction_runs):
+def _(
+    fuzzy_container_image,
+    num_fuzzy_run,
+    srpb_fuzzy_fc_matrices_output_path,
+    srpb_scrub_paths,
+    srpb_ts_paths,
+):
     srpb_fuzzy_extracted_fc_matrices_df_list = run_fuzzy_extraction_runs(
         num_fuzzy_run,
         container_name="fuzzy-container",
         container_image=fuzzy_container_image,
+        ts_paths=srpb_ts_paths,
+        scrub_paths=srpb_scrub_paths,
+        fuzzy_fc_matrices_output_path=srpb_fuzzy_fc_matrices_output_path,
     )
     return (srpb_fuzzy_extracted_fc_matrices_df_list,)
 
@@ -4176,7 +4210,7 @@ def _(srpb_extracted_fc_matrices_df, srpb_fuzzy_extracted_fc_matrices_df_list):
 @app.cell(hide_code=True)
 def _():
     mo.md(r"""
-    ### Harmonization of the fuzzy FC matrices
+    ### Harmonization of the SRPB fuzzy FC matrices
     """)
     return
 
@@ -4184,7 +4218,6 @@ def _():
 @app.cell
 def _(
     estimate_bias,
-    harmonize_connectivity,
     srpb_extracted_fc_matrices_df,
     srpb_fc_matrices_bias_output_dir,
     srpb_fuzzy_extracted_fc_matrices_df_list,
@@ -4281,23 +4314,26 @@ def _():
 
 
 @app.cell
-def _(srpb_fuzzy_extracted_harmonized_fc_matrices_df_list):
-    fuzzy_extracted_harmonized_fc_matrices_hc_mdd_df_list = []
+def _(
+    fuzzy_extracted_harmonized_fc_matrices_df,
+    srpb_fuzzy_extracted_harmonized_fc_matrices_df_list,
+):
+    srpb_fuzzy_extracted_harmonized_fc_matrices_hc_mdd_df_list = []
     for (
         _run_idx,
-        fuzzy_extracted_harmonized_fc_matrices_df,
+        srp_fuzzy_extracted_harmonized_fc_matrices_df,
     ) in enumerate(srpb_fuzzy_extracted_harmonized_fc_matrices_df_list):
-        fuzzy_extracted_harmonized_fc_matrices_hc_mdd_df_list.append(
+        srpb_fuzzy_extracted_harmonized_fc_matrices_hc_mdd_df_list.append(
             fuzzy_extracted_harmonized_fc_matrices_df.filter(
                 pl.col("diag").is_in([0, 2])
             )
         )
-    return (fuzzy_extracted_harmonized_fc_matrices_hc_mdd_df_list,)
+    return
 
 
 @app.cell
 def _(
-    fuzzy_extracted_harmonized_fc_matrices_hc_mdd_df_list,
+    fuzzy_extracted_harmonized_fc_matrices_hc_mdd_df,
     metric_dict,
     srpb_fuzzy_cache_dir,
     srpb_fuzzy_plot_dir,
@@ -4309,8 +4345,8 @@ def _(
 
     for (
         _run_idx,
-        fuzzy_extracted_harmonized_fc_matrices_hc_mdd_df,
-    ) in enumerate(fuzzy_extracted_harmonized_fc_matrices_hc_mdd_df_list):
+        srpb_fuzzy_extracted_harmonized_fc_matrices_hc_mdd_df_list,
+    ) in enumerate(srpb_fuzzy_extracted_harmonized_fc_matrices_hc_mdd_df_list):
         print(f"Calculating metris for run {_run_idx}")
 
         srpb_fuzy_metrics_dict = calculate_metrics(
@@ -4330,19 +4366,19 @@ def _(
 @app.cell(hide_code=True)
 def _():
     mo.md(r"""
-    ### Comparison of the Fuzzy and Regular PC metrics graphs
+    ### Comparison of the Fuzzy and Regular SRPB PC metrics graphs
     """)
     return
 
 
 @app.cell
 def _(srpb_fuzzy_metrics_ui_list, srpb_ui):
-    pc_metrics_comparison = []
+    srpb_pc_metrics_comparison = []
 
     for _run_idx, _srpb_fuzzy_metrics_ui_list in enumerate(
         srpb_fuzzy_metrics_ui_list
     ):
-        pc_metrics_comparison.append(
+        srpb_pc_metrics_comparison.append(
             mo.vstack(
                 [
                     mo.md(
@@ -4358,14 +4394,14 @@ def _(srpb_fuzzy_metrics_ui_list, srpb_ui):
             )
         )
 
-    pc_metrics_comparison
+    srpb_pc_metrics_comparison
     return
 
 
 @app.cell(hide_code=True)
 def _():
     mo.md(r"""
-    ### Comparison of the Fuzzy and Regular PC metrics results
+    ### Comparison of the SRPB Fuzzy and Regular PC metrics results
     """)
     return
 
@@ -4411,12 +4447,12 @@ def _(
 
 @app.cell
 def _(srpb_fuzzy_pc_plots_result_list, srpb_pc_plots_results):
-    pc_plots_result_comparison = []
+    srpb_pc_plots_result_comparison = []
 
     for _run_idx, srpb_fuzzy_pc_plots_result in enumerate(
         srpb_fuzzy_pc_plots_result_list
     ):
-        pc_plots_result_comparison.append(
+        srpb_pc_plots_result_comparison.append(
             mo.vstack(
                 [
                     mo.md(
@@ -4432,7 +4468,7 @@ def _(srpb_fuzzy_pc_plots_result_list, srpb_pc_plots_results):
             )
         )
 
-    pc_plots_result_comparison
+    srpb_pc_plots_result_comparison
     return
 
 
@@ -4446,7 +4482,7 @@ def _():
 
 @app.function
 def plot_pcs_consensus_publication_ready(
-    srpb_results_list: list[dict],
+    results_list: list[dict],
     fc_matrices_df_list: list,  # list of pl.DataFrame
     node_coords: np.ndarray,
     pcs_to_plot: list,
@@ -4477,7 +4513,7 @@ def plot_pcs_consensus_publication_ready(
 
     res: dict = {"results": {}}
     ui_elements: list = []
-    n_runs = len(srpb_results_list)
+    n_runs = len(results_list)
 
     os.makedirs(plot_dir, exist_ok=True)
     os.makedirs(metadata_dir, exist_ok=True)
@@ -4569,8 +4605,8 @@ def plot_pcs_consensus_publication_ready(
         per_run_pc_edges: list[dict[float, np.ndarray]] = []
         n_nodes: int | None = None
 
-        for run_idx, (srpb_res, fc_df) in enumerate(
-            zip(srpb_results_list, fc_matrices_df_list)
+        for run_idx, (run_result, fc_df) in enumerate(
+            zip(results_list, fc_matrices_df_list)
         ):
             if (run_idx + 1) % 10 == 0 or run_idx == 0:
                 print(f"  Processing run {run_idx + 1}/{n_runs}...")
@@ -4597,7 +4633,7 @@ def plot_pcs_consensus_publication_ready(
                 n_nodes = int((1 + np.sqrt(1 + 8 * len(md))) / 2)
 
             # --- edge sets per PC for this run ---
-            diag_data = srpb_res["diag"]
+            diag_data = run_result["diag"]
             pc_edge_map: dict[float, np.ndarray] = {}
             for pc in pcs_to_plot:
                 mask_pc = np.isclose(diag_data["cons_pc"], pc)
@@ -5213,7 +5249,7 @@ def _():
 
 @app.function
 def plot_robustness_comparison_analysis(
-    srpb_results_list: list[dict],
+    results_list: list[dict],
     fc_matrices_df_list: list,  # list of pl.DataFrame
     node_coords: np.ndarray,
     pcs_to_plot: list,
@@ -5250,7 +5286,7 @@ def plot_robustness_comparison_analysis(
 
     res: dict = {"results": {}, "plots": {}}
     ui_elements: list = []
-    n_runs = len(srpb_results_list)
+    n_runs = len(results_list)
 
     os.makedirs(plot_dir, exist_ok=True)
     os.makedirs(metadata_dir, exist_ok=True)
@@ -5308,7 +5344,7 @@ def plot_robustness_comparison_analysis(
         per_run_pc_edges = []
 
         for run_idx, (srpb_res, fc_df) in enumerate(
-            zip(srpb_results_list, fc_matrices_df_list)
+            zip(results_list, fc_matrices_df_list)
         ):
             if (run_idx + 1) % 20 == 0 or run_idx == 0:
                 print(f"  Processing run {run_idx + 1}/{n_runs}...")
@@ -6110,7 +6146,7 @@ def _(
     srpb_fuzzy_metrics_results_list,
     srpb_fuzzy_plot_dir,
 ):
-    robustness_analysis_result = plot_robustness_comparison_analysis(
+    srpb_robustness_analysis_result = plot_robustness_comparison_analysis(
         srpb_results_list=srpb_fuzzy_metrics_results_list,
         fc_matrices_df_list=srpb_fuzzy_extracted_harmonized_fc_matrices_df_list,
         node_coords=coords_mni,
@@ -6121,12 +6157,12 @@ def _(
         network_assignments=network_assignments,
         skip_existing=True,
     )
-    return (robustness_analysis_result,)
+    return (srpb_robustness_analysis_result,)
 
 
 @app.cell
-def _(robustness_analysis_result):
-    robustness_analysis_result["ui"]
+def _(srpb_robustness_analysis_result):
+    srpb_robustness_analysis_result["ui"]
     return
 
 
@@ -6292,7 +6328,15 @@ def _(bmb_time_series_missing_df):
 
 @app.cell
 def _(bmb_time_series_missing_df):
-    bmb_time_series_missing_df.select("participants_id", "session").head()
+    bmb_time_series_missing_df.select("participants_id", "session")
+    return
+
+
+@app.cell(hide_code=True)
+def _():
+    mo.md(r"""
+    Please note that this code was generated by Qwen3.6-27b
+    """)
     return
 
 
@@ -6405,12 +6449,12 @@ def _(bmb_scrub_file_paths_df):
 
 @app.cell
 def _(bmb_scrub_file_paths_df, bmb_time_series_file_df):
-    bmb_scrub_time_series_file_df = bmb_scrub_file_paths_df.join(
+    bmb_time_series_scrub_file_df = bmb_scrub_file_paths_df.join(
         bmb_time_series_file_df,
         on=["participants_id", "session"],
         how="inner",
     )
-    return (bmb_scrub_time_series_file_df,)
+    return (bmb_time_series_scrub_file_df,)
 
 
 @app.cell
@@ -6420,8 +6464,8 @@ def _(bmb_time_series_file_df):
 
 
 @app.cell
-def _(bmb_scrub_time_series_file_df):
-    bmb_scrub_time_series_file_df.height
+def _(bmb_time_series_scrub_file_df):
+    bmb_time_series_scrub_file_df.height
     return
 
 
@@ -6451,6 +6495,495 @@ def _(bmb_scrub_missing_df):
         pl.len().alias("num_missing"),
         pl.col("session").sort().implode().alias("missing_sessions"),
     ).group_by("missing_sessions").len()
+    return
+
+
+@app.cell(hide_code=True)
+def _():
+    mo.md(r"""
+    ## Extraction and harmonization of the BMB perturbated FC matrices
+    """)
+    return
+
+
+@app.cell(hide_code=True)
+def _():
+    mo.md(r"""
+    Remove file where we don't have permission
+    """)
+    return
+
+
+@app.cell(hide_code=True)
+def _():
+    mo.md(r"""
+    ### Extraction of the fuzzy FC matrices
+    """)
+    return
+
+
+@app.cell
+def _():
+    bmb_fuzzy_fc_matrices_output_path = (
+        "/home/cbi-biomark/olivier.amacker/fuzzy-fc-matrices/bmb"
+    )
+    return (bmb_fuzzy_fc_matrices_output_path,)
+
+
+@app.cell
+def _(bmb_time_series_scrub_file_df):
+    bmb_ts_paths = bmb_time_series_scrub_file_df["time_series_path"].to_list()
+    bmb_scrub_paths = bmb_time_series_scrub_file_df["scrub_path"].to_list()
+    return bmb_scrub_paths, bmb_ts_paths
+
+
+@app.cell
+def _(
+    bmb_fuzzy_fc_matrices_output_path,
+    bmb_scrub_paths,
+    bmb_time_series_scrub_file_df,
+    bmb_ts_paths,
+    fuzzy_container_image,
+):
+    bmb_fuzzy_extracted_fc_matrices_df_list = run_fuzzy_extraction_runs(
+        num_fuzzy_run=15,
+        container_name="fuzzy-container",
+        container_image=fuzzy_container_image,
+        time_series_scrub_file_df=bmb_time_series_scrub_file_df,
+        ts_paths=bmb_ts_paths,
+        scrub_paths=bmb_scrub_paths,
+        fuzzy_fc_matrices_output_path=bmb_fuzzy_fc_matrices_output_path,
+    )
+    return (bmb_fuzzy_extracted_fc_matrices_df_list,)
+
+
+@app.cell(hide_code=True)
+def _():
+    mo.md(r"""
+    ### Harmonization of the BMB fuzzy FC matrices
+    """)
+    return
+
+
+@app.cell
+def _(bmb_fuzzy_fc_matrices_output_path, regular_run_name):
+    bmb_run_fc_matrices_output_dir = (
+        f"{bmb_fuzzy_fc_matrices_output_path}/{regular_run_name}/"
+    )
+
+    bmb_run_fc_matrices_cache_filename = (
+        "Glasser_filtering1_GSR1_fuzzy_fc_matrices.pkl"
+    )
+    bmb_run_fc_matrices_cache_path = os.path.join(
+        bmb_run_fc_matrices_output_dir, bmb_run_fc_matrices_cache_filename
+    )
+    return bmb_run_fc_matrices_cache_path, bmb_run_fc_matrices_output_dir
+
+
+@app.cell(hide_code=True)
+def _():
+    mo.md(r"""
+    We start by extracting the different FC matrices
+    """)
+    return
+
+
+@app.cell
+def _(
+    bmb_run_fc_matrices_cache_path,
+    bmb_run_fc_matrices_output_dir,
+    bmb_scrub_paths,
+    bmb_time_series_scrub_file_df,
+    bmb_ts_paths,
+):
+    bmb_extracted_fc_matrices_df = extract_regular_fc_matrices(
+        bmb_run_fc_matrices_cache_path,
+        bmb_run_fc_matrices_output_dir,
+        bmb_time_series_scrub_file_df,
+        bmb_ts_paths,
+        bmb_scrub_paths,
+    )
+    return (bmb_extracted_fc_matrices_df,)
+
+
+@app.cell
+def _(bmb_extracted_fc_matrices_df):
+    bmb_extracted_fc_matrices_df.height
+    return
+
+
+@app.cell
+def _():
+    bmb_fc_matrices_bias_output_dir = Path(
+        f"/home/cbi-biomark/olivier.amacker/bias/bmb"
+    )
+
+    bmb_harmonized_fc_matrices_output_dir = Path(
+        f"/home/cbi-biomark/olivier.amacker/harmonized-fc-matrices/bmb"
+    )
+    return (
+        bmb_fc_matrices_bias_output_dir,
+        bmb_harmonized_fc_matrices_output_dir,
+    )
+
+
+@app.cell(hide_code=True)
+def _():
+    mo.md(r"""
+    Get the subjects that are in both files df but not in the metadata one
+    """)
+    return
+
+
+@app.cell
+def _():
+    bmb_metadata_dataframe = pl.read_csv(
+        "/home/cbi-biomark03/ayumu/HARP/data/preproc_bmb/all_data_sub_Glasser_GSR1.csv",
+        columns=["participants_id", "session"],
+        null_values=["-", "NA", "N/A", ""],
+    )
+    return (bmb_metadata_dataframe,)
+
+
+@app.cell
+def _(
+    bmb_metadata_dataframe,
+    bmb_scrub_file_paths_df,
+    bmb_time_series_file_df,
+):
+    bmb_missing_df = bmb_metadata_dataframe.join(
+        bmb_time_series_file_df.join(
+            bmb_scrub_file_paths_df, on=["participants_id", "session"], how="inner"
+        ),
+        on=["participants_id", "session"],
+        how="anti",
+    )
+    bmb_missing_df.height
+    return (bmb_missing_df,)
+
+
+@app.cell
+def _(
+    bmb_extracted_fc_matrices_df,
+    bmb_fc_matrices_bias_output_dir,
+    bmb_fuzzy_extracted_fc_matrices_df_list,
+    bmb_harmonized_fc_matrices_output_dir,
+    bmb_missing_df,
+    estimate_bias,
+):
+    bmb_fuzzy_extracted_harmonized_fc_matrices_df_list = []
+
+    for _run_idx, fuzzy_bmb_extracted_fc_matrices_df in enumerate(
+        bmb_fuzzy_extracted_fc_matrices_df_list
+    ):
+        print(f"Harmonizing run {_run_idx}")
+        bmb_fuzzy_extracted_bias_dict = estimate_bias(
+            output_dir_path=bmb_fc_matrices_bias_output_dir / f"run-{_run_idx}",
+            rs_connectivity=np.stack(
+                bmb_extracted_fc_matrices_df["fc_matrix"].to_numpy(), axis=1
+            ),
+            dataset="BMB",
+            subjects_to_remove_df=bmb_missing_df.select(
+                "participants_id", "session"
+            ),
+        )
+
+        bmb_fuzzy_extracted_harmonized_fc_matrices = harmonize_connectivity(
+            bias_dictionnary=bmb_fuzzy_extracted_bias_dict,
+            connectivity=np.stack(
+                fuzzy_bmb_extracted_fc_matrices_df["fc_matrix"].to_numpy(), axis=0
+            ),
+            subjects_metadata_dataframe=bmb_extracted_fc_matrices_df.to_pandas(),
+            dataset="BMB",
+            output_path=bmb_harmonized_fc_matrices_output_dir / f"run-{_run_idx}",
+        )
+
+        bmb_fuzzy_extracted_harmonized_fc_matrices_df = (
+            fuzzy_bmb_extracted_fc_matrices_df.with_columns(
+                pl.Series(
+                    name="harmonized_fc_matrix",
+                    values=bmb_fuzzy_extracted_harmonized_fc_matrices,
+                )
+            ).select(
+                "sub_id",
+                "time_series_path",
+                "fc_matrix",
+                "harmonized_fc_matrix",
+                pl.exclude(
+                    "sub_id",
+                    "time_series_path",
+                    "fc_matrix",
+                    "harmonized_fc_matrix",
+                ),
+            )
+        )
+
+        bmb_fuzzy_extracted_harmonized_fc_matrices_df_list.append(
+            bmb_fuzzy_extracted_harmonized_fc_matrices_df
+        )
+    return (bmb_fuzzy_extracted_harmonized_fc_matrices_df_list,)
+
+
+@app.cell(hide_code=True)
+def _():
+    mo.md(r"""
+    ## Comparison of the BMB PCA features extraction with regular and perturbated FC matrices
+    """)
+    return
+
+
+@app.cell
+def _():
+    bmb_fuzzy_plot_dir = (
+        "./res/pca-dim-reduction/bmb/fuzzy-features-extraction/plots"
+    )
+    bmb_fuzzy_ttest_dir = (
+        "./res/pca-dim-reduction/bmb/fuzzy-features-extraction/t-tests"
+    )
+    bmb_fuzzy_cache_dir = (
+        "./res/pca-dim-reduction/bmb/fuzzy-features-extraction/cache"
+    )
+    bmb_fuzzy_metadata_dir = (
+        "./res/pca-dim-reduction/bmb/fuzzy-features-extraction/metadatas"
+    )
+    return (
+        bmb_fuzzy_cache_dir,
+        bmb_fuzzy_metadata_dir,
+        bmb_fuzzy_plot_dir,
+        bmb_fuzzy_ttest_dir,
+    )
+
+
+@app.cell(hide_code=True)
+def _():
+    mo.md(r"""
+    Filter the srpb_fuzzy_extracted_harmonized_fc_matrices_df_list to only keep the MDD and HC subjects
+    """)
+    return
+
+
+@app.cell
+def _(bmb_fuzzy_extracted_harmonized_fc_matrices_df_list):
+    bmb_fuzzy_extracted_harmonized_fc_matrices_hc_mdd_df_list = []
+    for (
+        _run_idx,
+        _bmb_fuzzy_extracted_harmonized_fc_matrices_df,
+    ) in enumerate(bmb_fuzzy_extracted_harmonized_fc_matrices_df_list):
+        bmb_fuzzy_extracted_harmonized_fc_matrices_hc_mdd_df_list.append(
+            _bmb_fuzzy_extracted_harmonized_fc_matrices_df.filter(
+                pl.col("diag").is_in([0, 2])
+            )
+        )
+    return (bmb_fuzzy_extracted_harmonized_fc_matrices_hc_mdd_df_list,)
+
+
+@app.cell(hide_code=True)
+def _():
+    mo.md(r"""
+    ### Comparison of the Fuzzy and Regular PC BMB metrics graphs
+    """)
+    return
+
+
+@app.cell
+def _(
+    bmb_fuzzy_cache_dir,
+    bmb_fuzzy_extracted_harmonized_fc_matrices_hc_mdd_df_list,
+    bmb_fuzzy_plot_dir,
+    bmb_fuzzy_ttest_dir,
+    metric_dict,
+):
+    bmb_fuzzy_metrics_results_list = []
+    bmb_fuzzy_metrics_ui_list = []
+
+
+    for (
+        _run_idx,
+        bmb_fuzzy_extracted_harmonized_fc_matrices_hc_mdd_df,
+    ) in enumerate(bmb_fuzzy_extracted_harmonized_fc_matrices_hc_mdd_df_list):
+        print(f"Calculating metrics for run {_run_idx}")
+
+        bmb_fuzy_metrics_dict = calculate_metrics(
+            df=bmb_fuzzy_extracted_harmonized_fc_matrices_hc_mdd_df,
+            metric_dict=metric_dict,
+            alpha_threshold=0.05,
+            plot_dir=bmb_fuzzy_plot_dir + f"/run-{_run_idx}/",
+            ttest_dir=bmb_fuzzy_ttest_dir + f"/run-{_run_idx}/",
+            cache_dir=bmb_fuzzy_cache_dir + f"/run-{_run_idx}/",
+        )
+
+        bmb_fuzzy_metrics_results_list.append(bmb_fuzy_metrics_dict["results"])
+        bmb_fuzzy_metrics_ui_list.append(bmb_fuzy_metrics_dict["ui"])
+    return bmb_fuzzy_metrics_results_list, bmb_fuzzy_metrics_ui_list
+
+
+@app.cell
+def _(bmb_fuzzy_metrics_ui_list, bmb_ui):
+    bmb_pc_metrics_comparison = []
+
+    for _run_idx, _bmb_fuzzy_metrics_ui_list in enumerate(
+        bmb_fuzzy_metrics_ui_list
+    ):
+        bmb_pc_metrics_comparison.append(
+            mo.vstack(
+                [
+                    mo.md(
+                        f"### Comparison of the Fuzzy run {_run_idx} vs Regular PC metrics graphs"
+                    ),
+                    mo.hstack(
+                        [
+                            _bmb_fuzzy_metrics_ui_list,
+                            bmb_ui,
+                        ]
+                    ),
+                ]
+            )
+        )
+
+    bmb_pc_metrics_comparison
+    return
+
+
+@app.cell(hide_code=True)
+def _():
+    mo.md(r"""
+    ### Comparison of the BMB Fuzzy and Regular PC metrics results
+    """)
+    return
+
+
+@app.cell
+def _(bmb_fuzzy_metrics_results_list):
+    bmb_fuzzy_selected_mdd_pcs_list = list(
+        map(lambda x: select_mdd_pc(x, ["bdi"]), bmb_fuzzy_metrics_results_list)
+    )
+
+    bmb_fuzzy_selected_mdd_pcs_list
+    return
+
+
+@app.cell
+def _(
+    bmb_fuzzy_extracted_harmonized_fc_matrices_df_list,
+    bmb_fuzzy_metadata_dir,
+    bmb_fuzzy_metrics_results_list,
+    bmb_fuzzy_plot_dir,
+    coords_mni,
+    network_assignments,
+):
+    bmb_fuzzy_target_pcs_to_plot = [7.0]
+
+    bmb_fuzzy_pc_plots_result_list = [
+        plot_pcs_publication_ready(
+            results=x,
+            fc_matrices_df=bmb_fuzzy_extracted_harmonized_fc_matrices_df_list[
+                _run_idx
+            ],
+            node_coords=coords_mni,
+            pcs_to_plot=bmb_fuzzy_target_pcs_to_plot,
+            plot_dir=bmb_fuzzy_plot_dir + f"/run-{_run_idx}/",
+            metadata_dir=bmb_fuzzy_metadata_dir + f"/run-{_run_idx}/",
+            show_legend=True,
+            network_assignments=network_assignments,
+        )
+        for _run_idx, x in enumerate(bmb_fuzzy_metrics_results_list)
+    ]
+    return bmb_fuzzy_pc_plots_result_list, bmb_fuzzy_target_pcs_to_plot
+
+
+@app.cell
+def _(bmb_fuzzy_pc_plots_result_list, bmb_pc_plots_results):
+    bmb_pc_plots_result_comparison = []
+
+    for _run_idx, bmb_fuzzy_pc_plots_result in enumerate(
+        bmb_fuzzy_pc_plots_result_list
+    ):
+        bmb_pc_plots_result_comparison.append(
+            mo.vstack(
+                [
+                    mo.md(
+                        f"### Comparison of the Fuzzy run {_run_idx} vs Regular PC plots"
+                    ),
+                    mo.hstack(
+                        [
+                            bmb_fuzzy_pc_plots_result["ui_elements"][7.0],
+                            bmb_pc_plots_results["ui_elements"][7.0],
+                        ]
+                    ),
+                ]
+            )
+        )
+
+    bmb_pc_plots_result_comparison
+    return
+
+
+@app.cell
+def _(
+    bmb_fuzzy_extracted_harmonized_fc_matrices_df_list,
+    bmb_fuzzy_metadata_dir,
+    bmb_fuzzy_metrics_results_list,
+    bmb_fuzzy_plot_dir,
+    bmb_fuzzy_target_pcs_to_plot,
+    coords_mni,
+    network_assignments,
+):
+    bmb_fuzzy_consensus_target_pcs_to_plot = [7.0]
+
+    bmb_fuzzy_consensus_pc_plots_result = plot_pcs_consensus_publication_ready(
+        results_list=bmb_fuzzy_metrics_results_list,
+        fc_matrices_df_list=bmb_fuzzy_extracted_harmonized_fc_matrices_df_list,
+        node_coords=coords_mni,
+        pcs_to_plot=bmb_fuzzy_target_pcs_to_plot,
+        plot_dir=bmb_fuzzy_plot_dir + "/consensus-thresholds/",
+        metadata_dir=bmb_fuzzy_metadata_dir + "/consensus-thresholds/",
+        consensus_thresholds=[1.0, 0.75, 0.50, 0.25],
+        show_legend=True,
+        network_assignments=network_assignments,
+    )
+    return (bmb_fuzzy_consensus_pc_plots_result,)
+
+
+@app.cell
+def _(bmb_fuzzy_consensus_pc_plots_result):
+    bmb_fuzzy_consensus_pc_plots_result["ui"]
+    return
+
+
+@app.cell(hide_code=True)
+def _():
+    mo.md(r"""
+    We also want to run some other analysisWe also want to run some other analysis
+    """)
+    return
+
+
+@app.cell
+def _(
+    bmb_fuzzy_extracted_harmonized_fc_matrices_df_list,
+    bmb_fuzzy_metadata_dir,
+    bmb_fuzzy_metrics_results_list,
+    bmb_fuzzy_plot_dir,
+    coords_mni,
+    network_assignments,
+):
+    bmb_robustness_analysis_result = plot_robustness_comparison_analysis(
+        results_list=bmb_fuzzy_metrics_results_list,
+        fc_matrices_df_list=bmb_fuzzy_extracted_harmonized_fc_matrices_df_list,
+        node_coords=coords_mni,
+        pcs_to_plot=[7.0],
+        plot_dir=bmb_fuzzy_plot_dir + "/robustness-analysis/",
+        metadata_dir=bmb_fuzzy_metadata_dir + "/robustness-analysis/",
+        consensus_thresholds=[1.0, 0.75, 0.50, 0.25],
+        network_assignments=network_assignments,
+        skip_existing=True,
+    )
+    return (bmb_robustness_analysis_result,)
+
+
+@app.cell
+def _(bmb_robustness_analysis_result):
+    bmb_robustness_analysis_result["ui"]
     return
 
 

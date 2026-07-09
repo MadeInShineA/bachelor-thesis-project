@@ -1,0 +1,436 @@
+{
+    "pc_index_0_based": 7,
+    "pc_number_1_based": 8,
+    "consensus_threshold": 1.0,
+    "min_runs_required": 15,
+    "total_runs": 15,
+    "num_edges": 33,
+    "color_range": {
+        "vmin": -0.03952304276291142,
+        "vmax": 0.03952304276291142
+    },
+    "edge_indices": [
+        70,
+        72,
+        110,
+        202,
+        205,
+        222,
+        225,
+        12261,
+        16848,
+        17035,
+        17217,
+        18340,
+        18356,
+        18357,
+        18520,
+        18522,
+        18920,
+        18935,
+        18936,
+        19072,
+        19100,
+        19896,
+        19912,
+        19915,
+        20051,
+        20092,
+        20095,
+        20112,
+        20115,
+        20292,
+        20295,
+        54815,
+        56811
+    ],
+    "edge_run_counts": {
+        "70": 15,
+        "72": 15,
+        "110": 15,
+        "202": 15,
+        "205": 15,
+        "222": 15,
+        "225": 15,
+        "12261": 15,
+        "16848": 15,
+        "17035": 15,
+        "17217": 15,
+        "18340": 15,
+        "18356": 15,
+        "18357": 15,
+        "18520": 15,
+        "18522": 15,
+        "18920": 15,
+        "18935": 15,
+        "18936": 15,
+        "19072": 15,
+        "19100": 15,
+        "19896": 15,
+        "19912": 15,
+        "19915": 15,
+        "20051": 15,
+        "20092": 15,
+        "20095": 15,
+        "20112": 15,
+        "20115": 15,
+        "20292": 15,
+        "20295": 15,
+        "54815": 15,
+        "56811": 15
+    },
+    "edge_details": [
+        {
+            "edge_idx": 70,
+            "node_i": 10,
+            "node_j": 5,
+            "network_i": "SomatoMotor",
+            "network_j": "Limbic",
+            "weight": -0.03639292279134329,
+            "run_count": 15,
+            "type": "Inter"
+        },
+        {
+            "edge_idx": 72,
+            "node_i": 10,
+            "node_j": 7,
+            "network_i": "SomatoMotor",
+            "network_j": "PrefrontalControlA",
+            "weight": -0.015645239005307617,
+            "run_count": 15,
+            "type": "Inter"
+        },
+        {
+            "edge_idx": 110,
+            "node_i": 13,
+            "node_j": 6,
+            "network_i": "DefaultMode",
+            "network_j": "Limbic",
+            "weight": -0.01971147268209857,
+            "run_count": 15,
+            "type": "Inter"
+        },
+        {
+            "edge_idx": 202,
+            "node_i": 18,
+            "node_j": 13,
+            "network_i": "Limbic",
+            "network_j": "DefaultMode",
+            "weight": -0.034137506190402934,
+            "run_count": 15,
+            "type": "Inter"
+        },
+        {
+            "edge_idx": 205,
+            "node_i": 18,
+            "node_j": 16,
+            "network_i": "Limbic",
+            "network_j": "Limbic",
+            "weight": -0.029035043786336385,
+            "run_count": 15,
+            "type": "Intra"
+        },
+        {
+            "edge_idx": 222,
+            "node_i": 19,
+            "node_j": 13,
+            "network_i": "Limbic",
+            "network_j": "DefaultMode",
+            "weight": -0.037330332048019804,
+            "run_count": 15,
+            "type": "Inter"
+        },
+        {
+            "edge_idx": 225,
+            "node_i": 19,
+            "node_j": 16,
+            "network_i": "Limbic",
+            "network_j": "Limbic",
+            "weight": -0.0384588500860092,
+            "run_count": 15,
+            "type": "Intra"
+        },
+        {
+            "edge_idx": 12261,
+            "node_i": 155,
+            "node_j": 16,
+            "network_i": "Limbic",
+            "network_j": "Limbic",
+            "weight": -0.00953124462602406,
+            "run_count": 15,
+            "type": "Intra"
+        },
+        {
+            "edge_idx": 16848,
+            "node_i": 182,
+            "node_j": 13,
+            "network_i": "Limbic",
+            "network_j": "DefaultMode",
+            "weight": -0.03277082252047635,
+            "run_count": 15,
+            "type": "Inter"
+        },
+        {
+            "edge_idx": 17035,
+            "node_i": 183,
+            "node_j": 16,
+            "network_i": "Limbic",
+            "network_j": "Limbic",
+            "weight": -0.012577234147061007,
+            "run_count": 15,
+            "type": "Intra"
+        },
+        {
+            "edge_idx": 17217,
+            "node_i": 184,
+            "node_j": 13,
+            "network_i": "Limbic",
+            "network_j": "DefaultMode",
+            "weight": -0.007757049340665567,
+            "run_count": 15,
+            "type": "Inter"
+        },
+        {
+            "edge_idx": 18340,
+            "node_i": 190,
+            "node_j": 5,
+            "network_i": "SomatoMotor",
+            "network_j": "Limbic",
+            "weight": -0.03987777365521216,
+            "run_count": 15,
+            "type": "Inter"
+        },
+        {
+            "edge_idx": 18356,
+            "node_i": 190,
+            "node_j": 21,
+            "network_i": "SomatoMotor",
+            "network_j": "Limbic",
+            "weight": -0.024162117966272677,
+            "run_count": 15,
+            "type": "Inter"
+        },
+        {
+            "edge_idx": 18357,
+            "node_i": 190,
+            "node_j": 22,
+            "network_i": "SomatoMotor",
+            "network_j": "Limbic",
+            "weight": -0.032495156309418384,
+            "run_count": 15,
+            "type": "Inter"
+        },
+        {
+            "edge_idx": 18520,
+            "node_i": 190,
+            "node_j": 185,
+            "network_i": "SomatoMotor",
+            "network_j": "Limbic",
+            "weight": -0.051763317442304675,
+            "run_count": 15,
+            "type": "Inter"
+        },
+        {
+            "edge_idx": 18522,
+            "node_i": 190,
+            "node_j": 187,
+            "network_i": "SomatoMotor",
+            "network_j": "PrefrontalControlA",
+            "weight": -0.012381481228623889,
+            "run_count": 15,
+            "type": "Inter"
+        },
+        {
+            "edge_idx": 18920,
+            "node_i": 193,
+            "node_j": 6,
+            "network_i": "DefaultMode",
+            "network_j": "Limbic",
+            "weight": -0.013200365020765825,
+            "run_count": 15,
+            "type": "Inter"
+        },
+        {
+            "edge_idx": 18935,
+            "node_i": 193,
+            "node_j": 21,
+            "network_i": "DefaultMode",
+            "network_j": "Limbic",
+            "weight": -0.020169174140607902,
+            "run_count": 15,
+            "type": "Inter"
+        },
+        {
+            "edge_idx": 18936,
+            "node_i": 193,
+            "node_j": 22,
+            "network_i": "DefaultMode",
+            "network_j": "Limbic",
+            "weight": -0.029597083884157778,
+            "run_count": 15,
+            "type": "Inter"
+        },
+        {
+            "edge_idx": 19072,
+            "node_i": 193,
+            "node_j": 158,
+            "network_i": "DefaultMode",
+            "network_j": "Limbic",
+            "weight": -0.0036372080773562575,
+            "run_count": 15,
+            "type": "Inter"
+        },
+        {
+            "edge_idx": 19100,
+            "node_i": 193,
+            "node_j": 186,
+            "network_i": "DefaultMode",
+            "network_j": "Limbic",
+            "weight": -0.010481315399396547,
+            "run_count": 15,
+            "type": "Inter"
+        },
+        {
+            "edge_idx": 19896,
+            "node_i": 197,
+            "node_j": 196,
+            "network_i": "Limbic",
+            "network_j": "SomatoMotor",
+            "weight": -0.018581772748507593,
+            "run_count": 15,
+            "type": "Inter"
+        },
+        {
+            "edge_idx": 19912,
+            "node_i": 198,
+            "node_j": 13,
+            "network_i": "Limbic",
+            "network_j": "DefaultMode",
+            "weight": -0.0290219583360551,
+            "run_count": 15,
+            "type": "Inter"
+        },
+        {
+            "edge_idx": 19915,
+            "node_i": 198,
+            "node_j": 16,
+            "network_i": "Limbic",
+            "network_j": "Limbic",
+            "weight": -0.02906803470833114,
+            "run_count": 15,
+            "type": "Intra"
+        },
+        {
+            "edge_idx": 20051,
+            "node_i": 198,
+            "node_j": 152,
+            "network_i": "Limbic",
+            "network_j": "Limbic",
+            "weight": -0.0231890261616147,
+            "run_count": 15,
+            "type": "Intra"
+        },
+        {
+            "edge_idx": 20092,
+            "node_i": 198,
+            "node_j": 193,
+            "network_i": "Limbic",
+            "network_j": "DefaultMode",
+            "weight": -0.02884283109968302,
+            "run_count": 15,
+            "type": "Inter"
+        },
+        {
+            "edge_idx": 20095,
+            "node_i": 198,
+            "node_j": 196,
+            "network_i": "Limbic",
+            "network_j": "SomatoMotor",
+            "weight": -0.023407864778161147,
+            "run_count": 15,
+            "type": "Inter"
+        },
+        {
+            "edge_idx": 20112,
+            "node_i": 199,
+            "node_j": 13,
+            "network_i": "Limbic",
+            "network_j": "DefaultMode",
+            "weight": -0.0225730320387096,
+            "run_count": 15,
+            "type": "Inter"
+        },
+        {
+            "edge_idx": 20115,
+            "node_i": 199,
+            "node_j": 16,
+            "network_i": "Limbic",
+            "network_j": "Limbic",
+            "weight": -0.02148176021547256,
+            "run_count": 15,
+            "type": "Intra"
+        },
+        {
+            "edge_idx": 20292,
+            "node_i": 199,
+            "node_j": 193,
+            "network_i": "Limbic",
+            "network_j": "DefaultMode",
+            "weight": -0.025076697957119348,
+            "run_count": 15,
+            "type": "Inter"
+        },
+        {
+            "edge_idx": 20295,
+            "node_i": 199,
+            "node_j": 196,
+            "network_i": "Limbic",
+            "network_j": "SomatoMotor",
+            "weight": -0.020926634838161536,
+            "run_count": 15,
+            "type": "Inter"
+        },
+        {
+            "edge_idx": 54815,
+            "node_i": 329,
+            "node_j": 201,
+            "network_i": "DefaultMode",
+            "network_j": "Limbic",
+            "weight": -0.02727768960974632,
+            "run_count": 15,
+            "type": "Inter"
+        },
+        {
+            "edge_idx": 56811,
+            "node_i": 335,
+            "node_j": 196,
+            "network_i": "Limbic",
+            "network_j": "SomatoMotor",
+            "weight": -0.005807501549779515,
+            "run_count": 15,
+            "type": "Inter"
+        }
+    ],
+    "network_statistics": {
+        "nodes_per_network": {
+            "Limbic": 20,
+            "SomatoMotor": 3,
+            "DefaultMode": 3,
+            "PrefrontalControlA": 2
+        },
+        "per_network": {
+            "Limbic": 38,
+            "DefaultMode": 15,
+            "SomatoMotor": 11,
+            "PrefrontalControlA": 2
+        },
+        "intra_network": {
+            "Limbic": 7
+        },
+        "inter_network": {
+            "DefaultMode \u2194 Limbic": 15,
+            "Limbic \u2194 SomatoMotor": 9,
+            "PrefrontalControlA \u2194 SomatoMotor": 2
+        }
+    }
+}

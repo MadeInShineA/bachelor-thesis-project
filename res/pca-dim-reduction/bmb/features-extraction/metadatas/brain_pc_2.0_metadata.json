@@ -1,6 +1,6 @@
 {
-    "pc_index_0_based": 1,
-    "pc_number_1_based": 2,
+    "pc_index_0_based": 1.0,
+    "pc_number_1_based": 2.0,
     "num_edges": 114,
     "color_range": {
         "vmin": -0.10483994549232786,
