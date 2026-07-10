@@ -2036,7 +2036,11 @@ def _(srpb_fuzzy_fc_matrices_output_path):
     srpb_run_fc_matrices_cache_path = os.path.join(
         srpb_run_fc_matrices_output_dir, srpb_run_fc_matrices_cache_filename
     )
-    return (regular_run_name,)
+    return (
+        regular_run_name,
+        srpb_run_fc_matrices_cache_path,
+        srpb_run_fc_matrices_output_dir,
+    )
 
 
 @app.cell
@@ -2127,18 +2131,22 @@ def extract_regular_fc_matrices(
     return extracted_fc_matrices_df
 
 
-app._unparsable_cell(
-    r"""
+@app.cell
+def _(
+    srpb_run_fc_matrices_cache_path,
+    srpb_run_fc_matrices_output_dir,
+    srpb_scrub_paths,
+    srpb_time_series_scrub_file_df,
+    srpb_ts_paths,
+):
     srpb_extracted_fc_matrices_df = extract_regular_fc_matrices(
         srpb_run_fc_matrices_cache_path,
-        srpb_run_fc_matrices_output_dir
+        srpb_run_fc_matrices_output_dir,
         srpb_time_series_scrub_file_df,
         srpb_ts_paths,
         srpb_scrub_paths,
     )
-    """,
-    name="_"
-)
+    return (srpb_extracted_fc_matrices_df,)
 
 
 @app.cell
@@ -2387,7 +2395,7 @@ def compare_fc_matrices(
 
 @app.cell
 def _(regular_run_name):
-    srpb_extracted_fc_matrices_correlation_output_dir = f"./res/pca-dim-reduction/srpb/extracted-harmonized-fc-matrices-correlation/{regular_run_name}"
+    srpb_extracted_fc_matrices_correlation_output_dir = f"./res/pca-dim-reduction/srpb/extracted-fc-matrices-correlation/{regular_run_name}"
     return (srpb_extracted_fc_matrices_correlation_output_dir,)
 
 
@@ -3778,7 +3786,7 @@ def _(
         connectivity=np.stack(
             srpb_extracted_fc_matrices_df["fc_matrix"].to_numpy(), axis=0
         ),
-        subjects_metadata_dataframe=srpb_extracted_fc_matrices_df,
+        subjects_metadata_dataframe=srpb_extracted_fc_matrices_df.to_pandas(),
         dataset="SRPB",
         output_path=srpb_harmonized_regular_fc_matrices_output_dir,
     )
@@ -3982,7 +3990,7 @@ def run_fuzzy_extraction_runs(
     num_fuzzy_run: int,
     container_name: str,
     container_image: str,
-    time_series_scrub_file_df: str,
+    time_series_scrub_file_df: pl.Dataframe,
     ts_paths: list,
     scrub_paths: list,
     fuzzy_fc_matrices_output_path: str,
@@ -4150,12 +4158,14 @@ def _(
     num_fuzzy_run,
     srpb_fuzzy_fc_matrices_output_path,
     srpb_scrub_paths,
+    srpb_time_series_scrub_file_df,
     srpb_ts_paths,
 ):
     srpb_fuzzy_extracted_fc_matrices_df_list = run_fuzzy_extraction_runs(
         num_fuzzy_run,
         container_name="fuzzy-container",
         container_image=fuzzy_container_image,
+        time_series_scrub_file_df=srpb_time_series_scrub_file_df,
         ts_paths=srpb_ts_paths,
         scrub_paths=srpb_scrub_paths,
         fuzzy_fc_matrices_output_path=srpb_fuzzy_fc_matrices_output_path,
@@ -4242,9 +4252,7 @@ def _(
             connectivity=np.stack(
                 fuzzy_srpb_extracted_fc_matrices_df["fc_matrix"].to_numpy(), axis=0
             ),
-            metadata_dir_path=Path(
-                "/home/cbi-biomark03/ayumu/HARP/data/preproc_srpb"
-            ),
+            subjects_metadata_dataframe=fuzzy_srpb_extracted_fc_matrices_df,
             dataset="SRPB",
             output_path=srpb_harmonized_fc_matrices_output_dir / f"run-{_run_idx}",
         )
@@ -4314,28 +4322,25 @@ def _():
 
 
 @app.cell
-def _(
-    fuzzy_extracted_harmonized_fc_matrices_df,
-    srpb_fuzzy_extracted_harmonized_fc_matrices_df_list,
-):
+def _(srpb_fuzzy_extracted_harmonized_fc_matrices_df_list):
     srpb_fuzzy_extracted_harmonized_fc_matrices_hc_mdd_df_list = []
     for (
         _run_idx,
-        srp_fuzzy_extracted_harmonized_fc_matrices_df,
+        _srpb_fuzzy_extracted_harmonized_fc_matrices_df,
     ) in enumerate(srpb_fuzzy_extracted_harmonized_fc_matrices_df_list):
         srpb_fuzzy_extracted_harmonized_fc_matrices_hc_mdd_df_list.append(
-            fuzzy_extracted_harmonized_fc_matrices_df.filter(
+            _srpb_fuzzy_extracted_harmonized_fc_matrices_df.filter(
                 pl.col("diag").is_in([0, 2])
             )
         )
-    return
+    return (srpb_fuzzy_extracted_harmonized_fc_matrices_hc_mdd_df_list,)
 
 
 @app.cell
 def _(
-    fuzzy_extracted_harmonized_fc_matrices_hc_mdd_df,
     metric_dict,
     srpb_fuzzy_cache_dir,
+    srpb_fuzzy_extracted_harmonized_fc_matrices_hc_mdd_df_list,
     srpb_fuzzy_plot_dir,
     srpb_fuzzy_ttest_dir,
 ):
@@ -4345,12 +4350,12 @@ def _(
 
     for (
         _run_idx,
-        srpb_fuzzy_extracted_harmonized_fc_matrices_hc_mdd_df_list,
+        srpb_fuzzy_extracted_harmonized_fc_matrices_hc_mdd_df,
     ) in enumerate(srpb_fuzzy_extracted_harmonized_fc_matrices_hc_mdd_df_list):
         print(f"Calculating metris for run {_run_idx}")
 
         srpb_fuzy_metrics_dict = calculate_metrics(
-            df=fuzzy_extracted_harmonized_fc_matrices_hc_mdd_df,
+            df=srpb_fuzzy_extracted_harmonized_fc_matrices_hc_mdd_df,
             metric_dict=metric_dict,
             alpha_threshold=0.05,
             plot_dir=srpb_fuzzy_plot_dir + f"/run-{_run_idx}/",
@@ -4429,7 +4434,7 @@ def _(
 
     srpb_fuzzy_pc_plots_result_list = [
         plot_pcs_publication_ready(
-            srpb_results=x,
+            results=x,
             fc_matrices_df=srpb_fuzzy_extracted_harmonized_fc_matrices_df_list[
                 _run_idx
             ],
@@ -4460,8 +4465,8 @@ def _(srpb_fuzzy_pc_plots_result_list, srpb_pc_plots_results):
                     ),
                     mo.hstack(
                         [
-                            srpb_fuzzy_pc_plots_result["ui"],
-                            srpb_pc_plots_results["ui"],
+                            srpb_fuzzy_pc_plots_result["ui_elements"][1.0],
+                            srpb_pc_plots_results["ui_elements"][1.0],
                         ]
                     ),
                 ]
@@ -5212,7 +5217,7 @@ def _(
     srpb_fuzzy_consensus_target_pcs_to_plot = [1.0]
 
     srpb_fuzzy_consensus_pc_plots_result = plot_pcs_consensus_publication_ready(
-        srpb_results_list=srpb_fuzzy_metrics_results_list,
+        results_list=srpb_fuzzy_metrics_results_list,
         fc_matrices_df_list=srpb_fuzzy_extracted_harmonized_fc_matrices_df_list,
         node_coords=coords_mni,
         pcs_to_plot=srpb_fuzzy_target_pcs_to_plot,
@@ -6147,7 +6152,7 @@ def _(
     srpb_fuzzy_plot_dir,
 ):
     srpb_robustness_analysis_result = plot_robustness_comparison_analysis(
-        srpb_results_list=srpb_fuzzy_metrics_results_list,
+        results_list=srpb_fuzzy_metrics_results_list,
         fc_matrices_df_list=srpb_fuzzy_extracted_harmonized_fc_matrices_df_list,
         node_coords=coords_mni,
         pcs_to_plot=[1.0],
