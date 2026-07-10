@@ -4,7 +4,7 @@
 
 ## Overview
 
-This project reproduces and extends the methodology from *Alizadeh et al. 2025* ([biorxiv](https://www.biorxiv.org/content/10.64898/2025.12.22.695524v1)), computing the **Numerical-Population Variability Ratio (NPVR)** for functional connectivity matrices, graph-theoretical metrics and connectivity biomarkers derived from preprocessed fMRI data.
+This project reproduces and extends the methodology from *Alizadeh et al. 2025* ([biorxiv](https://www.biorxiv.org/content/10.64898/2025.12.22.695524)), computing the **Numerical-Population Variability Ratio (NPVR)** for functional connectivity matrices, graph-theoretical metrics and connectivity biomarkers derived from preprocessed fMRI data.
 
 **Key question:** How does numerical noise from floating-point operations propagate through preprocessing and affect downstream functional connectivity biomarkers?
 
@@ -42,7 +42,7 @@ uv sync               # creates a venv and installs all dependencies
 ### Docker image
 
 The `Dockerfile` builds a multi-stage image:
-1. **Stage 1** (`verificarlo/fuzzy:v0.9.1`) — provides fuzzy libmath and Verificarlo
+1. **Stage 1** (`verificarlo/fuzzy:v0.9.1-lapack-python3.8.5-numpy-scipy-sklearn`) — provides fuzzy libmath and Verificarlo
 2. **Stage 2** (`nipreps/fmriprep:25.2.5`) — installs Verificarlo and preloads the MCA-instrumented libmath
 
 Key environment variables:
@@ -167,7 +167,7 @@ Reproduces and extends a PCA-based feature-selection pipeline on public datasets
 4. Plots significant principal components as connectome brain maps coloured by Yeo/Glasser networks
 5. Serves as the foundation for perturbing FC matrix extraction and assessing the impact on biomarker stability
 
-### `nvpr_simulation.py`
+### `npvr_simulation.py`
 
 Synthetic simulation reproducing Figure 1 from Alizadeh et al. 2025:
 - Two synthetic populations (low vs high numerical variability)
