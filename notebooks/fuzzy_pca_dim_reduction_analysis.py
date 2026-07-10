@@ -76,9 +76,10 @@ def _():
 @app.cell(hide_code=True)
 def _():
     mo.md(r"""
-    We start by loading the harmonized FC matrices metadata
+    We start by loading the harmonized FC matrices metadata.
 
-    Please note that we are using the Glasser parcelation with the global signal regression.
+    We use the Glasser parcellation (360 cortical + 54 subcortical + 32 cerebellar = 446 ROIs)
+    with global signal regression (GSR) and filtering
     """)
     return
 
@@ -145,7 +146,7 @@ def _(harmonized_srpb_fc_matrices, srpb_metadata_df):
 
 @app.cell
 def _(harmonized_srpb_fc_matrices_df):
-    harmonized_srpb_fc_matrices_df["harmonized_fc_matrix"].head(1)
+    harmonized_srpb_fc_matrices_df.select("sub_id", "harmonized_fc_matrix").head(1)
     return
 
 
@@ -338,6 +339,12 @@ def calculate_features(
         }
 
 
+@app.cell
+def _():
+    calculate_features
+    return
+
+
 @app.cell(hide_code=True)
 def _():
     mo.md(r"""
@@ -394,6 +401,12 @@ def plot_p_values(p_values, metric_name: str):
     plt.tight_layout()
 
     return fig
+
+
+@app.cell
+def _():
+    plot_p_values
+    return
 
 
 @app.cell(hide_code=True)
@@ -498,6 +511,12 @@ def calculate_metrics(
     return res
 
 
+@app.cell
+def _():
+    calculate_metrics
+    return
+
+
 @app.cell(hide_code=True)
 def _():
     mo.md(r"""
@@ -521,6 +540,14 @@ def _():
         "./res/pca-dim-reduction/srpb/features-extraction/metadatas/"
     )
     return srpb_cache_dir, srpb_metadata_dir, srpb_plot_dir, srpb_ttest_dir
+
+
+@app.cell(hide_code=True)
+def _():
+    mo.md(r"""
+    Define the different metrics we want to extract and their filters
+    """)
+    return
 
 
 @app.cell
@@ -559,6 +586,8 @@ def _():
             "filter_function": lambda target_col: pd.notna(target_col),
         },
     }
+
+    metric_dict
     return (metric_dict,)
 
 
@@ -649,6 +678,12 @@ def select_mdd_pc(
 
 
 @app.cell
+def _():
+    select_mdd_pc
+    return
+
+
+@app.cell
 def _(srpb_results):
     srpb_selected_mdd_pcs = select_mdd_pc(srpb_results, ["bdi"])
     srpb_selected_mdd_pcs
@@ -666,7 +701,7 @@ def _():
 @app.cell(hide_code=True)
 def _():
     mo.md(r"""
-    We start by obtaining the brain parcelation
+    We start by obtaining the brain parcellation
     """)
     return
 
@@ -816,9 +851,9 @@ def _():
 
 
 @app.function(hide_code=True)
-def plot_pcs_publication_ready(
+def plot_pcs(
     results: dict,
-    fc_matrices_df,  # pl.DataFrame
+    fc_matrices_df: pl.DataFrame,
     node_coords: np.ndarray,
     pcs_to_plot: list,
     plot_dir: str,
@@ -829,7 +864,7 @@ def plot_pcs_publication_ready(
     skip_existing: bool = True,
 ) -> dict:
     """
-    Generates publication-ready brain plots for a list of Principal Components.
+    Generates plot_pcs brain plots for a list of Principal Components.
     Returns a dictionary with:
       - 'results': adjacency matrices keyed by PC index
       - 'ui_elements': individual Marimo UI elements keyed by PC index
@@ -1345,6 +1380,12 @@ def plot_pcs_publication_ready(
 
 
 @app.cell
+def _():
+    plot_pcs
+    return
+
+
+@app.cell
 def _(
     coords_mni,
     harmonized_srpb_fc_matrices_hc_mdd_df,
@@ -1355,7 +1396,7 @@ def _(
 ):
     srpb_target_pcs_to_plot = [1.0, 69.0]
 
-    srpb_pc_plots_results = plot_pcs_publication_ready(
+    srpb_pc_plots_results = plot_pcs(
         results=srpb_results,
         fc_matrices_df=harmonized_srpb_fc_matrices_hc_mdd_df,
         node_coords=coords_mni,
@@ -1385,14 +1426,7 @@ def _():
 @app.cell(hide_code=True)
 def _():
     mo.md(r"""
-    We see that if we compare the results obtained in the paper, which were obtained by splitting the srpb dataset in 2, the different PCA plots have the same first PC for almost every metric (except for the sex and FD mean metrics).
-
-    However, when looking at which PC were significant for the MDD diagnosis, we don't obtain the same results.
-    In the paper, the PC 2 was only selected for the diag metric. In our case, it was selected for the diag, BDI, age, site and mean FD metrics. The only PC which was caracterized as significant for the MDD diagnosis is PC 70.
-
-    It should also be noted that when plotting the FC of the PC 2, we have more connections that what is said in the paper (117 vs 58 for discovery and 45 for validation) and that they are more diverse across brain regions.
-
-    However, we can see that for the PCs 2 and 70, the MDD subjects have an under connevtivity for most of the PC's FCs
+    The analysis of the BMB dataset confirms what was established in the first conclusion. While the selected PCs differ across datasets, their contributing FCs come from the same brain areas and show a majority of under-connectivity for MDD subjects.
     """)
     return
 
@@ -1416,8 +1450,10 @@ def _():
 @app.cell(hide_code=True)
 def _():
     mo.md(r"""
-    We start by loading the harmonized FC matrices metadata
-    Please note that we are using the Glasser parcelation with the global signal regression.
+    We start by loading the harmonized FC matrices metadata.
+
+    We use the same Glasser parcellation (446 ROIs) with GSR as for the SRPB dataset,
+    to keep the analysis consistent across datasets.
     """)
     return
 
@@ -1478,6 +1514,12 @@ def _(harmonized_bmb_fc_matrices, harmonized_bmb_fc_matrices_metadata_df):
         )
     )
     return (harmonized_bmb_fc_matrices_df,)
+
+
+@app.cell
+def _(harmonized_bmb_fc_matrices_df):
+    harmonized_bmb_fc_matrices_df.head()
+    return
 
 
 @app.cell(hide_code=True)
@@ -1543,7 +1585,7 @@ def _():
 @app.cell(hide_code=True)
 def _():
     mo.md(r"""
-    Why is the age a floating point here ?
+    Please note that age is a float, likely the exact age at the time of the scan (e.g. 24.7 years), rather than an integer rounded to whole years.
     """)
     return
 
@@ -1681,7 +1723,7 @@ def _(
 ):
     bmb_target_pcs_to_plot = [1.0, 7.0, 60.0]
 
-    bmb_pc_plots_results = plot_pcs_publication_ready(
+    bmb_pc_plots_results = plot_pcs(
         results=bmb_results,
         fc_matrices_df=harmonized_bmb_fc_matrices_hc_mdd_df,
         node_coords=coords_mni,
@@ -1711,9 +1753,7 @@ def _():
 @app.cell(hide_code=True)
 def _():
     mo.md(r"""
-    We can see that for the BMB dataset, the different PC extracted, are quite different than the one in the SRPB dataset.
-
-    However, we can see that for the PCs 2 and 60, the MDD subjects have an under connevtivity for most of the PC's FCs, just like in the SRPB dataset.
+    The PC extraction gives different results depending on the dataset, but the FC edges contributing to those PCs are largely consistent. The most represented networks (PrefrontalControlA, SomatoMotor, and Subcortical) are shared across datasets, and MDD subjects predominantly show under-connectivity in the selected PCs.
     """)
     return
 
@@ -1765,11 +1805,23 @@ def _():
 
 @app.cell
 def _(srpb_time_series_directory_paths):
+    srpb_time_series_directory_paths
+    return
+
+
+@app.cell
+def _(srpb_time_series_directory_paths):
     srpb_time_series_directory_suffixes = {
         srpb_time_series_directory_paths[0]: "_restT1_parcel.csv",
         srpb_time_series_directory_paths[1]: "_BOLD_REST1_AP_parcel.csv",
     }
     return (srpb_time_series_directory_suffixes,)
+
+
+@app.cell
+def _(srpb_time_series_directory_suffixes):
+    srpb_time_series_directory_suffixes
+    return
 
 
 @app.cell
@@ -1824,6 +1876,12 @@ def _(srpb_metadata_df, srpb_time_series_file_paths_df):
 
 @app.cell
 def _(srpb_time_series_file_df):
+    srpb_time_series_file_df.head()
+    return
+
+
+@app.cell
+def _(srpb_time_series_file_df):
     srpb_time_series_file_df.height
     return
 
@@ -1865,11 +1923,23 @@ def _():
 
 @app.cell
 def _(srpb_scrub_directory_paths):
+    srpb_scrub_directory_paths
+    return
+
+
+@app.cell
+def _(srpb_scrub_directory_paths):
     srpb_scrub_directory_suffixes = {
         srpb_scrub_directory_paths[0]: "_restT1_scrub.csv",
         srpb_scrub_directory_paths[1]: "_BOLD_REST1_AP_scrub.csv",
     }
     return (srpb_scrub_directory_suffixes,)
+
+
+@app.cell
+def _(srpb_scrub_directory_suffixes):
+    srpb_scrub_directory_suffixes
+    return
 
 
 @app.cell
@@ -1914,6 +1984,14 @@ def _(srpb_scrub_separated_dicts_list):
 @app.cell
 def _(srpb_scrub_file_paths_df):
     srpb_scrub_file_paths_df.head()
+    return
+
+
+@app.cell(hide_code=True)
+def _():
+    mo.md(r"""
+    ### Merge the scrub and time_series datasets together
+    """)
     return
 
 
@@ -2004,6 +2082,12 @@ def extract_subject_fc_matrix(
     connectivity = lower_tri_z[lower_tri_z != 0]
 
     return connectivity.tolist()
+
+
+@app.cell
+def _():
+    extract_subject_fc_matrix
+    return
 
 
 @app.cell(hide_code=True)
@@ -2152,14 +2236,6 @@ def _(
 @app.cell
 def _(srpb_extracted_fc_matrices_df):
     srpb_extracted_fc_matrices_df.head(1)
-    return
-
-
-@app.cell(hide_code=True)
-def _():
-    mo.md(r"""
-    We want to save the current run FC matrices
-    """)
     return
 
 
@@ -2432,7 +2508,7 @@ def _():
 @app.cell(hide_code=True)
 def _():
     mo.md(r"""
-    We start by dfeining the functions we need for the harmonization
+    We start by defining the functions we need for the harmonization
     """)
     return
 
@@ -2448,7 +2524,7 @@ def _():
 @app.cell(hide_code=True)
 def _():
     mo.md(r"""
-    Function to loada Matlab file
+    Function to load a Matlab connectivity file (.mat with HDF5 format)
     """)
     return
 
@@ -2549,15 +2625,8 @@ def mean_zero_row(number_of_rows: int, offset: int, length: int) -> np.ndarray:
     return row
 
 
-@app.cell(hide_code=True)
-def _():
-    mo.md(r"""
-    # TODO DOUBLE CHECK THE COMMENTS AND UNDERSTANDING OF THIS FUNCTION
-    """)
-    return
-
-
 @app.function
+# TODO DOUBLE CHECK THE COMMENTS AND UNDERSTANDING OF THIS FUNCTION
 def compute_gcv_score(
     dummy_values_with_bias,
     connectivities,
@@ -3721,20 +3790,13 @@ def _(regular_run_name, srpb_fc_matrices_bias_output_dir):
     return (srpb_regular_fc_matrices_bias_output_dir,)
 
 
-@app.cell(hide_code=True)
-def _():
-    mo.md(r"""
-    # TODO: Why is axis 1 needed?
-    """)
-    return
-
-
 @app.cell
 def _(
     estimate_bias,
     srpb_extracted_fc_matrices_df,
     srpb_regular_fc_matrices_bias_output_dir,
 ):
+    # TODO: Why is axis 1 needed?
     srpb_bias_dict = estimate_bias(
         output_dir_path=srpb_regular_fc_matrices_bias_output_dir,
         rs_connectivity=np.stack(
@@ -3781,7 +3843,7 @@ def _(
     srpb_extracted_fc_matrices_df,
     srpb_harmonized_regular_fc_matrices_output_dir,
 ):
-    srbp_extracted_harmonized_fc_matrices = harmonize_connectivity(
+    srpb_extracted_harmonized_fc_matrices = harmonize_connectivity(
         bias_dictionnary=srpb_bias_dict,
         connectivity=np.stack(
             srpb_extracted_fc_matrices_df["fc_matrix"].to_numpy(), axis=0
@@ -3790,16 +3852,16 @@ def _(
         dataset="SRPB",
         output_path=srpb_harmonized_regular_fc_matrices_output_dir,
     )
-    return (srbp_extracted_harmonized_fc_matrices,)
+    return (srpb_extracted_harmonized_fc_matrices,)
 
 
 @app.cell
-def _(srbp_extracted_harmonized_fc_matrices, srpb_extracted_fc_matrices_df):
+def _(srpb_extracted_fc_matrices_df, srpb_extracted_harmonized_fc_matrices):
     srpb_extracted_harmonized_fc_matrices_df = (
         srpb_extracted_fc_matrices_df.with_columns(
             pl.Series(
                 name="harmonized_fc_matrix",
-                values=srbp_extracted_harmonized_fc_matrices,
+                values=srpb_extracted_harmonized_fc_matrices,
             )
         ).select(
             "sub_id",
@@ -3856,19 +3918,19 @@ def _(
     srpb_extracted_harmonized_fc_matrices_df,
     srpb_harmonized_regular_fc_matrices_correlation_output_dir,
 ):
-    srbp_extracted_harmonized_fc_matrices_comparison_results = compare_fc_matrices(
+    srpb_extracted_harmonized_fc_matrices_comparison_results = compare_fc_matrices(
         srpb_extracted_harmonized_fc_matrices_df,
         "harmonized_fc_matrix",
         harmonized_srpb_fc_matrices_df,
         "harmonized_fc_matrix",
         out_dir=srpb_harmonized_regular_fc_matrices_correlation_output_dir,
     )
-    return (srbp_extracted_harmonized_fc_matrices_comparison_results,)
+    return (srpb_extracted_harmonized_fc_matrices_comparison_results,)
 
 
 @app.cell
-def _(srbp_extracted_harmonized_fc_matrices_comparison_results):
-    srbp_extracted_harmonized_fc_matrices_comparison_results["ui"]
+def _(srpb_extracted_harmonized_fc_matrices_comparison_results):
+    srpb_extracted_harmonized_fc_matrices_comparison_results["ui"]
     return
 
 
@@ -4138,10 +4200,29 @@ def run_fuzzy_extraction_runs(
     return all_dataframes
 
 
+@app.cell(hide_code=True)
+def _():
+    mo.md(r"""
+    Please note that the following comment was written by Opencode Kimi K2.7-Code
+    """)
+    return
+
+
+@app.cell(hide_code=True)
+def _():
+    mo.md(r"""
+    We use 100 fuzzy runs for the SRPB dataset as a bootstrap-like perturbation of the FC extraction.
+    Each run perturbs the floating-point precision of `np.corrcoef` via Verificarlo, producing slightly
+    different correlation matrices. We chose 100 runs as a reasonable trade-off between statistical
+    power (for consensus/robustness analysis) and computation time.
+    """)
+    return
+
+
 @app.cell
 def _():
-    num_fuzzy_run = 100
-    return (num_fuzzy_run,)
+    num_fuzzy_srpb_run = 100
+    return (num_fuzzy_srpb_run,)
 
 
 @app.cell(hide_code=True)
@@ -4155,14 +4236,14 @@ def _():
 @app.cell
 def _(
     fuzzy_container_image,
-    num_fuzzy_run,
+    num_fuzzy_srpb_run,
     srpb_fuzzy_fc_matrices_output_path,
     srpb_scrub_paths,
     srpb_time_series_scrub_file_df,
     srpb_ts_paths,
 ):
     srpb_fuzzy_extracted_fc_matrices_df_list = run_fuzzy_extraction_runs(
-        num_fuzzy_run,
+        num_fuzzy_srpb_run,
         container_name="fuzzy-container",
         container_image=fuzzy_container_image,
         time_series_scrub_file_df=srpb_time_series_scrub_file_df,
@@ -4171,50 +4252,6 @@ def _(
         fuzzy_fc_matrices_output_path=srpb_fuzzy_fc_matrices_output_path,
     )
     return (srpb_fuzzy_extracted_fc_matrices_df_list,)
-
-
-@app.cell(hide_code=True)
-def _():
-    mo.md(r"""
-    We also calculate the mean difference between the fuzzy-extracted and standard FC matrices.
-    """)
-    return
-
-
-@app.function
-def calculate_mean_difference_between_fc_matrices(
-    first_df_list,
-    first_df_fc_matrix_column_name,
-    baseline_df,
-    baseline_df_fc_matrix_column_name,
-):
-    # Stack baseline once
-    baseline = np.stack(
-        baseline_df[baseline_df_fc_matrix_column_name].to_list()
-    )
-
-    # Worker function
-    def _compute_diff(run_df):
-        run = np.stack(run_df[first_df_fc_matrix_column_name].to_list())
-        return np.abs(baseline - run).mean()
-
-    # Parallel execution
-    diffs = Parallel(n_jobs=-1, backend="loky", verbose=10)(
-        delayed(_compute_diff)(run_df) for run_df in first_df_list
-    )
-
-    return np.mean(diffs)
-
-
-@app.cell
-def _(srpb_extracted_fc_matrices_df, srpb_fuzzy_extracted_fc_matrices_df_list):
-    calculate_mean_difference_between_fc_matrices(
-        srpb_fuzzy_extracted_fc_matrices_df_list,
-        "fc_matrix",
-        srpb_extracted_fc_matrices_df,
-        "fc_matrix",
-    )
-    return
 
 
 @app.cell(hide_code=True)
@@ -4247,7 +4284,7 @@ def _(
             dataset="SRPB",
         )
 
-        srbp_fuzzy_extracted_harmonized_fc_matrices = harmonize_connectivity(
+        srpb_fuzzy_extracted_harmonized_fc_matrices = harmonize_connectivity(
             bias_dictionnary=srpb_fuzzy_extracted_bias_dict,
             connectivity=np.stack(
                 fuzzy_srpb_extracted_fc_matrices_df["fc_matrix"].to_numpy(), axis=0
@@ -4261,7 +4298,7 @@ def _(
             fuzzy_srpb_extracted_fc_matrices_df.with_columns(
                 pl.Series(
                     name="harmonized_fc_matrix",
-                    values=srbp_fuzzy_extracted_harmonized_fc_matrices,
+                    values=srpb_fuzzy_extracted_harmonized_fc_matrices,
                 )
             ).select(
                 "sub_id",
@@ -4433,7 +4470,7 @@ def _(
     srpb_fuzzy_target_pcs_to_plot = [1.0]
 
     srpb_fuzzy_pc_plots_result_list = [
-        plot_pcs_publication_ready(
+        plot_pcs(
             results=x,
             fc_matrices_df=srpb_fuzzy_extracted_harmonized_fc_matrices_df_list[
                 _run_idx
@@ -4474,6 +4511,14 @@ def _(srpb_fuzzy_pc_plots_result_list, srpb_pc_plots_results):
         )
 
     srpb_pc_plots_result_comparison
+    return
+
+
+@app.cell(hide_code=True)
+def _():
+    mo.md(r"""
+    Define a function to see the different PCs across the runs
+    """)
     return
 
 
@@ -4829,7 +4874,7 @@ def plot_pcs_consensus_publication_ready(
                 continue
 
             # --- need to generate this plot ---
-            print(f"  ⟳ PC {pc_idx + 1} @ {pct_label}% - Generating...")
+            print(f"PC {pc_idx + 1} @ {pct_label}% - Generating...")
 
             # Collect edge counts across runs
             edge_run_count: dict[int, int] = {}
@@ -6542,6 +6587,30 @@ def _(bmb_time_series_scrub_file_df):
     return bmb_scrub_paths, bmb_ts_paths
 
 
+@app.cell(hide_code=True)
+def _():
+    mo.md(r"""
+    Please note that the following comment was written by Opencode Kimi K2.7-Code
+    """)
+    return
+
+
+@app.cell(hide_code=True)
+def _():
+    mo.md(r"""
+    Extract the BMB fuzzy FC matrices. We use only 15 fuzzy runs here (compared to 100 for SRPB)
+    as a quick exploratory analysis to see if the perturbation effects are similar across datasets.
+    The smaller number also reduces computation time given the larger BMB sample size
+    """)
+    return
+
+
+@app.cell
+def _():
+    num_fuzzy_bmb_run = 15
+    return (num_fuzzy_bmb_run,)
+
+
 @app.cell
 def _(
     bmb_fuzzy_fc_matrices_output_path,
@@ -6549,9 +6618,10 @@ def _(
     bmb_time_series_scrub_file_df,
     bmb_ts_paths,
     fuzzy_container_image,
+    num_fuzzy_bmb_run,
 ):
     bmb_fuzzy_extracted_fc_matrices_df_list = run_fuzzy_extraction_runs(
-        num_fuzzy_run=15,
+        num_fuzzy_run=num_fuzzy_bmb_run,
         container_name="fuzzy-container",
         container_image=fuzzy_container_image,
         time_series_scrub_file_df=bmb_time_series_scrub_file_df,
@@ -6667,6 +6737,24 @@ def _(
     return (bmb_missing_df,)
 
 
+@app.cell(hide_code=True)
+def _():
+    mo.md(r"""
+    Please note that the following comment was written by Opencode Kimi K2.7-Code
+    """)
+    return
+
+
+@app.cell(hide_code=True)
+def _():
+    mo.md(r"""
+    Harmonize each BMB fuzzy run using the same traveling-subject harmonization approach.
+    For each run, we estimate the site and protocol biases from the fuzzy-extracted matrices
+    and subtract them to obtain harmonized FC matrices.
+    """)
+    return
+
+
 @app.cell
 def _(
     bmb_extracted_fc_matrices_df,
@@ -6762,7 +6850,7 @@ def _():
 @app.cell(hide_code=True)
 def _():
     mo.md(r"""
-    Filter the srpb_fuzzy_extracted_harmonized_fc_matrices_df_list to only keep the MDD and HC subjects
+    Filter the BMB fuzzy-extracted harmonized FC matrices to only keep the MDD and HC subjects
     """)
     return
 
@@ -6879,7 +6967,7 @@ def _(
     bmb_fuzzy_target_pcs_to_plot = [7.0]
 
     bmb_fuzzy_pc_plots_result_list = [
-        plot_pcs_publication_ready(
+        plot_pcs(
             results=x,
             fc_matrices_df=bmb_fuzzy_extracted_harmonized_fc_matrices_df_list[
                 _run_idx
@@ -6958,7 +7046,7 @@ def _(bmb_fuzzy_consensus_pc_plots_result):
 @app.cell(hide_code=True)
 def _():
     mo.md(r"""
-    We also want to run some other analysisWe also want to run some other analysis
+    We also want to run a robustness analysis
     """)
     return
 
