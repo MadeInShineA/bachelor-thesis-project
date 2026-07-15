@@ -465,7 +465,7 @@ def calculate_metrics(
             p_values = results["p_values"]
 
         image_path = os.path.join(plot_dir, f"{metric}.png")
-        metric_image = mo.image(src=image_path)
+        metric_image = mo.image(src=Path(image_path).read_bytes())
 
         if is_binary_target:
             plot_section = metric_image
@@ -992,7 +992,7 @@ def plot_pcs(
                 "num_edges": metadata["num_edges"],
             }
 
-            pc_image = mo.image(src=image_path)
+            pc_image = mo.image(src=Path(image_path).read_bytes())
             vmin = metadata["color_range"]["vmin"]
             vmax = metadata["color_range"]["vmax"]
             description_md = f"""
@@ -1087,7 +1087,7 @@ def plot_pcs(
             with open(json_path, "w") as f:
                 json.dump(metadata, f, indent=4)
 
-            pc_image = mo.image(src=image_path)
+            pc_image = mo.image(src=Path(image_path).read_bytes())
             description_md = f"#### Plot Description for PC {pc_idx + 1}\n- **No edges found** — this PC was not selected."
             pc_ui = mo.vstack(
                 [mo.md(description_md), pc_image, mo.md("---")], gap=2
@@ -1350,7 +1350,7 @@ def plot_pcs(
             json.dump(metadata, f, indent=4)
 
         plt.close(fig)
-        pc_image = mo.image(src=image_path)
+        pc_image = mo.image(src=Path(image_path).read_bytes())
 
         description_md = f"""
         #### Plot Description for PC {pc_idx + 1}
@@ -2439,7 +2439,7 @@ def compare_fc_matrices(
     # ------------------------------------------------------------------
     # 7. UI
     # ------------------------------------------------------------------
-    comparison_plot = mo.image(src=plot_path)
+    comparison_plot = mo.image(src=Path(plot_path).read_bytes())
 
     avg_corr = results["avg_correlation"]
     avg_mae = results["avg_mae"]
@@ -4415,12 +4415,8 @@ def _():
 
 @app.cell
 def _(srpb_fuzzy_metrics_ui_list, srpb_ui):
-    srpb_pc_metrics_comparison = []
-
-    for _run_idx, _srpb_fuzzy_metrics_ui_list in enumerate(
-        srpb_fuzzy_metrics_ui_list
-    ):
-        srpb_pc_metrics_comparison.append(
+    srpb_pc_metrics_comparison = mo.vstack(
+        [
             mo.vstack(
                 [
                     mo.md(
@@ -4430,11 +4426,17 @@ def _(srpb_fuzzy_metrics_ui_list, srpb_ui):
                         [
                             _srpb_fuzzy_metrics_ui_list,
                             srpb_ui,
-                        ]
+                        ],
+                        gap=2,
                     ),
                 ]
             )
-        )
+            for _run_idx, _srpb_fuzzy_metrics_ui_list in enumerate(
+                srpb_fuzzy_metrics_ui_list
+            )
+        ],
+        gap=3,
+    )
 
     srpb_pc_metrics_comparison
     return
@@ -4453,8 +4455,6 @@ def _(srpb_fuzzy_metrics_results_list):
     srpb_fuzzy_selected_mdd_pcs_list = list(
         map(lambda x: select_mdd_pc(x, ["bdi"]), srpb_fuzzy_metrics_results_list)
     )
-
-    srpb_fuzzy_selected_mdd_pcs_list
     return
 
 
@@ -4489,12 +4489,8 @@ def _(
 
 @app.cell
 def _(srpb_fuzzy_pc_plots_result_list, srpb_pc_plots_results):
-    srpb_pc_plots_result_comparison = []
-
-    for _run_idx, srpb_fuzzy_pc_plots_result in enumerate(
-        srpb_fuzzy_pc_plots_result_list
-    ):
-        srpb_pc_plots_result_comparison.append(
+    srpb_pc_plots_result_comparison = mo.vstack(
+        [
             mo.vstack(
                 [
                     mo.md(
@@ -4508,7 +4504,12 @@ def _(srpb_fuzzy_pc_plots_result_list, srpb_pc_plots_results):
                     ),
                 ]
             )
-        )
+            for _run_idx, srpb_fuzzy_pc_plots_result in enumerate(
+                srpb_fuzzy_pc_plots_result_list
+            )
+        ],
+        gap=3,
+    )
 
     srpb_pc_plots_result_comparison
     return
@@ -6912,12 +6913,8 @@ def _(
 
 @app.cell
 def _(bmb_fuzzy_metrics_ui_list, bmb_ui):
-    bmb_pc_metrics_comparison = []
-
-    for _run_idx, _bmb_fuzzy_metrics_ui_list in enumerate(
-        bmb_fuzzy_metrics_ui_list
-    ):
-        bmb_pc_metrics_comparison.append(
+    bmb_pc_metrics_comparison = mo.vstack(
+        [
             mo.vstack(
                 [
                     mo.md(
@@ -6927,11 +6924,17 @@ def _(bmb_fuzzy_metrics_ui_list, bmb_ui):
                         [
                             _bmb_fuzzy_metrics_ui_list,
                             bmb_ui,
-                        ]
+                        ],
+                        gap=2,
                     ),
                 ]
             )
-        )
+            for _run_idx, _bmb_fuzzy_metrics_ui_list in enumerate(
+                bmb_fuzzy_metrics_ui_list
+            )
+        ],
+        gap=3,
+    )
 
     bmb_pc_metrics_comparison
     return
@@ -6950,8 +6953,6 @@ def _(bmb_fuzzy_metrics_results_list):
     bmb_fuzzy_selected_mdd_pcs_list = list(
         map(lambda x: select_mdd_pc(x, ["bdi"]), bmb_fuzzy_metrics_results_list)
     )
-
-    bmb_fuzzy_selected_mdd_pcs_list
     return
 
 
@@ -6986,12 +6987,8 @@ def _(
 
 @app.cell
 def _(bmb_fuzzy_pc_plots_result_list, bmb_pc_plots_results):
-    bmb_pc_plots_result_comparison = []
-
-    for _run_idx, bmb_fuzzy_pc_plots_result in enumerate(
-        bmb_fuzzy_pc_plots_result_list
-    ):
-        bmb_pc_plots_result_comparison.append(
+    bmb_pc_plots_result_comparison = mo.vstack(
+        [
             mo.vstack(
                 [
                     mo.md(
@@ -7001,11 +6998,17 @@ def _(bmb_fuzzy_pc_plots_result_list, bmb_pc_plots_results):
                         [
                             bmb_fuzzy_pc_plots_result["ui_elements"][7.0],
                             bmb_pc_plots_results["ui_elements"][7.0],
-                        ]
+                        ],
+                        gap=2,
                     ),
                 ]
             )
-        )
+            for _run_idx, bmb_fuzzy_pc_plots_result in enumerate(
+                bmb_fuzzy_pc_plots_result_list
+            )
+        ],
+        gap=3,
+    )
 
     bmb_pc_plots_result_comparison
     return

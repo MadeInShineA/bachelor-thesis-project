@@ -42,7 +42,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "fmriprep-docker", specifier = "==25.2.5" },
-    { name = "h5py", specifier = ">=3.16.0" },
+    { name = "h5py", specifier = "==3.16.0" },
     { name = "marimo", specifier = "==0.23.8" },
     { name = "matplotlib", specifier = "==3.10.9" },
     { name = "networkx", specifier = "==3.6.1" },
