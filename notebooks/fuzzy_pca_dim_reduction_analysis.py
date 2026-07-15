@@ -16,7 +16,11 @@ with app.setup:
     import numpy as np
     import matplotlib.pyplot as plt
     import seaborn as sns
-    from pcafeat import select_pca_features, select_ttest_features
+    from pcafeat import (
+        select_pca_features,
+        select_ttest_features,
+        select_optimal_pcs,
+    )
     import scipy.io as sio
     from scipy.ndimage import center_of_mass
     from nilearn import plotting
@@ -275,22 +279,18 @@ def _():
 @app.function
 def calculate_features(
     target_str: str,
-    target_filters: Callable,
     harmonized_fc_matrices_df: pl.DataFrame,
     alpha_threshold: float,
+    n_pcs: int,
     plot_dir: str,
     ttest_dir,
     ttest_output_prefix: str,
 ) -> dict:
     harmonized_fc_matrices_pandas_df = harmonized_fc_matrices_df.to_pandas()
 
-    target_col = harmonized_fc_matrices_pandas_df[target_str]
+    target = harmonized_fc_matrices_pandas_df[target_str]
 
-    filtered_df = harmonized_fc_matrices_pandas_df[target_filters(target_col)]
-
-    target = filtered_df[target_str]
-
-    harmonized_fc_matrix_pandas_df = filtered_df[
+    harmonized_fc_matrix_pandas_df = harmonized_fc_matrices_pandas_df[
         "harmonized_fc_matrix"
     ].to_frame()
 
@@ -301,11 +301,13 @@ def calculate_features(
         index=harmonized_fc_matrix_pandas_df.index,
     )
 
-    (cons, cons_pc) = select_pca_features(
+    (cons, cons_pc, statistics) = select_pca_features(
         df_X_train=df_X_train,
         target=target,
+        n_pcs=n_pcs,
+        return_statistics=True,
+        alpha=alpha_threshold,
         method_pick_pca="fdr_bh",
-        pca_extract_multipletests_alpha=alpha_threshold,
         method_pick_con="fdr_bh",
         fig_dir=plot_dir,
         fig_plot=True,
@@ -327,6 +329,7 @@ def calculate_features(
         return {
             "cons": cons,
             "cons_pc": cons_pc,
+            "statistics": statistics,
             "selected_indices": selected_indices,
             "t_statistics": t_statistics,
             "p_values": p_values,
@@ -336,6 +339,7 @@ def calculate_features(
         return {
             "cons": cons,
             "cons_pc": cons_pc,
+            "statistics": statistics,
         }
 
 
@@ -422,19 +426,18 @@ def calculate_metrics(
     df: pd.DataFrame,
     metric_dict: dict[str, dict],
     alpha_threshold: float,
+    n_pcs: int,
+    noise_max_weight: float,
+    noise_sum_weight:float,
     plot_dir: str,
     ttest_dir: str,
     cache_dir: str,
 ) -> dict:
-
     os.makedirs(cache_dir, exist_ok=True)
-
     res = {"results": {}}
     ui_elements = []
-
     for metric, config in metric_dict.items():
         cache_path = os.path.join(cache_dir, f"{metric}_results.pkl")
-
         if os.path.exists(cache_path):
             print(f"Loading cached results for metric: {metric}")
             with open(cache_path, "rb") as f:
@@ -443,45 +446,26 @@ def calculate_metrics(
             print(f"Calculating and caching results for metric: {metric}")
             results = calculate_features(
                 target_str=metric,
-                target_filters=config["filter_function"],
                 harmonized_fc_matrices_df=df,
                 alpha_threshold=alpha_threshold,
+                n_pcs=n_pcs,
                 plot_dir=plot_dir,
                 ttest_dir=ttest_dir,
                 ttest_output_prefix=config["prefix"],
             )
-
             with open(cache_path, "wb") as f:
                 pickle.dump(results, f)
-
         cons = results.get("cons")
         cons_pc = results.get("cons_pc")
-
+        statistics = results.get("statistics")
         is_binary_target = "p_values" in results
-
         if is_binary_target:
             selected_indices = results["selected_indices"]
             t_statistics = results["t_statistics"]
             p_values = results["p_values"]
-
         image_path = os.path.join(plot_dir, f"{metric}.png")
         metric_image = mo.image(src=Path(image_path).read_bytes())
-
-        if is_binary_target:
-            plot_section = metric_image
-            """
-            p_value_plot = plot_p_values(p_values, metric_name=metric)
-            plot_section = mo.hstack(
-                [metric_image, p_value_plot],
-                justify="center",
-                align="center",
-                gap=2,
-                widths=[1, 2],
-            )
-            """
-        else:
-            plot_section = metric_image
-
+        plot_section = metric_image
         metric_ui = mo.vstack(
             [
                 mo.md(f"#### Results for metric: `{metric}`"),
@@ -489,15 +473,13 @@ def calculate_metrics(
                 mo.md("---"),
             ]
         )
-
         ui_elements.append(metric_ui)
-
         res["results"][metric] = {
             "cons": cons,
             "cons_pc": cons_pc,
+            "statistics": statistics,
             "is_binary_target": is_binary_target,
         }
-
         if is_binary_target:
             res["results"][metric].update(
                 {
@@ -506,7 +488,27 @@ def calculate_metrics(
                     "p_values": p_values,
                 }
             )
-
+    target_stats = {
+        metric: r["statistics"]
+        for metric, r in res["results"].items()
+        if metric_dict[metric].get("kind", "target") == "target"
+    }
+    noise_stats = {
+        metric: r["statistics"]
+        for metric, r in res["results"].items()
+        if metric_dict[metric].get("kind", "target") == "noise"
+    }
+    selected_pcs, info = select_optimal_pcs(
+        target_stats=target_stats,
+        noise_stats=noise_stats if noise_stats else None,
+        n_pcs=n_pcs,
+        target_mode="sum",
+        noise_mode="combined",
+        noise_max_weight=noise_max_weight,
+        noise_sum_weight=noise_sum_weight,
+    )
+    res["selected_pcs"] = selected_pcs
+    res["optimal_pc_info"] = info
     res["ui"] = mo.vstack(ui_elements, gap=3)
     return res
 
@@ -555,40 +557,48 @@ def _():
     metric_dict = {
         "diag": {
             "prefix": "ttest_diag",
-            "filter_function": lambda target_col: (
-                (target_col != -1000) & pd.notna(target_col)
-            ),
         },
         "bdi": {
             "prefix": "ttest_bdi",
-            "filter_function": lambda target_col: (
-                (target_col != -1000) & pd.notna(target_col)
-            ),
         },
         "age": {
             "prefix": "ttest_age",
-            "filter_function": lambda target_col: (
-                (target_col != -1000) & pd.notna(target_col)
-            ),
         },
         "sex": {
             "prefix": "ttest_sex",
-            "filter_function": lambda target_col: (
-                (target_col != -1000) & pd.notna(target_col)
-            ),
         },
         "site": {
             "prefix": "ttest_site",
-            "filter_function": lambda target_col: pd.notna(target_col),
         },
         "meanFD": {
             "prefix": "ttest_meanFD",
-            "filter_function": lambda target_col: pd.notna(target_col),
         },
     }
 
     metric_dict
     return (metric_dict,)
+
+
+@app.function
+def global_filter(df: pl.DataFrame):
+    return df.filter(
+        (df["diag"] != -1000)
+        & df["diag"].is_not_null()
+        & (df["bdi"] != -1000)
+        & df["bdi"].is_not_null()
+        & (df["age"] != -1000)
+        & df["age"].is_not_null()
+        & (df["sex"] != -1000)
+        & df["sex"].is_not_null()
+        & df["site"].is_not_null()
+        & df["meanFD"].is_not_null()
+    )
+
+
+@app.cell
+def _(harmonized_srpb_fc_matrices_hc_mdd_df):
+    harmonized_srpb_fc_matrices_hc_mdd_df.head()
+    return
 
 
 @app.cell
@@ -600,17 +610,27 @@ def _(
     srpb_ttest_dir,
 ):
     srpb_metrics_dict = calculate_metrics(
-        df=harmonized_srpb_fc_matrices_hc_mdd_df,
+        df=global_filter(harmonized_srpb_fc_matrices_hc_mdd_df),
         metric_dict=metric_dict,
         alpha_threshold=0.05,
+        n_pcs=5,
+        noise_max_weight=0.7,
+        noise_sum_weight=0.3,
         plot_dir=srpb_plot_dir,
         ttest_dir=srpb_ttest_dir,
         cache_dir=srpb_cache_dir,
     )
 
     srpb_results = srpb_metrics_dict["results"]
+    srpb_selected_pcs = srpb_metrics_dict["selected_pcs"]
     srpb_ui = srpb_metrics_dict["ui"]
-    return srpb_results, srpb_ui
+    return srpb_metrics_dict, srpb_results, srpb_selected_pcs, srpb_ui
+
+
+@app.cell
+def _(srpb_selected_pcs):
+    srpb_selected_pcs
+    return
 
 
 @app.cell
@@ -1676,19 +1696,30 @@ def _(
     bmb_ttest_dir,
     harmonized_bmb_fc_matrices_hc_mdd_df,
     metric_dict,
+    srpb_metrics_dict,
 ):
     bmb_metrics_dict = calculate_metrics(
-        df=harmonized_bmb_fc_matrices_hc_mdd_df,
+        df=global_filter(harmonized_bmb_fc_matrices_hc_mdd_df),
         metric_dict=metric_dict,
         alpha_threshold=0.05,
         plot_dir=bmb_plot_dir,
+        n_pcs=5,
+        noise_max_weight=0.7,
+        noise_sum_weight=0.3,
         ttest_dir=bmb_ttest_dir,
         cache_dir=bmb_cache_dir,
     )
 
     bmb_results = bmb_metrics_dict["results"]
+    bmb_selected_pcs = srpb_metrics_dict["selected_pcs"]
     bmb_ui = bmb_metrics_dict["ui"]
-    return bmb_results, bmb_ui
+    return bmb_results, bmb_selected_pcs, bmb_ui
+
+
+@app.cell
+def _(bmb_selected_pcs):
+    bmb_selected_pcs
+    return
 
 
 @app.cell
@@ -4382,6 +4413,7 @@ def _(
     srpb_fuzzy_ttest_dir,
 ):
     srpb_fuzzy_metrics_results_list = []
+    srpb_fuzzy_selected_pcs = []
     srpb_fuzzy_metrics_ui_list = []
 
 
@@ -4392,15 +4424,21 @@ def _(
         print(f"Calculating metris for run {_run_idx}")
 
         srpb_fuzy_metrics_dict = calculate_metrics(
-            df=srpb_fuzzy_extracted_harmonized_fc_matrices_hc_mdd_df,
+            df=global_filter(
+                srpb_fuzzy_extracted_harmonized_fc_matrices_hc_mdd_df
+            ),
             metric_dict=metric_dict,
             alpha_threshold=0.05,
+            n_pcs=5,
+            noise_max_weight=0.7,
+            noise_sum_weight=0.3,
             plot_dir=srpb_fuzzy_plot_dir + f"/run-{_run_idx}/",
             ttest_dir=srpb_fuzzy_ttest_dir + f"/run-{_run_idx}/",
             cache_dir=srpb_fuzzy_cache_dir + f"/run-{_run_idx}/",
         )
 
         srpb_fuzzy_metrics_results_list.append(srpb_fuzy_metrics_dict["results"])
+        srpb_fuzzy_selected_pcs.append(srpb_fuzy_metrics_dict["selected_pcs"])
         srpb_fuzzy_metrics_ui_list.append(srpb_fuzy_metrics_dict["ui"])
     return srpb_fuzzy_metrics_results_list, srpb_fuzzy_metrics_ui_list
 
@@ -6888,6 +6926,7 @@ def _(
     metric_dict,
 ):
     bmb_fuzzy_metrics_results_list = []
+    bmb_fuzzy_selected_pcs = []
     bmb_fuzzy_metrics_ui_list = []
 
 
@@ -6898,15 +6937,19 @@ def _(
         print(f"Calculating metrics for run {_run_idx}")
 
         bmb_fuzy_metrics_dict = calculate_metrics(
-            df=bmb_fuzzy_extracted_harmonized_fc_matrices_hc_mdd_df,
+            df=global_filter(bmb_fuzzy_extracted_harmonized_fc_matrices_hc_mdd_df),
             metric_dict=metric_dict,
             alpha_threshold=0.05,
+            n_pcs=5,
+            noise_max_weight=0.7,
+            noise_sum_weight=0.3,
             plot_dir=bmb_fuzzy_plot_dir + f"/run-{_run_idx}/",
             ttest_dir=bmb_fuzzy_ttest_dir + f"/run-{_run_idx}/",
             cache_dir=bmb_fuzzy_cache_dir + f"/run-{_run_idx}/",
         )
 
         bmb_fuzzy_metrics_results_list.append(bmb_fuzy_metrics_dict["results"])
+        bmb_fuzzy_selected_pcs.append(bmb_fuzy_metrics_dict["selected_pcs"])
         bmb_fuzzy_metrics_ui_list.append(bmb_fuzy_metrics_dict["ui"])
     return bmb_fuzzy_metrics_results_list, bmb_fuzzy_metrics_ui_list
 
