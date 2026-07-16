@@ -25,9 +25,12 @@
           packages = with pkgs; [
             uv
             python314
+            ruff
 
             awscli2
             nushell
+
+            codebook
           ];
 
           env.LD_LIBRARY_PATH = with pkgs; lib.makeLibraryPath [
