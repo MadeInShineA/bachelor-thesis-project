@@ -287,21 +287,16 @@ def calculate_features(
     ttest_output_prefix: str,
 ) -> dict:
     harmonized_fc_matrices_pandas_df = harmonized_fc_matrices_df.to_pandas()
-
     target = harmonized_fc_matrices_pandas_df[target_str]
-
     harmonized_fc_matrix_pandas_df = harmonized_fc_matrices_pandas_df[
         "harmonized_fc_matrix"
     ].to_frame()
-
     col_name = harmonized_fc_matrix_pandas_df.columns[0]
-
     df_X_train = pd.DataFrame(
         harmonized_fc_matrix_pandas_df[col_name].tolist(),
         index=harmonized_fc_matrix_pandas_df.index,
     )
-
-    (cons, cons_pc, statistics) = select_pca_features(
+    cons, cons_pc, statistics = select_pca_features(
         df_X_train=df_X_train,
         target=target,
         n_pcs=n_pcs,
@@ -312,34 +307,40 @@ def calculate_features(
         fig_dir=plot_dir,
         fig_plot=True,
     )
-
+    top_pc_indices = np.argsort(np.abs(statistics))[::-1][:n_pcs]
+    top_scores = np.abs(statistics[top_pc_indices])
+    max_score = top_scores.max()
+    if max_score > 0:
+        normalized_scores = top_scores / max_score
+    else:
+        normalized_scores = top_scores
+    selected_pcs_with_scores = [
+        (int(pc), float(score))
+        for pc, score in zip(top_pc_indices, normalized_scores)
+    ]
     if target.nunique() == 2:
-        (
-            selected_indices,
-            t_statistics,
-            p_values,
-        ) = select_ttest_features(
+        selected_indices, t_statistics, p_values = select_ttest_features(
             df_X_train=df_X_train,
             target=target,
             output_dir=ttest_dir,
             output_prefix=ttest_output_prefix,
             save_results=True,
         )
-
         return {
             "cons": cons,
             "cons_pc": cons_pc,
             "statistics": statistics,
+            "selected_pcs_with_scores": selected_pcs_with_scores,
             "selected_indices": selected_indices,
             "t_statistics": t_statistics,
             "p_values": p_values,
         }
-
     else:
         return {
             "cons": cons,
             "cons_pc": cons_pc,
             "statistics": statistics,
+            "selected_pcs_with_scores": selected_pcs_with_scores,
         }
 
 
@@ -427,8 +428,6 @@ def calculate_metrics(
     metric_dict: dict[str, dict],
     alpha_threshold: float,
     n_pcs: int,
-    noise_max_weight: float,
-    noise_sum_weight:float,
     plot_dir: str,
     ttest_dir: str,
     cache_dir: str,
@@ -458,6 +457,7 @@ def calculate_metrics(
         cons = results.get("cons")
         cons_pc = results.get("cons_pc")
         statistics = results.get("statistics")
+        selected_pcs_with_scores = results.get("selected_pcs_with_scores")
         is_binary_target = "p_values" in results
         if is_binary_target:
             selected_indices = results["selected_indices"]
@@ -478,6 +478,7 @@ def calculate_metrics(
             "cons": cons,
             "cons_pc": cons_pc,
             "statistics": statistics,
+            "selected_pcs_with_scores": selected_pcs_with_scores,
             "is_binary_target": is_binary_target,
         }
         if is_binary_target:
@@ -488,24 +489,25 @@ def calculate_metrics(
                     "p_values": p_values,
                 }
             )
-    target_stats = {
-        metric: r["statistics"]
-        for metric, r in res["results"].items()
-        if metric_dict[metric].get("kind", "target") == "target"
-    }
-    noise_stats = {
-        metric: r["statistics"]
-        for metric, r in res["results"].items()
-        if metric_dict[metric].get("kind", "target") == "noise"
-    }
+    # Build lists for select_optimal_pcs
+    target_pcs_lists = []
+    primary_target_pcs_lists = []
+    noise_pcs_lists = []
+    for metric, r in res["results"].items():
+        kind = metric_dict[metric].get("kind", "target")
+        if kind == "target":
+            # Always add to target scoring
+            target_pcs_lists.append(r["selected_pcs_with_scores"])
+            # If primary, also restrict the candidate pool
+            if metric_dict[metric].get("primary", False):
+                primary_target_pcs_lists.append(r["selected_pcs_with_scores"])
+        elif kind == "noise":
+            noise_pcs_lists.append(r["selected_pcs_with_scores"])
     selected_pcs, info = select_optimal_pcs(
-        target_stats=target_stats,
-        noise_stats=noise_stats if noise_stats else None,
+        target_pcs_lists,
+        noise_pcs_lists,
         n_pcs=n_pcs,
-        target_mode="sum",
-        noise_mode="combined",
-        noise_max_weight=noise_max_weight,
-        noise_sum_weight=noise_sum_weight,
+        primary_target_pcs_lists=primary_target_pcs_lists,
     )
     res["selected_pcs"] = selected_pcs
     res["optimal_pc_info"] = info
@@ -557,30 +559,36 @@ def _():
     metric_dict = {
         "diag": {
             "prefix": "ttest_diag",
+            "kind": "target",
+            "primary": True,
         },
         "bdi": {
             "prefix": "ttest_bdi",
+            "kind": "target",
+            "primary": False,
         },
         "age": {
             "prefix": "ttest_age",
+            "kind": "noise",
         },
         "sex": {
             "prefix": "ttest_sex",
+            "kind": "noise",
         },
         "site": {
             "prefix": "ttest_site",
+            "kind": "noise",
         },
         "meanFD": {
             "prefix": "ttest_meanFD",
+            "kind": "noise",
         },
     }
-
-    metric_dict
     return (metric_dict,)
 
 
 @app.function
-def global_filter(df: pl.DataFrame):
+def srpb_filter(df: pl.DataFrame):
     return df.filter(
         (df["diag"] != -1000)
         & df["diag"].is_not_null()
@@ -610,12 +618,10 @@ def _(
     srpb_ttest_dir,
 ):
     srpb_metrics_dict = calculate_metrics(
-        df=global_filter(harmonized_srpb_fc_matrices_hc_mdd_df),
+        df=srpb_filter(harmonized_srpb_fc_matrices_hc_mdd_df),
         metric_dict=metric_dict,
         alpha_threshold=0.05,
         n_pcs=5,
-        noise_max_weight=0.7,
-        noise_sum_weight=0.3,
         plot_dir=srpb_plot_dir,
         ttest_dir=srpb_ttest_dir,
         cache_dir=srpb_cache_dir,
@@ -624,7 +630,7 @@ def _(
     srpb_results = srpb_metrics_dict["results"]
     srpb_selected_pcs = srpb_metrics_dict["selected_pcs"]
     srpb_ui = srpb_metrics_dict["ui"]
-    return srpb_metrics_dict, srpb_results, srpb_selected_pcs, srpb_ui
+    return srpb_results, srpb_selected_pcs, srpb_ui
 
 
 @app.cell
@@ -1690,28 +1696,49 @@ def _():
 
 
 @app.cell
+def _(harmonized_bmb_fc_matrices_hc_mdd_df):
+    print(harmonized_bmb_fc_matrices_hc_mdd_df.columns)
+    return
+
+
+@app.function
+def bmb_filter(df: pl.DataFrame) -> pl.DataFrame:
+    return df.filter(
+        (df["diag"] != -1000)
+        & df["diag"].is_not_null()
+        & (df["bdi"] != -1000)
+        & df["bdi"].is_not_null()
+        & (df["age"] != -1000)
+        & df["age"].is_not_null()
+        & (df["sex"] != -1000)
+        & df["sex"].is_not_null()
+        & df["site"].is_not_null()
+        & df["meanFD"].is_not_null()
+        & (df["visit"] == 1)
+        & (df["session"] == 1)
+    )
+
+
+@app.cell
 def _(
     bmb_cache_dir,
     bmb_plot_dir,
     bmb_ttest_dir,
     harmonized_bmb_fc_matrices_hc_mdd_df,
     metric_dict,
-    srpb_metrics_dict,
 ):
     bmb_metrics_dict = calculate_metrics(
-        df=global_filter(harmonized_bmb_fc_matrices_hc_mdd_df),
+        df=bmb_filter(harmonized_bmb_fc_matrices_hc_mdd_df),
         metric_dict=metric_dict,
         alpha_threshold=0.05,
-        plot_dir=bmb_plot_dir,
         n_pcs=5,
-        noise_max_weight=0.7,
-        noise_sum_weight=0.3,
+        plot_dir=bmb_plot_dir,
         ttest_dir=bmb_ttest_dir,
         cache_dir=bmb_cache_dir,
     )
 
     bmb_results = bmb_metrics_dict["results"]
-    bmb_selected_pcs = srpb_metrics_dict["selected_pcs"]
+    bmb_selected_pcs = bmb_metrics_dict["selected_pcs"]
     bmb_ui = bmb_metrics_dict["ui"]
     return bmb_results, bmb_selected_pcs, bmb_ui
 
@@ -1752,7 +1779,7 @@ def _(
     harmonized_bmb_fc_matrices_hc_mdd_df,
     network_assignments,
 ):
-    bmb_target_pcs_to_plot = [1.0, 7.0, 60.0]
+    bmb_target_pcs_to_plot = [1.0]
 
     bmb_pc_plots_results = plot_pcs(
         results=bmb_results,
@@ -3551,9 +3578,9 @@ def _(Dict, get_dummy_values_and_labels, p, stack_np_array_by_common_columns):
 def harmonize_connectivity(
     bias_dictionnary: dict,
     connectivity: np.ndarray,
-    subjects_metadata_dataframe: pd.DataFrame,
+    subjects_metadata_dataframe: pl.DataFrame,
     output_path: Path,
-    ids_to_remove=[],
+    subjects_to_remove_df=None,
     dataset: str = "BMB",
     roi: str = "Glasser",
     gsr_flag: bool = True,
@@ -3561,11 +3588,8 @@ def harmonize_connectivity(
     prot_flag: bool = True,
     harm_type: str = "ts",
 ):
-
-    # Make sure the output path exists
     output_path.mkdir(parents=True, exist_ok=True)
 
-    # Assign the different file names
     out_mat_file_name = f"all_data_con_{roi}_GSR{int(gsr_flag)}_ortho{int(ortho_flag)}_harmonized.mat"
     subjects_metadata_file_name = f"all_data_sub_{roi}_GSR{int(gsr_flag)}.csv"
     site_column = "site"
@@ -3574,227 +3598,135 @@ def harmonize_connectivity(
         print(
             f"The harmonization output file already exists at: {output_path / out_mat_file_name}"
         )
-        with h5py.File(f"{output_path}/{out_mat_file_name}", "r") as f:
-            connectivity_corrected = f["X"][:]
-        return connectivity_corrected
+        with h5py.File(output_path / out_mat_file_name, "r") as f:
+            return f["X"][:]
 
-    """
-    # Exclude the FC with NaN or inf values
-    valid_data_mask = ~(
-        np.isnan(connectivity).any(axis=1) | np.isinf(connectivity).any(axis=1)
-    )
-    connectivity = connectivity[valid_data_mask]
-    """
-
-    # Exclude the subjects with id in the ids_to_remove
-    valid_id_mask = ~subjects_metadata_dataframe["sub_id"].isin(ids_to_remove)
-    subjects_metadata_dataframe_filtered = subjects_metadata_dataframe[
-        valid_id_mask
-    ].reset_index(drop=True)
-
-    assert subjects_metadata_dataframe_filtered.shape != connectivity.shape
-
-    # If we want to do TS harmonization
-    if harm_type == "ts":
-        connectivity_corrected = connectivity.copy()
-        subjects_metadata_dataframe_filtered["ts_harmonize"] = 0
-
-        if dataset == "BMB":
-            # Set the ts_weight, tau and lambda values to retrieve the correct file
-            if ortho_flag == 1:
-                if gsr_flag == 1:
-                    if roi == "Glasser":
-                        optimal_ts_weight, optimal_tau, optimal_lambda = (
-                            1.0,
-                            0.18,
-                            5.6,
-                        )
-                    elif roi == "HCP_MMP":
-                        optimal_ts_weight, optimal_tau, optimal_lambda = (
-                            1.0,
-                            0.18,
-                            5.2,
-                        )
-                elif gsr_flag == 0:
-                    optimal_ts_weight, optimal_tau, optimal_lambda = (
-                        1.0,
-                        0.2,
-                        5.0,
-                    )
-            elif ortho_flag == 0:
-                if gsr_flag == 1:
-                    optimal_ts_weight, optimal_tau, optimal_lambda = (
-                        1.0,
-                        0.14,
-                        5.3,
-                    )
-                elif gsr_flag == 0:
-                    optimal_ts_weight, optimal_tau, optimal_lambda = (
-                        1.0,
-                        0.14,
-                        5.3,
-                    )
-                optimal_ts_weight, optimal_tau, optimal_lambda = 1.0, 0.14, 5.3
-
-            # Load the bias from the correct file
-            bias = bias_dictionnary["solution_matrix"]
-            dummy_labels = bias_dictionnary["dummy_labels"]
-
-            dummy_labels_flatten = np.array(dummy_labels).flatten().astype(str)
-            dummy_labels_flatten = np.append(dummy_labels_flatten, "const")
-
-            # Verify alignment
-            assert len(dummy_labels_flatten) == bias.shape[0], (
-                f"Label count ({len(dummy_labels_flatten)}) doesn't match bias rows ({bias.shape[0]})"
-            )
-
-            print(f"Available labels: {dummy_labels_flatten}")
-
-            # Harmonize the different sites
-            site_info = subjects_metadata_dataframe_filtered[
-                "participants_id"
-            ].str[:3]
-
-            # Add the site column to the metadata dataframe FIRST
-            subjects_metadata_dataframe_filtered["site"] = site_info
-
-            for site_i in np.unique(site_info):
-                print(f"Harmonize {site_i}")
-                use_sub_index = np.where(
-                    subjects_metadata_dataframe_filtered[site_column] == site_i
-                )[0]
-
-                if np.any(dummy_labels_flatten == site_i):
-                    connectivity_corrected[use_sub_index, :] = (
-                        connectivity_corrected[use_sub_index, :]
-                        - bias[dummy_labels_flatten == site_i, :]
-                    )
-                    subjects_metadata_dataframe_filtered.loc[
-                        use_sub_index, "ts_harmonize"
-                    ] = 1
-                else:
-                    print(
-                        f"WARNING: '{site_i}' not found in labels - skipping"
-                    )
-
-            # Harmonize the different protocols
-            if prot_flag:
-                for protocol_i in np.unique(
-                    subjects_metadata_dataframe_filtered.protocol
-                ):
-                    print(f"Harmonize {protocol_i}")
-                    use_sub_index = np.where(
-                        (
-                            subjects_metadata_dataframe_filtered.protocol
-                            == protocol_i
-                        )
-                        & (
-                            subjects_metadata_dataframe_filtered.ts_harmonize
-                            == 1
-                        )
-                    )[0]
-
-                    if np.any(dummy_labels_flatten == protocol_i):
-                        connectivity_corrected[use_sub_index, :] = (
-                            connectivity_corrected[use_sub_index, :]
-                            - bias[dummy_labels_flatten == protocol_i, :]
-                        )
-                    else:
-                        print(
-                            f"WARNING: '{protocol_i}' not found in labels - skipping"
-                        )
-
-        # We now do the same for the SRPB dataset
-        elif dataset == "SRPB":
-            # Set the ts_weight, tau and lambda values to retrieve the correct file
-            if ortho_flag == 1:
-                if gsr_flag == 1:
-                    if roi == "Glasser":
-                        optimal_ts_weight, optimal_tau, optimal_lambda = (
-                            1.0,
-                            0.16,
-                            6.8,
-                        )
-                    elif roi == "HCP_MMP":
-                        optimal_ts_weight, optimal_tau, optimal_lambda = (
-                            1.0,
-                            0.16,
-                            6.3,
-                        )
-                elif gsr_flag == 0:
-                    optimal_ts_weight, optimal_tau, optimal_lambda = (
-                        1.0,
-                        0.22,
-                        6.1,
-                    )
-            elif ortho_flag == 0:
-                if gsr_flag == 1:
-                    optimal_ts_weight, optimal_tau, optimal_lambda = (
-                        1.0,
-                        0.46,
-                        5.7,
-                    )
-                elif gsr_flag == 0:
-                    optimal_ts_weight, optimal_tau, optimal_lambda = (
-                        1.0,
-                        0.46,
-                        5.7,
-                    )
-
-            # Load the bias from the correct file
-            bias = bias_dictionnary["solution_matrix"]
-            dummy_labels = bias_dictionnary["dummy_labels"]
-
-            dummy_labels_flatten = np.array(dummy_labels).flatten().astype(str)
-
-            dummy_labels_flatten = np.append(dummy_labels_flatten, "const")
-
-            # Verify alignment
-            assert len(dummy_labels_flatten) == bias.shape[0], (
-                f"Label count ({len(dummy_labels_flatten)}) doesn't match bias rows ({bias.shape[0]})"
-            )
-
-            print(f"Available labels: {dummy_labels_flatten}")
-
-            # Select the sites to harmonize
-            use_harmonize_site = ["SWA", "COI", "UTO", "KUT"]
-
-            for site_i in use_harmonize_site:
-                print(f"{dataset}: Harmonizing in {site_i}")
-                use_sub_index = np.where(
-                    subjects_metadata_dataframe_filtered[site_column] == site_i
-                )[0]
-
-                if np.any(dummy_labels_flatten == site_i):
-                    connectivity_corrected[use_sub_index, :] = (
-                        connectivity_corrected[use_sub_index, :]
-                        - bias[dummy_labels_flatten == site_i, :]
-                    )
-                    subjects_metadata_dataframe_filtered.loc[
-                        use_sub_index, "ts_harmonize"
-                    ] = 1
-                else:
-                    print(
-                        f"WARNING: '{site_i}' not found in labels - skipping"
-                    )
-
-        print("Finished traveling subject harmonization!!")
-
-        # Save the corrected fc values
-        with h5py.File(f"{output_path}/{out_mat_file_name}", "w") as f:
-            f.create_dataset("X", data=connectivity_corrected)
-
-        # Save the harmonized metadata
-        subjects_metadata_dataframe_filtered.reset_index(drop=True).to_csv(
-            f"{output_path}/{subjects_metadata_file_name}", index=False
-        )
-
-        return connectivity_corrected
-
-    elif harm_type == "ComBat":
+    if harm_type != "ts":
         raise ValueError(
             "The harmonization can only be done for the ts harm type"
         )
+
+    if subjects_to_remove_df is not None and subjects_to_remove_df.height > 0:
+        subjects_metadata_dataframe_filtered = (
+            subjects_metadata_dataframe.join(
+                subjects_to_remove_df,
+                on=["participants_id", "session"],
+                how="anti",
+            )
+        )
+    else:
+        subjects_metadata_dataframe_filtered = subjects_metadata_dataframe
+
+    assert (
+        subjects_metadata_dataframe_filtered.height == connectivity.shape[0]
+    ), (
+        f"Metadata rows ({subjects_metadata_dataframe_filtered.height}) don't match "
+        f"connectivity subjects ({connectivity.shape[0]})"
+    )
+
+    connectivity_corrected = connectivity.copy()
+    subjects_metadata_dataframe_filtered = (
+        subjects_metadata_dataframe_filtered.with_columns(
+            pl.lit(0).alias("ts_harmonize")
+        )
+    )
+
+    bias = bias_dictionnary["solution_matrix"]
+    dummy_labels = bias_dictionnary["dummy_labels"]
+
+    dummy_labels_flatten = np.array(dummy_labels).flatten().astype(str)
+    dummy_labels_flatten = np.append(dummy_labels_flatten, "const")
+
+    assert len(dummy_labels_flatten) == bias.shape[0], (
+        f"Label count ({len(dummy_labels_flatten)}) doesn't match bias rows ({bias.shape[0]})"
+    )
+    print(f"Available labels: {dummy_labels_flatten}")
+
+    if dataset == "BMB":
+        subjects_metadata_dataframe_filtered = (
+            subjects_metadata_dataframe_filtered.with_columns(
+                pl.col("participants_id").str.slice(0, 3).alias("site")
+            )
+        )
+        sites_to_harmonize = np.unique(
+            subjects_metadata_dataframe_filtered[site_column]
+        )
+    elif dataset == "SRPB":
+        sites_to_harmonize = ["SWA", "COI", "UTO", "KUT"]
+    else:
+        raise ValueError(f"Unknown dataset: {dataset}")
+
+    for site_i in sites_to_harmonize:
+        print(f"{dataset}: Harmonizing in {site_i}")
+        use_sub_index = np.where(
+            subjects_metadata_dataframe_filtered[site_column] == site_i
+        )[0]
+
+        if np.any(dummy_labels_flatten == site_i):
+            connectivity_corrected[use_sub_index, :] = (
+                connectivity_corrected[use_sub_index, :]
+                - bias[dummy_labels_flatten == site_i, :]
+            )
+            ts_harmonize = (
+                subjects_metadata_dataframe_filtered["ts_harmonize"]
+                .to_numpy()
+                .copy()
+            )
+            ts_harmonize[use_sub_index] = 1
+            subjects_metadata_dataframe_filtered = (
+                subjects_metadata_dataframe_filtered.with_columns(
+                    pl.Series("ts_harmonize", ts_harmonize)
+                )
+            )
+        else:
+            print(f"WARNING: '{site_i}' not found in labels - skipping")
+
+    if dataset == "BMB" and prot_flag:
+        for protocol_i in np.unique(
+            subjects_metadata_dataframe_filtered["protocol"]
+        ):
+            print(f"Harmonize {protocol_i}")
+            use_sub_index = np.where(
+                (
+                    subjects_metadata_dataframe_filtered["protocol"]
+                    == protocol_i
+                )
+                & (subjects_metadata_dataframe_filtered["ts_harmonize"] == 1)
+            )[0]
+
+            if np.any(dummy_labels_flatten == protocol_i):
+                connectivity_corrected[use_sub_index, :] = (
+                    connectivity_corrected[use_sub_index, :]
+                    - bias[dummy_labels_flatten == protocol_i, :]
+                )
+            else:
+                print(
+                    f"WARNING: '{protocol_i}' not found in labels - skipping"
+                )
+
+    print("Finished traveling subject harmonization!!")
+
+    with h5py.File(output_path / out_mat_file_name, "w") as f:
+        f.create_dataset("X", data=connectivity_corrected)
+
+    metadata_for_csv = subjects_metadata_dataframe_filtered.select(
+        pl.col(pl.Utf8),
+        pl.col(pl.Int8),
+        pl.col(pl.Int16),
+        pl.col(pl.Int32),
+        pl.col(pl.Int64),
+        pl.col(pl.UInt8),
+        pl.col(pl.UInt16),
+        pl.col(pl.UInt32),
+        pl.col(pl.UInt64),
+        pl.col(pl.Float32),
+        pl.col(pl.Float64),
+        pl.col(pl.Boolean),
+    )
+
+    metadata_for_csv.write_csv(output_path / subjects_metadata_file_name)
+
+    return connectivity_corrected
 
 
 @app.cell(hide_code=True)
@@ -3876,10 +3808,8 @@ def _(
 ):
     srpb_extracted_harmonized_fc_matrices = harmonize_connectivity(
         bias_dictionnary=srpb_bias_dict,
-        connectivity=np.stack(
-            srpb_extracted_fc_matrices_df["fc_matrix"].to_numpy(), axis=0
-        ),
-        subjects_metadata_dataframe=srpb_extracted_fc_matrices_df.to_pandas(),
+        connectivity=np.stack(srpb_extracted_fc_matrices_df["fc_matrix"], axis=0),
+        subjects_metadata_dataframe=srpb_extracted_fc_matrices_df,
         dataset="SRPB",
         output_path=srpb_harmonized_regular_fc_matrices_output_dir,
     )
@@ -4183,8 +4113,7 @@ def run_fuzzy_extraction_runs(
                     ]
 
                     for future in tqdm(
-                        as_completed(futures),
-                        total=len(futures),
+                        futures,
                         desc="Processing subjects",
                     ):
                         results.append(future.result())
@@ -4310,7 +4239,7 @@ def _(
         srpb_fuzzy_extracted_bias_dict = estimate_bias(
             output_dir_path=srpb_fc_matrices_bias_output_dir / f"run-{_run_idx}",
             rs_connectivity=np.stack(
-                srpb_extracted_fc_matrices_df["fc_matrix"].to_numpy(), axis=1
+                srpb_extracted_fc_matrices_df["fc_matrix"], axis=1
             ),
             dataset="SRPB",
         )
@@ -4424,14 +4353,10 @@ def _(
         print(f"Calculating metris for run {_run_idx}")
 
         srpb_fuzy_metrics_dict = calculate_metrics(
-            df=global_filter(
-                srpb_fuzzy_extracted_harmonized_fc_matrices_hc_mdd_df
-            ),
+            df=srpb_filter(srpb_fuzzy_extracted_harmonized_fc_matrices_hc_mdd_df),
             metric_dict=metric_dict,
             alpha_threshold=0.05,
             n_pcs=5,
-            noise_max_weight=0.7,
-            noise_sum_weight=0.3,
             plot_dir=srpb_fuzzy_plot_dir + f"/run-{_run_idx}/",
             ttest_dir=srpb_fuzzy_ttest_dir + f"/run-{_run_idx}/",
             cache_dir=srpb_fuzzy_cache_dir + f"/run-{_run_idx}/",
@@ -4490,9 +4415,15 @@ def _():
 
 @app.cell
 def _(srpb_fuzzy_metrics_results_list):
-    srpb_fuzzy_selected_mdd_pcs_list = list(
-        map(lambda x: select_mdd_pc(x, ["bdi"]), srpb_fuzzy_metrics_results_list)
+    srpb_fuzzy_top_pc = list(
+        map(lambda x: x["diag"]["selected_pcs_with_scores"][0][0], srpb_fuzzy_metrics_results_list)
     )
+    return (srpb_fuzzy_top_pc,)
+
+
+@app.cell
+def _(srpb_fuzzy_top_pc):
+    set(srpb_fuzzy_top_pc)
     return
 
 
@@ -5404,9 +5335,9 @@ def plot_robustness_comparison_analysis(
     all_metas = []
     for pc_idx in pcs_to_plot:
         for p in pc_plot_names:
-            all_plots.append(os.path.join(plot_dir, f"pc_{pc_idx}_{p}.png"))
+            all_plots.append(os.path.join(plot_dir, f"pc_{pc_idx + 1}_{p}.png"))
         all_metas.append(
-            os.path.join(metadata_dir, f"pc_{pc_idx}_analysis_metadata.json")
+            os.path.join(metadata_dir, f"pc_{pc_idx + 1}_analysis_metadata.json")
         )
 
     all_cached = all(os.path.exists(p) for p in all_plots) and all(
@@ -5495,13 +5426,13 @@ def plot_robustness_comparison_analysis(
 
         # Check if this specific PC is fully cached
         meta_path = os.path.join(
-            metadata_dir, f"pc_{pc_idx}_analysis_metadata.json"
+            metadata_dir, f"pc_{pc_idx + 1}_analysis_metadata.json"
         )
         is_pc_cached = (
             skip_existing
             and os.path.exists(meta_path)
             and all(
-                os.path.exists(os.path.join(plot_dir, f"pc_{pc_idx}_{p}.png"))
+                os.path.exists(os.path.join(plot_dir, f"pc_{pc_idx + 1}_{p}.png"))
                 for p in pc_plot_names
             )
         )
@@ -5548,7 +5479,7 @@ def plot_robustness_comparison_analysis(
             if not (
                 skip_existing
                 and os.path.exists(
-                    os.path.join(plot_dir, f"pc_{pc_idx}_weight_stability.png")
+                    os.path.join(plot_dir, f"pc_{pc_idx + 1}_weight_stability.png")
                 )
             ):
                 print("    [1/8] Edge weight stability...")
@@ -5589,7 +5520,7 @@ def plot_robustness_comparison_analysis(
                 plt.tight_layout()
                 plt.savefig(
                     os.path.join(
-                        plot_dir, f"pc_{pc_idx}_weight_stability.png"
+                        plot_dir, f"pc_{pc_idx + 1}_weight_stability.png"
                     ),
                     dpi=150,
                 )
@@ -5601,7 +5532,7 @@ def plot_robustness_comparison_analysis(
                 skip_existing
                 and os.path.exists(
                     os.path.join(
-                        plot_dir, f"pc_{pc_idx}_jaccard_similarity.png"
+                        plot_dir, f"pc_{pc_idx + 1}_jaccard_similarity.png"
                     )
                 )
             ):
@@ -5632,7 +5563,7 @@ def plot_robustness_comparison_analysis(
                 plt.tight_layout()
                 plt.savefig(
                     os.path.join(
-                        plot_dir, f"pc_{pc_idx}_jaccard_similarity.png"
+                        plot_dir, f"pc_{pc_idx + 1}_jaccard_similarity.png"
                     ),
                     dpi=150,
                 )
@@ -5652,7 +5583,7 @@ def plot_robustness_comparison_analysis(
             if not (
                 skip_existing
                 and os.path.exists(
-                    os.path.join(plot_dir, f"pc_{pc_idx}_effect_sizes.png")
+                    os.path.join(plot_dir, f"pc_{pc_idx + 1}_effect_sizes.png")
                 )
             ):
                 print("    [3/8] Effect sizes...")
@@ -5705,7 +5636,7 @@ def plot_robustness_comparison_analysis(
                 ax.axvline(0, color="red", linestyle="--", alpha=0.5)
                 plt.tight_layout()
                 plt.savefig(
-                    os.path.join(plot_dir, f"pc_{pc_idx}_effect_sizes.png"),
+                    os.path.join(plot_dir, f"pc_{pc_idx + 1}_effect_sizes.png"),
                     dpi=150,
                 )
                 plt.close(fig)
@@ -5715,7 +5646,7 @@ def plot_robustness_comparison_analysis(
             if not (
                 skip_existing
                 and os.path.exists(
-                    os.path.join(plot_dir, f"pc_{pc_idx}_convergence.png")
+                    os.path.join(plot_dir, f"pc_{pc_idx + 1}_convergence.png")
                 )
             ):
                 print("    [4/8] Convergence analysis...")
@@ -5776,7 +5707,7 @@ def plot_robustness_comparison_analysis(
                 ax.grid(True, alpha=0.3)
                 plt.tight_layout()
                 plt.savefig(
-                    os.path.join(plot_dir, f"pc_{pc_idx}_convergence.png"),
+                    os.path.join(plot_dir, f"pc_{pc_idx + 1}_convergence.png"),
                     dpi=150,
                 )
                 plt.close(fig)
@@ -5786,7 +5717,7 @@ def plot_robustness_comparison_analysis(
             if not (
                 skip_existing
                 and os.path.exists(
-                    os.path.join(plot_dir, f"pc_{pc_idx}_topology_metrics.png")
+                    os.path.join(plot_dir, f"pc_{pc_idx + 1}_topology_metrics.png")
                 )
             ):
                 print("    [5/8] Network topology...")
@@ -5872,7 +5803,7 @@ def plot_robustness_comparison_analysis(
                 plt.tight_layout()
                 plt.savefig(
                     os.path.join(
-                        plot_dir, f"pc_{pc_idx}_topology_metrics.png"
+                        plot_dir, f"pc_{pc_idx + 1}_topology_metrics.png"
                     ),
                     dpi=150,
                 )
@@ -5884,7 +5815,7 @@ def plot_robustness_comparison_analysis(
                 skip_existing
                 and os.path.exists(
                     os.path.join(
-                        plot_dir, f"pc_{pc_idx}_pvalue_distribution.png"
+                        plot_dir, f"pc_{pc_idx + 1}_pvalue_distribution.png"
                     )
                 )
             ):
@@ -5948,7 +5879,7 @@ def plot_robustness_comparison_analysis(
                 plt.tight_layout()
                 plt.savefig(
                     os.path.join(
-                        plot_dir, f"pc_{pc_idx}_pvalue_distribution.png"
+                        plot_dir, f"pc_{pc_idx + 1}_pvalue_distribution.png"
                     ),
                     dpi=150,
                 )
@@ -5959,7 +5890,7 @@ def plot_robustness_comparison_analysis(
             if not (
                 skip_existing
                 and os.path.exists(
-                    os.path.join(plot_dir, f"pc_{pc_idx}_rich_club.png")
+                    os.path.join(plot_dir, f"pc_{pc_idx + 1}_rich_club.png")
                 )
             ):
                 print("    [7/8] Rich club analysis (all thresholds)...")
@@ -6062,7 +5993,7 @@ def plot_robustness_comparison_analysis(
 
                 plt.tight_layout()
                 plt.savefig(
-                    os.path.join(plot_dir, f"pc_{pc_idx}_rich_club.png"),
+                    os.path.join(plot_dir, f"pc_{pc_idx + 1}_rich_club.png"),
                     dpi=150,
                 )
                 plt.close(fig)
@@ -6078,7 +6009,7 @@ def plot_robustness_comparison_analysis(
                 skip_existing
                 and os.path.exists(
                     os.path.join(
-                        plot_dir, f"pc_{pc_idx}_cross_threshold_comparison.png"
+                        plot_dir, f"pc_{pc_idx + 1}_cross_threshold_comparison.png"
                     )
                 )
             ):
@@ -6140,7 +6071,7 @@ def plot_robustness_comparison_analysis(
                 plt.tight_layout()
                 plt.savefig(
                     os.path.join(
-                        plot_dir, f"pc_{pc_idx}_cross_threshold_comparison.png"
+                        plot_dir, f"pc_{pc_idx + 1}_cross_threshold_comparison.png"
                     ),
                     dpi=150,
                 )
@@ -6212,7 +6143,7 @@ def plot_robustness_comparison_analysis(
 
         for title, filename_suffix in plot_titles:
             plot_path = os.path.join(
-                plot_dir, f"pc_{pc_idx}_{filename_suffix}.png"
+                plot_dir, f"pc_{pc_idx + 1}_{filename_suffix}.png"
             )
             if os.path.exists(plot_path):
                 pc_ui_elements.append(mo.md(f"#### {title}"))
@@ -6756,16 +6687,12 @@ def _():
         columns=["participants_id", "session"],
         null_values=["-", "NA", "N/A", ""],
     )
-    return (bmb_metadata_dataframe,)
+    return
 
 
-@app.cell
-def _(
-    bmb_metadata_dataframe,
-    bmb_scrub_file_paths_df,
-    bmb_time_series_file_df,
-):
-    bmb_missing_df = bmb_metadata_dataframe.join(
+app._unparsable_cell(
+    r"""
+        bmb_missing_df = bmb_metadata_dataframe.join(
         bmb_time_series_file_df.join(
             bmb_scrub_file_paths_df, on=["participants_id", "session"], how="inner"
         ),
@@ -6773,7 +6700,9 @@ def _(
         how="anti",
     )
     bmb_missing_df.height
-    return (bmb_missing_df,)
+    """,
+    name="_"
+)
 
 
 @app.cell(hide_code=True)
@@ -6809,6 +6738,7 @@ def _(
         bmb_fuzzy_extracted_fc_matrices_df_list
     ):
         print(f"Harmonizing run {_run_idx}")
+
         bmb_fuzzy_extracted_bias_dict = estimate_bias(
             output_dir_path=bmb_fc_matrices_bias_output_dir / f"run-{_run_idx}",
             rs_connectivity=np.stack(
@@ -6825,7 +6755,10 @@ def _(
             connectivity=np.stack(
                 fuzzy_bmb_extracted_fc_matrices_df["fc_matrix"].to_numpy(), axis=0
             ),
-            subjects_metadata_dataframe=bmb_extracted_fc_matrices_df.to_pandas(),
+            subjects_metadata_dataframe=fuzzy_bmb_extracted_fc_matrices_df,
+            subjects_to_remove_df=bmb_missing_df.select(
+                "participants_id", "session"
+            ),
             dataset="BMB",
             output_path=bmb_harmonized_fc_matrices_output_dir / f"run-{_run_idx}",
         )
@@ -6937,12 +6870,10 @@ def _(
         print(f"Calculating metrics for run {_run_idx}")
 
         bmb_fuzy_metrics_dict = calculate_metrics(
-            df=global_filter(bmb_fuzzy_extracted_harmonized_fc_matrices_hc_mdd_df),
+            df=bmb_filter(bmb_fuzzy_extracted_harmonized_fc_matrices_hc_mdd_df),
             metric_dict=metric_dict,
             alpha_threshold=0.05,
             n_pcs=5,
-            noise_max_weight=0.7,
-            noise_sum_weight=0.3,
             plot_dir=bmb_fuzzy_plot_dir + f"/run-{_run_idx}/",
             ttest_dir=bmb_fuzzy_ttest_dir + f"/run-{_run_idx}/",
             cache_dir=bmb_fuzzy_cache_dir + f"/run-{_run_idx}/",
@@ -6993,9 +6924,15 @@ def _():
 
 @app.cell
 def _(bmb_fuzzy_metrics_results_list):
-    bmb_fuzzy_selected_mdd_pcs_list = list(
-        map(lambda x: select_mdd_pc(x, ["bdi"]), bmb_fuzzy_metrics_results_list)
+    bmb_fuzzy_top_pc = list(
+        map(lambda x: x["diag"]["selected_pcs_with_scores"][0][0], bmb_fuzzy_metrics_results_list)
     )
+    return (bmb_fuzzy_top_pc,)
+
+
+@app.cell
+def _(bmb_fuzzy_top_pc):
+    set(bmb_fuzzy_top_pc)
     return
 
 
@@ -7008,7 +6945,7 @@ def _(
     coords_mni,
     network_assignments,
 ):
-    bmb_fuzzy_target_pcs_to_plot = [7.0]
+    bmb_fuzzy_target_pcs_to_plot = [1.0]
 
     bmb_fuzzy_pc_plots_result_list = [
         plot_pcs(
@@ -7039,8 +6976,8 @@ def _(bmb_fuzzy_pc_plots_result_list, bmb_pc_plots_results):
                     ),
                     mo.hstack(
                         [
-                            bmb_fuzzy_pc_plots_result["ui_elements"][7.0],
-                            bmb_pc_plots_results["ui_elements"][7.0],
+                            bmb_fuzzy_pc_plots_result["ui_elements"][1.0],
+                            bmb_pc_plots_results["ui_elements"][1.0],
                         ],
                         gap=2,
                     ),
@@ -7067,7 +7004,7 @@ def _(
     coords_mni,
     network_assignments,
 ):
-    bmb_fuzzy_consensus_target_pcs_to_plot = [7.0]
+    bmb_fuzzy_consensus_target_pcs_to_plot = [1.0]
 
     bmb_fuzzy_consensus_pc_plots_result = plot_pcs_consensus_publication_ready(
         results_list=bmb_fuzzy_metrics_results_list,
@@ -7110,7 +7047,7 @@ def _(
         results_list=bmb_fuzzy_metrics_results_list,
         fc_matrices_df_list=bmb_fuzzy_extracted_harmonized_fc_matrices_df_list,
         node_coords=coords_mni,
-        pcs_to_plot=[7.0],
+        pcs_to_plot=[1.0],
         plot_dir=bmb_fuzzy_plot_dir + "/robustness-analysis/",
         metadata_dir=bmb_fuzzy_metadata_dir + "/robustness-analysis/",
         consensus_thresholds=[1.0, 0.75, 0.50, 0.25],

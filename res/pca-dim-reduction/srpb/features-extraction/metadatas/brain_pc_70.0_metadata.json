@@ -1,45 +1,16 @@
 {
-    "pc_index_0_based": 69,
-    "pc_number_1_based": 70,
-    "num_edges": 5,
+    "pc_index_0_based": 69.0,
+    "pc_number_1_based": 70.0,
+    "num_edges": 0,
     "color_range": {
-        "vmin": -0.0617512597675024,
-        "vmax": 0.0617512597675024
+        "vmin": 0.0,
+        "vmax": 0.0
     },
-    "edge_indices": [
-        1191,
-        19126,
-        54206,
-        72131,
-        95259
-    ],
+    "edge_indices": [],
     "network_statistics": {
-        "nodes_per_network": {
-            "Limbic": 2,
-            "DefaultMode": 2,
-            "Cerebellum": 2,
-            "SomatoMotor": 1,
-            "DorsalAttention": 1,
-            "PrefrontalControlB": 1,
-            "Subcortical": 1
-        },
-        "per_network": {
-            "Limbic": 2,
-            "DefaultMode": 2,
-            "Cerebellum": 2,
-            "SomatoMotor": 1,
-            "DorsalAttention": 1,
-            "PrefrontalControlB": 1,
-            "Subcortical": 1
-        },
-        "intra_network": {
-            "Cerebellum": 1
-        },
-        "inter_network": {
-            "Limbic \u2194 SomatoMotor": 1,
-            "DorsalAttention \u2194 Limbic": 1,
-            "DefaultMode \u2194 PrefrontalControlB": 1,
-            "DefaultMode \u2194 Subcortical": 1
-        }
+        "nodes_per_network": {},
+        "per_network": {},
+        "intra_network": {},
+        "inter_network": {}
     }
 }
