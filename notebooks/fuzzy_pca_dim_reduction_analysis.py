@@ -277,6 +277,73 @@ def _():
 
 
 @app.function
+def old_calculate_features(
+    target_str: str,
+    target_filters: Callable,
+    harmonized_fc_matrices_df: pl.DataFrame,
+    alpha_threshold: float,
+    plot_dir: str,
+    ttest_dir,
+    ttest_output_prefix: str,
+) -> dict:
+    harmonized_fc_matrices_pandas_df = harmonized_fc_matrices_df.to_pandas()
+
+    target_col = harmonized_fc_matrices_pandas_df[target_str]
+
+    filtered_df = harmonized_fc_matrices_pandas_df[target_filters(target_col)]
+
+    target = filtered_df[target_str]
+
+    harmonized_fc_matrix_pandas_df = filtered_df[
+        "harmonized_fc_matrix"
+    ].to_frame()
+
+    col_name = harmonized_fc_matrix_pandas_df.columns[0]
+
+    df_X_train = pd.DataFrame(
+        harmonized_fc_matrix_pandas_df[col_name].tolist(),
+        index=harmonized_fc_matrix_pandas_df.index,
+    )
+
+    (cons, cons_pc) = select_pca_features(
+        df_X_train=df_X_train,
+        target=target,
+        method_pick_pca="fdr_bh",
+        alpha=alpha_threshold,
+        method_pick_con="fdr_bh",
+        fig_dir=plot_dir,
+        fig_plot=True,
+    )
+
+    if target.nunique() == 2:
+        (
+            selected_indices,
+            t_statistics,
+            p_values,
+        ) = select_ttest_features(
+            df_X_train=df_X_train,
+            target=target,
+            output_dir=ttest_dir,
+            output_prefix=ttest_output_prefix,
+            save_results=True,
+        )
+
+        return {
+            "cons": cons,
+            "cons_pc": cons_pc,
+            "selected_indices": selected_indices,
+            "t_statistics": t_statistics,
+            "p_values": p_values,
+        }
+
+    else:
+        return {
+            "cons": cons,
+            "cons_pc": cons_pc,
+        }
+
+
+@app.function
 def calculate_features(
     target_str: str,
     harmonized_fc_matrices_df: pl.DataFrame,
@@ -423,6 +490,100 @@ def _():
 
 
 @app.function
+def old_calculate_metrics( df: pd.DataFrame,
+    metric_dict: dict[str, dict],
+    alpha_threshold: float,
+    plot_dir: str,
+    ttest_dir: str,
+    cache_dir: str,
+) -> dict:
+
+    os.makedirs(cache_dir, exist_ok=True)
+
+    res = {"results": {}}
+    ui_elements = []
+
+    for metric, config in metric_dict.items():
+        cache_path = os.path.join(cache_dir, f"{metric}_results.pkl")
+
+        if os.path.exists(cache_path):
+            print(f"Loading cached results for metric: {metric}")
+            with open(cache_path, "rb") as f:
+                results = pickle.load(f)
+        else:
+            print(f"Calculating and caching results for metric: {metric}")
+            results = old_calculate_features(
+                target_str=metric,
+                target_filters=config["filter_function"],
+                harmonized_fc_matrices_df=df,
+                alpha_threshold=alpha_threshold,
+                plot_dir=plot_dir,
+                ttest_dir=ttest_dir,
+                ttest_output_prefix=config["prefix"],
+            )
+
+            with open(cache_path, "wb") as f:
+                pickle.dump(results, f)
+
+        print(results)
+        cons = results.get("cons")
+        cons_pc = results.get("cons_pc")
+
+        is_binary_target = "p_values" in results
+
+        if is_binary_target:
+            selected_indices = results["selected_indices"]
+            t_statistics = results["t_statistics"]
+            p_values = results["p_values"]
+
+        image_path = os.path.join(plot_dir, f"{metric}.png")
+        metric_image = mo.image(src=image_path)
+
+        if is_binary_target:
+            plot_section = metric_image
+            """
+            p_value_plot = plot_p_values(p_values, metric_name=metric)
+            plot_section = mo.hstack(
+                [metric_image, p_value_plot],
+                justify="center",
+                align="center",
+                gap=2,
+                widths=[1, 2],
+            )
+            """
+        else:
+            plot_section = metric_image
+
+        metric_ui = mo.vstack(
+            [
+                mo.md(f"#### Results for metric: `{metric}`"),
+                plot_section,
+                mo.md("---"),
+            ]
+        )
+
+        ui_elements.append(metric_ui)
+
+        res["results"][metric] = {
+            "cons": cons,
+            "cons_pc": cons_pc,
+            "is_binary_target": is_binary_target,
+        }
+
+        if is_binary_target:
+            res["results"][metric].update(
+                {
+                    "selected_indices": selected_indices,
+                    "t_statistics": t_statistics,
+                    "p_values": p_values,
+                }
+            )
+
+    res["ui"] = mo.vstack(ui_elements, gap=3)
+    return res
+
+
+@app.function
 def calculate_metrics(
     df: pd.DataFrame,
     metric_dict: dict[str, dict],
@@ -537,6 +698,17 @@ def _():
 
 @app.cell
 def _():
+    old_srpb_plot_dir = "./res/pca-dim-reduction/srpb/features-extraction/old/plots/"
+    old_srpb_ttest_dir = "./res/pca-dim-reduction/srpb/features-extraction/old/t-tests/"
+    old_srpb_cache_dir = "./res/pca-dim-reduction/srpb/features-extraction/old/cache/"
+    old_srpb_metadata_dir = (
+        "./res/pca-dim-reduction/srpb/features-extraction/old/metadatas/"
+    )
+    return old_srpb_cache_dir, old_srpb_plot_dir, old_srpb_ttest_dir
+
+
+@app.cell
+def _():
     srpb_plot_dir = "./res/pca-dim-reduction/srpb/features-extraction/plots/"
     srpb_ttest_dir = "./res/pca-dim-reduction/srpb/features-extraction/t-tests/"
     srpb_cache_dir = "./res/pca-dim-reduction/srpb/features-extraction/cache/"
@@ -552,6 +724,45 @@ def _():
     Define the different metrics we want to extract and their filters
     """)
     return
+
+
+@app.cell
+def _():
+    old_metric_dict = {
+        "diag": {
+            "prefix": "ttest_diag",
+            "filter_function": lambda target_col: (
+                (target_col != -1000) & pd.notna(target_col)
+            ),
+        },
+        "bdi": {
+            "prefix": "ttest_bdi",
+            "filter_function": lambda target_col: (
+                (target_col != -1000) & pd.notna(target_col)
+            ),
+        },
+        "age": {
+            "prefix": "ttest_age",
+            "filter_function": lambda target_col: (
+                (target_col != -1000) & pd.notna(target_col)
+            ),
+        },
+        "sex": {
+            "prefix": "ttest_sex",
+            "filter_function": lambda target_col: (
+                (target_col != -1000) & pd.notna(target_col)
+            ),
+        },
+        "site": {
+            "prefix": "ttest_site",
+            "filter_function": lambda target_col: pd.notna(target_col),
+        },
+        "meanFD": {
+            "prefix": "ttest_meanFD",
+            "filter_function": lambda target_col: pd.notna(target_col),
+        },
+    }
+    return (old_metric_dict,)
 
 
 @app.cell
@@ -607,6 +818,28 @@ def srpb_filter(df: pl.DataFrame):
 def _(harmonized_srpb_fc_matrices_hc_mdd_df):
     harmonized_srpb_fc_matrices_hc_mdd_df.head()
     return
+
+
+@app.cell
+def _(
+    harmonized_srpb_fc_matrices_hc_mdd_df,
+    old_metric_dict,
+    old_srpb_cache_dir,
+    old_srpb_plot_dir,
+    old_srpb_ttest_dir,
+):
+    old_srpb_metrics_dict = old_calculate_metrics(
+        df=srpb_filter(harmonized_srpb_fc_matrices_hc_mdd_df),
+        metric_dict=old_metric_dict,
+        alpha_threshold=0.05,
+        plot_dir=old_srpb_plot_dir,
+        ttest_dir=old_srpb_ttest_dir,
+        cache_dir=old_srpb_cache_dir,
+    )
+
+    old_srpb_results = old_srpb_metrics_dict["results"]
+    old_srpb_ui = old_srpb_metrics_dict["ui"]
+    return (old_srpb_results,)
 
 
 @app.cell
@@ -706,6 +939,13 @@ def select_mdd_pc(
 @app.cell
 def _():
     select_mdd_pc
+    return
+
+
+@app.cell
+def _(old_srpb_results):
+    old_srpb_selected_mdd_pcs = select_mdd_pc(old_srpb_results, ["bdi"])
+    old_srpb_selected_mdd_pcs
     return
 
 
@@ -1688,6 +1928,15 @@ def _():
 
 @app.cell
 def _():
+    old_bmb_plot_dir = "./res/pca-dim-reduction/bmb/features-extraction/old/plots/"
+    old_bmb_ttest_dir = "./res/pca-dim-reduction/bmb/features-extraction/old/t-tests/"
+    old_bmb_cache_dir = "./res/pca-dim-reduction/bmb/features-extraction/old/cache/"
+    old_bmb_metadata_dir = "./res/pca-dim-reduction/bmb/features-extraction/old/metadatas/"
+    return old_bmb_cache_dir, old_bmb_plot_dir, old_bmb_ttest_dir
+
+
+@app.cell
+def _():
     bmb_plot_dir = "./res/pca-dim-reduction/bmb/features-extraction/plots/"
     bmb_ttest_dir = "./res/pca-dim-reduction/bmb/features-extraction/t-tests/"
     bmb_cache_dir = "./res/pca-dim-reduction/bmb/features-extraction/cache/"
@@ -1717,6 +1966,28 @@ def bmb_filter(df: pl.DataFrame) -> pl.DataFrame:
         & (df["visit"] == 1)
         & (df["session"] == 1)
     )
+
+
+@app.cell
+def _(
+    harmonized_bmb_fc_matrices_hc_mdd_df,
+    old_bmb_cache_dir,
+    old_bmb_plot_dir,
+    old_bmb_ttest_dir,
+    old_metric_dict,
+):
+    old_bmb_metrics_dict = old_calculate_metrics(
+        df=bmb_filter(harmonized_bmb_fc_matrices_hc_mdd_df),
+        metric_dict=old_metric_dict,
+        alpha_threshold=0.05,
+        plot_dir=old_bmb_plot_dir,
+        ttest_dir=old_bmb_ttest_dir,
+        cache_dir=old_bmb_cache_dir,
+    )
+
+    old_bmb_results = old_bmb_metrics_dict["results"]
+    old_bmb_ui = old_bmb_metrics_dict["ui"]
+    return (old_bmb_results,)
 
 
 @app.cell
@@ -1760,6 +2031,13 @@ def _():
     mo.md(r"""
     ### Analyze the results of the PCA feature selection
     """)
+    return
+
+
+@app.cell
+def _(old_bmb_results):
+    old_bmb_selected_mdd_pcs = select_mdd_pc(old_bmb_results, ["bdi"])
+    old_bmb_selected_mdd_pcs
     return
 
 
@@ -4290,6 +4568,27 @@ def _():
 
 @app.cell
 def _():
+    old_srpb_fuzzy_plot_dir = (
+        "./res/pca-dim-reduction/srpb/fuzzy-features-extraction/old/plots"
+    )
+    old_srpb_fuzzy_ttest_dir = (
+        "./res/pca-dim-reduction/srpb/fuzzy-features-extraction/old/t-tests"
+    )
+    old_srpb_fuzzy_cache_dir = (
+        "./res/pca-dim-reduction/srpb/fuzzy-features-extraction/old/cache"
+    )
+    old_srpb_fuzzy_metadata_dir = (
+        "./res/pca-dim-reduction/srpb/fuzzy-features-extraction/old/metadatas"
+    )
+    return (
+        old_srpb_fuzzy_cache_dir,
+        old_srpb_fuzzy_plot_dir,
+        old_srpb_fuzzy_ttest_dir,
+    )
+
+
+@app.cell
+def _():
     srpb_fuzzy_plot_dir = (
         "./res/pca-dim-reduction/srpb/fuzzy-features-extraction/plots"
     )
@@ -4335,7 +4634,40 @@ def _(srpb_fuzzy_extracted_harmonized_fc_matrices_df_list):
 
 @app.cell
 def _(
-    metric_dict,
+    old_metric_dict,
+    old_srpb_fuzzy_cache_dir,
+    old_srpb_fuzzy_plot_dir,
+    old_srpb_fuzzy_ttest_dir,
+    srpb_fuzzy_extracted_harmonized_fc_matrices_hc_mdd_df_list,
+):
+    old_srpb_fuzzy_metrics_results_list = []
+    old_srpb_fuzzy_selected_pcs = []
+    old_srpb_fuzzy_metrics_ui_list = []
+
+
+    for (
+        _run_idx,
+        _srpb_fuzzy_extracted_harmonized_fc_matrices_hc_mdd_df,
+    ) in enumerate(srpb_fuzzy_extracted_harmonized_fc_matrices_hc_mdd_df_list):
+        print(f"Calculating metris for run {_run_idx}")
+
+        old_srpb_fuzy_metrics_dict = old_calculate_metrics(
+            df=srpb_filter(_srpb_fuzzy_extracted_harmonized_fc_matrices_hc_mdd_df),
+            metric_dict=old_metric_dict,
+            alpha_threshold=0.05,
+            plot_dir=old_srpb_fuzzy_plot_dir + f"/run-{_run_idx}/",
+            ttest_dir=old_srpb_fuzzy_ttest_dir + f"/run-{_run_idx}/",
+            cache_dir=old_srpb_fuzzy_cache_dir + f"/run-{_run_idx}/",
+        )
+
+        old_srpb_fuzzy_metrics_results_list.append(old_srpb_fuzy_metrics_dict["results"])
+        old_srpb_fuzzy_metrics_ui_list.append(old_srpb_fuzy_metrics_dict["ui"])
+    return (old_srpb_fuzzy_metrics_results_list,)
+
+
+@app.cell
+def _(
+    old_metric_dict,
     srpb_fuzzy_cache_dir,
     srpb_fuzzy_extracted_harmonized_fc_matrices_hc_mdd_df_list,
     srpb_fuzzy_plot_dir,
@@ -4354,7 +4686,7 @@ def _(
 
         srpb_fuzy_metrics_dict = calculate_metrics(
             df=srpb_filter(srpb_fuzzy_extracted_harmonized_fc_matrices_hc_mdd_df),
-            metric_dict=metric_dict,
+            metric_dict=old_metric_dict,
             alpha_threshold=0.05,
             n_pcs=5,
             plot_dir=srpb_fuzzy_plot_dir + f"/run-{_run_idx}/",
@@ -4410,6 +4742,19 @@ def _():
     mo.md(r"""
     ### Comparison of the SRPB Fuzzy and Regular PC metrics results
     """)
+    return
+
+
+@app.cell
+def _(old_srpb_fuzzy_metrics_results_list):
+    old_srpb_fuzzy_selected_mdd_pcs_list = list(
+        map(
+            lambda x: select_mdd_pc(x, ["bdi"]),
+            old_srpb_fuzzy_metrics_results_list,
+        )
+    )
+
+    old_srpb_fuzzy_selected_mdd_pcs_list
     return
 
 
@@ -6799,6 +7144,27 @@ def _():
 
 @app.cell
 def _():
+    old_bmb_fuzzy_plot_dir = (
+        "./res/pca-dim-reduction/bmb/fuzzy-features-extraction/old/plots"
+    )
+    old_bmb_fuzzy_ttest_dir = (
+        "./res/pca-dim-reduction/bmb/fuzzy-features-extraction/old/t-tests"
+    )
+    old_bmb_fuzzy_cache_dir = (
+        "./res/pca-dim-reduction/bmb/fuzzy-features-extraction/old/cache"
+    )
+    old_bmb_fuzzy_metadata_dir = (
+        "./res/pca-dim-reduction/bmb/fuzzy-features-extraction/old/metadatas"
+    )
+    return (
+        old_bmb_fuzzy_cache_dir,
+        old_bmb_fuzzy_plot_dir,
+        old_bmb_fuzzy_ttest_dir,
+    )
+
+
+@app.cell
+def _():
     bmb_fuzzy_plot_dir = (
         "./res/pca-dim-reduction/bmb/fuzzy-features-extraction/plots"
     )
@@ -6848,6 +7214,39 @@ def _():
     ### Comparison of the Fuzzy and Regular PC BMB metrics graphs
     """)
     return
+
+
+@app.cell
+def _(
+    bmb_fuzzy_extracted_harmonized_fc_matrices_hc_mdd_df_list,
+    old_bmb_fuzzy_cache_dir,
+    old_bmb_fuzzy_plot_dir,
+    old_bmb_fuzzy_ttest_dir,
+    old_metric_dict,
+):
+    old_bmb_fuzzy_metrics_results_list = []
+    old_bmb_fuzzy_selected_pcs = []
+    old_bmb_fuzzy_metrics_ui_list = []
+
+
+    for (
+        _run_idx,
+        _bmb_fuzzy_extracted_harmonized_fc_matrices_hc_mdd_df,
+    ) in enumerate(bmb_fuzzy_extracted_harmonized_fc_matrices_hc_mdd_df_list):
+        print(f"Calculating metrics for run {_run_idx}")
+
+        old_bmb_fuzy_metrics_dict = old_calculate_metrics(
+            df=bmb_filter(_bmb_fuzzy_extracted_harmonized_fc_matrices_hc_mdd_df),
+            metric_dict=old_metric_dict,
+            alpha_threshold=0.05,
+            plot_dir=old_bmb_fuzzy_plot_dir + f"/run-{_run_idx}/",
+            ttest_dir=old_bmb_fuzzy_ttest_dir + f"/run-{_run_idx}/",
+            cache_dir=old_bmb_fuzzy_cache_dir + f"/run-{_run_idx}/",
+        )
+
+        old_bmb_fuzzy_metrics_results_list.append(old_bmb_fuzy_metrics_dict["results"])
+        old_bmb_fuzzy_metrics_ui_list.append(old_bmb_fuzy_metrics_dict["ui"])
+    return (old_bmb_fuzzy_metrics_results_list,)
 
 
 @app.cell
@@ -6919,6 +7318,16 @@ def _():
     mo.md(r"""
     ### Comparison of the BMB Fuzzy and Regular PC metrics results
     """)
+    return
+
+
+@app.cell
+def _(old_bmb_fuzzy_metrics_results_list):
+    old_bmb_fuzzy_selected_mdd_pcs_list = list(
+            map(lambda x: select_mdd_pc(x, ["bdi"]), old_bmb_fuzzy_metrics_results_list)
+        )
+
+    old_bmb_fuzzy_selected_mdd_pcs_list
     return
 
 
