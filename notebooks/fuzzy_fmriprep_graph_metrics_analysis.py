@@ -66,7 +66,6 @@ def _(
     binary_matrix_plot_paths,
     brain_region_plot_paths,
     difference_plot_path,
-    mo,
     session_comparison_plot_path,
 ):
     def show_image(path, caption=""):
@@ -1223,7 +1222,6 @@ def _():
     return
 
 
-
 @app.cell(hide_code=True)
 def _():
     mo.md(r"""
@@ -1288,7 +1286,6 @@ def _():
     - $\bar{x}_{i,.}^{(r)}$ = row mean (across subjects for run $i$)
     """)
     return
-
 
 
 @app.cell(hide_code=True)
@@ -1546,8 +1543,8 @@ def create_session_comparison_plot(fc_metrics):
     metrics = [
         ("degree_centrality", "Degree Centrality"),
         ("clustering_coefficient", "Clustering Coefficient"),
-        ("betweenness_centrality", "Betweenness Centrality"),
         ("eigenvector_centrality", "Eigenvector Centrality"),
+        ("betweenness_centrality", "Betweenness Centrality"),
         ("average_shortest_path_length", "Average Shortest Path Length"),
     ]
 
@@ -1823,8 +1820,8 @@ def create_difference_plot(fc_metrics):
     metrics = [
         ("degree_centrality", "Degree Centrality"),
         ("clustering_coefficient", "Clustering Coefficient"),
-        ("betweenness_centrality", "Betweenness Centrality"),
         ("eigenvector_centrality", "Eigenvector Centrality"),
+        ("betweenness_centrality", "Betweenness Centrality"),
         ("average_shortest_path_length", "Average Shortest Path Length"),
     ]
 
@@ -2218,4 +2215,3 @@ def _(figures_output_path, fuzzy_fmriprep_analysis, graph_metrics):
 
 if __name__ == "__main__":
     app.run()
-
