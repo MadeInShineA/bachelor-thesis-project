@@ -490,7 +490,8 @@ def _():
 
 
 @app.function
-def old_calculate_metrics( df: pd.DataFrame,
+def old_calculate_metrics(
+    df: pd.DataFrame,
     metric_dict: dict[str, dict],
     alpha_threshold: float,
     plot_dir: str,
@@ -698,9 +699,15 @@ def _():
 
 @app.cell
 def _():
-    old_srpb_plot_dir = "./res/pca-dim-reduction/srpb/features-extraction/old/plots/"
-    old_srpb_ttest_dir = "./res/pca-dim-reduction/srpb/features-extraction/old/t-tests/"
-    old_srpb_cache_dir = "./res/pca-dim-reduction/srpb/features-extraction/old/cache/"
+    old_srpb_plot_dir = (
+        "./res/pca-dim-reduction/srpb/features-extraction/old/plots/"
+    )
+    old_srpb_ttest_dir = (
+        "./res/pca-dim-reduction/srpb/features-extraction/old/t-tests/"
+    )
+    old_srpb_cache_dir = (
+        "./res/pca-dim-reduction/srpb/features-extraction/old/cache/"
+    )
     old_srpb_metadata_dir = (
         "./res/pca-dim-reduction/srpb/features-extraction/old/metadatas/"
     )
@@ -1122,6 +1129,7 @@ def plot_pcs(
     fc_matrices_df: pl.DataFrame,
     node_coords: np.ndarray,
     pcs_to_plot: list,
+    metric_to_plot: str,
     plot_dir: str,
     metadata_dir: str,
     node_colors=None,
@@ -1212,9 +1220,9 @@ def plot_pcs(
 
     # 2. Loop through each requested PC
     for pc_idx in pcs_to_plot:
-        image_path = os.path.join(plot_dir, f"brain_pc_{pc_idx + 1}fc.png")
+        image_path = os.path.join(plot_dir, f"brain_pc_{pc_idx + 1}_{metric_to_plot}_fc.png")
         json_path = os.path.join(
-            metadata_dir, f"brain_pc_{pc_idx + 1}_metadata.json"
+            metadata_dir, f"brain_pc_{pc_idx + 1}_{metric_to_plot}_metadata.json"
         )
 
         plot_exists = os.path.exists(image_path) and os.path.exists(json_path)
@@ -1309,7 +1317,7 @@ def plot_pcs(
         # GENERATION BRANCH
         print(f"Generating plot for PC {pc_idx + 1} (Index {pc_idx})...")
 
-        diag_data = results["diag"]
+        diag_data = results[metric_to_plot]
         mask_pc = np.isclose(diag_data["cons_pc"], pc_idx)
         edges_to_plot = list(diag_data["cons"][mask_pc])
 
@@ -1660,13 +1668,14 @@ def _(
     srpb_plot_dir,
     srpb_results,
 ):
-    srpb_target_pcs_to_plot = [1.0, 69.0]
+    srpb_target_pcs_to_plot = [1.0]
 
     srpb_pc_plots_results = plot_pcs(
         results=srpb_results,
         fc_matrices_df=harmonized_srpb_fc_matrices_hc_mdd_df,
         node_coords=coords_mni,
         pcs_to_plot=srpb_target_pcs_to_plot,
+        metric_to_plot="diag",
         plot_dir=srpb_plot_dir,
         metadata_dir=srpb_metadata_dir,
         show_legend=True,
@@ -1929,9 +1938,15 @@ def _():
 @app.cell
 def _():
     old_bmb_plot_dir = "./res/pca-dim-reduction/bmb/features-extraction/old/plots/"
-    old_bmb_ttest_dir = "./res/pca-dim-reduction/bmb/features-extraction/old/t-tests/"
-    old_bmb_cache_dir = "./res/pca-dim-reduction/bmb/features-extraction/old/cache/"
-    old_bmb_metadata_dir = "./res/pca-dim-reduction/bmb/features-extraction/old/metadatas/"
+    old_bmb_ttest_dir = (
+        "./res/pca-dim-reduction/bmb/features-extraction/old/t-tests/"
+    )
+    old_bmb_cache_dir = (
+        "./res/pca-dim-reduction/bmb/features-extraction/old/cache/"
+    )
+    old_bmb_metadata_dir = (
+        "./res/pca-dim-reduction/bmb/features-extraction/old/metadatas/"
+    )
     return old_bmb_cache_dir, old_bmb_plot_dir, old_bmb_ttest_dir
 
 
@@ -2064,6 +2079,7 @@ def _(
         fc_matrices_df=harmonized_bmb_fc_matrices_hc_mdd_df,
         node_coords=coords_mni,
         pcs_to_plot=bmb_target_pcs_to_plot,
+        metric_to_plot="diag",
         plot_dir=bmb_plot_dir,
         metadata_dir=bmb_metadata_dir,
         show_legend=True,
@@ -4660,14 +4676,16 @@ def _(
             cache_dir=old_srpb_fuzzy_cache_dir + f"/run-{_run_idx}/",
         )
 
-        old_srpb_fuzzy_metrics_results_list.append(old_srpb_fuzy_metrics_dict["results"])
+        old_srpb_fuzzy_metrics_results_list.append(
+            old_srpb_fuzy_metrics_dict["results"]
+        )
         old_srpb_fuzzy_metrics_ui_list.append(old_srpb_fuzy_metrics_dict["ui"])
     return (old_srpb_fuzzy_metrics_results_list,)
 
 
 @app.cell
 def _(
-    old_metric_dict,
+    metric_dict,
     srpb_fuzzy_cache_dir,
     srpb_fuzzy_extracted_harmonized_fc_matrices_hc_mdd_df_list,
     srpb_fuzzy_plot_dir,
@@ -4686,7 +4704,7 @@ def _(
 
         srpb_fuzy_metrics_dict = calculate_metrics(
             df=srpb_filter(srpb_fuzzy_extracted_harmonized_fc_matrices_hc_mdd_df),
-            metric_dict=old_metric_dict,
+            metric_dict=metric_dict,
             alpha_threshold=0.05,
             n_pcs=5,
             plot_dir=srpb_fuzzy_plot_dir + f"/run-{_run_idx}/",
@@ -4761,7 +4779,10 @@ def _(old_srpb_fuzzy_metrics_results_list):
 @app.cell
 def _(srpb_fuzzy_metrics_results_list):
     srpb_fuzzy_top_pc = list(
-        map(lambda x: x["diag"]["selected_pcs_with_scores"][0][0], srpb_fuzzy_metrics_results_list)
+        map(
+            lambda x: x["diag"]["selected_pcs_with_scores"][0][0],
+            srpb_fuzzy_metrics_results_list,
+        )
     )
     return (srpb_fuzzy_top_pc,)
 
@@ -4791,6 +4812,7 @@ def _(
             ],
             node_coords=coords_mni,
             pcs_to_plot=srpb_fuzzy_target_pcs_to_plot,
+            metric_to_plot="diag",
             plot_dir=srpb_fuzzy_plot_dir + f"/run-{_run_idx}/",
             metadata_dir=srpb_fuzzy_metadata_dir + f"/run-{_run_idx}/",
             show_legend=True,
@@ -4846,11 +4868,12 @@ def _():
 
 
 @app.function
-def plot_pcs_consensus_publication_ready(
+def plot_pcs_consensus(
     results_list: list[dict],
     fc_matrices_df_list: list,  # list of pl.DataFrame
     node_coords: np.ndarray,
     pcs_to_plot: list,
+    metric_to_plot: str,
     plot_dir: str,
     metadata_dir: str,
     consensus_thresholds: list[float] = [1.0, 0.75, 0.50, 0.25],
@@ -4908,11 +4931,11 @@ def plot_pcs_consensus_publication_ready(
                 pc_label = pc_idx + 1
                 image_path = os.path.join(
                     plot_dir,
-                    f"brain_pc_{pc_label}_consensus_{safe_thresh}pct.png",
+                    f"brain_pc_{pc_label}_consensus_{safe_thresh}pct_{metric_to_plot}.png",
                 )
                 json_path = os.path.join(
                     metadata_dir,
-                    f"brain_pc_{pc_label}_consensus_{safe_thresh}pct_metadata.json",
+                    f"brain_pc_{pc_label}_consensus_{safe_thresh}pct_{metric_to_plot}_metadata.json",
                 )
 
                 img_exists = os.path.exists(image_path)
@@ -4998,7 +5021,7 @@ def plot_pcs_consensus_publication_ready(
                 n_nodes = int((1 + np.sqrt(1 + 8 * len(md))) / 2)
 
             # --- edge sets per PC for this run ---
-            diag_data = run_result["diag"]
+            diag_data = run_result[metric_to_plot]
             pc_edge_map: dict[float, np.ndarray] = {}
             for pc in pcs_to_plot:
                 mask_pc = np.isclose(diag_data["cons_pc"], pc)
@@ -5576,11 +5599,12 @@ def _(
 ):
     srpb_fuzzy_consensus_target_pcs_to_plot = [1.0]
 
-    srpb_fuzzy_consensus_pc_plots_result = plot_pcs_consensus_publication_ready(
+    srpb_fuzzy_consensus_pc_plots_result = plot_pcs_consensus(
         results_list=srpb_fuzzy_metrics_results_list,
         fc_matrices_df_list=srpb_fuzzy_extracted_harmonized_fc_matrices_df_list,
         node_coords=coords_mni,
         pcs_to_plot=srpb_fuzzy_target_pcs_to_plot,
+        metric_to_plot="diag",
         plot_dir=srpb_fuzzy_plot_dir + "/consensus-thresholds/",
         metadata_dir=srpb_fuzzy_metadata_dir + "/consensus-thresholds/",
         consensus_thresholds=[1.0, 0.75, 0.50, 0.25],
@@ -5680,9 +5704,13 @@ def plot_robustness_comparison_analysis(
     all_metas = []
     for pc_idx in pcs_to_plot:
         for p in pc_plot_names:
-            all_plots.append(os.path.join(plot_dir, f"pc_{pc_idx + 1}_{p}.png"))
+            all_plots.append(
+                os.path.join(plot_dir, f"pc_{pc_idx + 1}_{p}.png")
+            )
         all_metas.append(
-            os.path.join(metadata_dir, f"pc_{pc_idx + 1}_analysis_metadata.json")
+            os.path.join(
+                metadata_dir, f"pc_{pc_idx + 1}_analysis_metadata.json"
+            )
         )
 
     all_cached = all(os.path.exists(p) for p in all_plots) and all(
@@ -5777,7 +5805,9 @@ def plot_robustness_comparison_analysis(
             skip_existing
             and os.path.exists(meta_path)
             and all(
-                os.path.exists(os.path.join(plot_dir, f"pc_{pc_idx + 1}_{p}.png"))
+                os.path.exists(
+                    os.path.join(plot_dir, f"pc_{pc_idx + 1}_{p}.png")
+                )
                 for p in pc_plot_names
             )
         )
@@ -5824,7 +5854,9 @@ def plot_robustness_comparison_analysis(
             if not (
                 skip_existing
                 and os.path.exists(
-                    os.path.join(plot_dir, f"pc_{pc_idx + 1}_weight_stability.png")
+                    os.path.join(
+                        plot_dir, f"pc_{pc_idx + 1}_weight_stability.png"
+                    )
                 )
             ):
                 print("    [1/8] Edge weight stability...")
@@ -5981,7 +6013,9 @@ def plot_robustness_comparison_analysis(
                 ax.axvline(0, color="red", linestyle="--", alpha=0.5)
                 plt.tight_layout()
                 plt.savefig(
-                    os.path.join(plot_dir, f"pc_{pc_idx + 1}_effect_sizes.png"),
+                    os.path.join(
+                        plot_dir, f"pc_{pc_idx + 1}_effect_sizes.png"
+                    ),
                     dpi=150,
                 )
                 plt.close(fig)
@@ -6062,7 +6096,9 @@ def plot_robustness_comparison_analysis(
             if not (
                 skip_existing
                 and os.path.exists(
-                    os.path.join(plot_dir, f"pc_{pc_idx + 1}_topology_metrics.png")
+                    os.path.join(
+                        plot_dir, f"pc_{pc_idx + 1}_topology_metrics.png"
+                    )
                 )
             ):
                 print("    [5/8] Network topology...")
@@ -6354,7 +6390,8 @@ def plot_robustness_comparison_analysis(
                 skip_existing
                 and os.path.exists(
                     os.path.join(
-                        plot_dir, f"pc_{pc_idx + 1}_cross_threshold_comparison.png"
+                        plot_dir,
+                        f"pc_{pc_idx + 1}_cross_threshold_comparison.png",
                     )
                 )
             ):
@@ -6416,7 +6453,8 @@ def plot_robustness_comparison_analysis(
                 plt.tight_layout()
                 plt.savefig(
                     os.path.join(
-                        plot_dir, f"pc_{pc_idx + 1}_cross_threshold_comparison.png"
+                        plot_dir,
+                        f"pc_{pc_idx + 1}_cross_threshold_comparison.png",
                     ),
                     dpi=150,
                 )
@@ -7244,7 +7282,9 @@ def _(
             cache_dir=old_bmb_fuzzy_cache_dir + f"/run-{_run_idx}/",
         )
 
-        old_bmb_fuzzy_metrics_results_list.append(old_bmb_fuzy_metrics_dict["results"])
+        old_bmb_fuzzy_metrics_results_list.append(
+            old_bmb_fuzy_metrics_dict["results"]
+        )
         old_bmb_fuzzy_metrics_ui_list.append(old_bmb_fuzy_metrics_dict["ui"])
     return (old_bmb_fuzzy_metrics_results_list,)
 
@@ -7324,8 +7364,10 @@ def _():
 @app.cell
 def _(old_bmb_fuzzy_metrics_results_list):
     old_bmb_fuzzy_selected_mdd_pcs_list = list(
-            map(lambda x: select_mdd_pc(x, ["bdi"]), old_bmb_fuzzy_metrics_results_list)
+        map(
+            lambda x: select_mdd_pc(x, ["bdi"]), old_bmb_fuzzy_metrics_results_list
         )
+    )
 
     old_bmb_fuzzy_selected_mdd_pcs_list
     return
@@ -7334,7 +7376,10 @@ def _(old_bmb_fuzzy_metrics_results_list):
 @app.cell
 def _(bmb_fuzzy_metrics_results_list):
     bmb_fuzzy_top_pc = list(
-        map(lambda x: x["diag"]["selected_pcs_with_scores"][0][0], bmb_fuzzy_metrics_results_list)
+        map(
+            lambda x: x["diag"]["selected_pcs_with_scores"][0][0],
+            bmb_fuzzy_metrics_results_list,
+        )
     )
     return (bmb_fuzzy_top_pc,)
 
@@ -7364,6 +7409,7 @@ def _(
             ],
             node_coords=coords_mni,
             pcs_to_plot=bmb_fuzzy_target_pcs_to_plot,
+            metric_to_plot="diag",
             plot_dir=bmb_fuzzy_plot_dir + f"/run-{_run_idx}/",
             metadata_dir=bmb_fuzzy_metadata_dir + f"/run-{_run_idx}/",
             show_legend=True,
@@ -7415,11 +7461,12 @@ def _(
 ):
     bmb_fuzzy_consensus_target_pcs_to_plot = [1.0]
 
-    bmb_fuzzy_consensus_pc_plots_result = plot_pcs_consensus_publication_ready(
+    bmb_fuzzy_consensus_pc_plots_result = plot_pcs_consensus(
         results_list=bmb_fuzzy_metrics_results_list,
         fc_matrices_df_list=bmb_fuzzy_extracted_harmonized_fc_matrices_df_list,
         node_coords=coords_mni,
         pcs_to_plot=bmb_fuzzy_target_pcs_to_plot,
+        metric_to_plot="diag",
         plot_dir=bmb_fuzzy_plot_dir + "/consensus-thresholds/",
         metadata_dir=bmb_fuzzy_metadata_dir + "/consensus-thresholds/",
         consensus_thresholds=[1.0, 0.75, 0.50, 0.25],
