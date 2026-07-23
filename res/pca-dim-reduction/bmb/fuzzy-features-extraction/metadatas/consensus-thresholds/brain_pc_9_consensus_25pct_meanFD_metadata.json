@@ -1,0 +1,44 @@
+{
+    "pc_index_0_based": 8,
+    "pc_number_1_based": 9,
+    "consensus_threshold": 0.25,
+    "min_runs_required": 4,
+    "total_runs": 15,
+    "num_edges": 1,
+    "color_range": {
+        "vmin": -0.03355546660273056,
+        "vmax": 0.03355546660273056
+    },
+    "edge_indices": [
+        66185
+    ],
+    "edge_run_counts": {
+        "66185": 15
+    },
+    "edge_details": [
+        {
+            "edge_idx": 66185,
+            "node_i": 362,
+            "node_j": 120,
+            "network_i": "Subcortical",
+            "network_j": "Limbic",
+            "weight": 0.03355546660273056,
+            "run_count": 15,
+            "type": "Inter"
+        }
+    ],
+    "network_statistics": {
+        "nodes_per_network": {
+            "Limbic": 1,
+            "Subcortical": 1
+        },
+        "per_network": {
+            "Subcortical": 1,
+            "Limbic": 1
+        },
+        "intra_network": {},
+        "inter_network": {
+            "Limbic \u2194 Subcortical": 1
+        }
+    }
+}

@@ -1,0 +1,61 @@
+{
+    "pc_index_0_based": 10,
+    "pc_number_1_based": 11,
+    "consensus_threshold": 1.0,
+    "min_runs_required": 100,
+    "total_runs": 100,
+    "num_edges": 2,
+    "color_range": {
+        "vmin": -0.015673776219655055,
+        "vmax": 0.015673776219655055
+    },
+    "edge_indices": [
+        1225,
+        16160
+    ],
+    "edge_run_counts": {
+        "1225": 100,
+        "16160": 100
+    },
+    "edge_details": [
+        {
+            "edge_idx": 1225,
+            "node_i": 48,
+            "node_j": 1,
+            "network_i": "SomatoMotor",
+            "network_j": "Limbic",
+            "weight": 0.004991298839507522,
+            "run_count": 100,
+            "type": "Inter"
+        },
+        {
+            "edge_idx": 16160,
+            "node_i": 178,
+            "node_j": 51,
+            "network_i": "DorsalAttention",
+            "network_j": "PrefrontalControlA",
+            "weight": 0.015673776219655055,
+            "run_count": 100,
+            "type": "Inter"
+        }
+    ],
+    "network_statistics": {
+        "nodes_per_network": {
+            "Limbic": 1,
+            "SomatoMotor": 1,
+            "PrefrontalControlA": 1,
+            "DorsalAttention": 1
+        },
+        "per_network": {
+            "SomatoMotor": 1,
+            "Limbic": 1,
+            "DorsalAttention": 1,
+            "PrefrontalControlA": 1
+        },
+        "intra_network": {},
+        "inter_network": {
+            "Limbic \u2194 SomatoMotor": 1,
+            "DorsalAttention \u2194 PrefrontalControlA": 1
+        }
+    }
+}

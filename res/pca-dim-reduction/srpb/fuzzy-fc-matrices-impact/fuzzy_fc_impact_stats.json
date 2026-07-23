@@ -1,0 +1,9 @@
+{
+  "mean_abs_diff": 1.6557303639267606e-16,
+  "median_abs_diff": 1.209265398927073e-10,
+  "max_abs_diff": 2.418530797854146e-08,
+  "std_diff": 7.787427731604271e-13,
+  "pct_perturbed_all_runs": 100.0,
+  "edges_perturbed_all_runs": 99235,
+  "n_unique_magnitudes": 253102
+}
