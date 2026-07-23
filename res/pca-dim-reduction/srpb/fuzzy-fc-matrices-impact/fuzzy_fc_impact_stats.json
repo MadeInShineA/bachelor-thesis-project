@@ -1,9 +1,15 @@
 {
   "mean_abs_diff": 1.6557303639267606e-16,
   "median_abs_diff": 1.209265398927073e-10,
+  "min_abs_diff": 2.6469779601696886e-23,
   "max_abs_diff": 2.418530797854146e-08,
   "std_diff": 7.787427731604271e-13,
   "pct_perturbed_all_runs": 100.0,
   "edges_perturbed_all_runs": 99235,
-  "n_unique_magnitudes": 253102
+  "n_unique_abs": 253102,
+  "n_unique_total": 357215,
+  "n_unique_positive": 177961,
+  "n_unique_negative": 179253,
+  "pct_unique_positive": 49.81901655865515,
+  "pct_unique_negative": 50.18070349789343
 }

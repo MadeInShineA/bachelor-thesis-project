@@ -4548,9 +4548,13 @@ def analyze_fuzzy_fc_matrix_impact(
 |--------|-------|
 | Mean absolute difference | {cached_stats["mean_abs_diff"]:.3e} |
 | Median absolute difference | {cached_stats["median_abs_diff"]:.3e} |
+| Min absolute difference | {cached_stats["min_abs_diff"]:.3e} |
 | Max absolute difference | {cached_stats["max_abs_diff"]:.3e} |
 | Std of differences | {cached_stats["std_diff"]:.3e} |
-| Unique perturbation magnitudes | {cached_stats["n_unique_magnitudes"]} |
+| Unique absolute perturbation magnitudes | {cached_stats["n_unique_abs"]} |
+| Unique signed perturbation magnitudes (total) | {cached_stats["n_unique_total"]} |
+| Unique signed perturbation magnitudes (positive) | {cached_stats["n_unique_positive"]} ({cached_stats["pct_unique_positive"]:.1f}%) |
+| Unique signed perturbation magnitudes (negative) | {cached_stats["n_unique_negative"]} ({cached_stats["pct_unique_negative"]:.1f}%) |
 | Total % of edges perturbated in all runs | {cached_stats["pct_perturbed_all_runs"]:.1f}% ({cached_stats["edges_perturbed_all_runs"]} edges) |
 """
         return mo.md(summary_md)
@@ -4570,16 +4574,20 @@ def analyze_fuzzy_fc_matrix_impact(
     global_sum_sq = 0.0
     global_count = 0
     global_max_abs = 0.0
+    global_min_abs = np.inf
     abs_sum = 0.0
 
     all_perturbed = np.ones(n_edges, dtype=bool)
-    unique_magnitudes = set()
+    unique_total = set()
+    unique_positive = set()
+    unique_negative = set()
+    unique_abs_magnitudes = set()
 
     # First pass: find max absolute difference for histogram range
-    print(f"First pass: determining difference range...")
-    for run_idx, df in enumerate(
-        tqdm(fuzzy_fc_df_list, desc="Pass 1 (range)")
-    ):
+    print(f"First pass: determining difference range ({n_runs} runs)...")
+    for run_idx, df in enumerate(fuzzy_fc_df_list):
+        if (run_idx + 1) % 10 == 0 or run_idx == 0:
+            print(f"  Pass 1: run {run_idx + 1}/{n_runs}")
         fuzzy_fc = np.stack(df[fc_col].to_numpy())
         diffs = fuzzy_fc - regular_fc
         run_max_abs = np.abs(diffs).max()
@@ -4591,8 +4599,10 @@ def analyze_fuzzy_fc_matrix_impact(
     abs_hist_counts = np.zeros(100)
 
     # Second pass: accumulate statistics
-    print(f"Second pass: accumulating statistics...")
-    for run_idx, df in enumerate(fuzzy_fc_df_list, desc="Pass 2 (stats)"):
+    print(f"Second pass: accumulating statistics ({n_runs} runs)...")
+    for run_idx, df in enumerate(fuzzy_fc_df_list):
+        if (run_idx + 1) % 10 == 0 or run_idx == 0:
+            print(f"  Pass 2: run {run_idx + 1}/{n_runs}")
         fuzzy_fc = np.stack(df[fc_col].to_numpy())
         diffs = fuzzy_fc - regular_fc
         abs_diffs = np.abs(diffs)
@@ -4604,14 +4614,30 @@ def analyze_fuzzy_fc_matrix_impact(
 
         abs_sum += abs_diffs.sum()
 
+        # Track min non-zero absolute difference
+        nonzero_abs = abs_diffs[abs_diffs > 0]
+        if nonzero_abs.size > 0:
+            run_min_abs = nonzero_abs.min()
+            if run_min_abs < global_min_abs:
+                global_min_abs = run_min_abs
+
         counts, _ = np.histogram(abs_diffs.flatten(), bins=abs_bin_edges)
         abs_hist_counts += counts
 
         all_perturbed &= (diffs != 0).any(axis=0)
 
-        print(f"    Computing unique magnitudes for run {run_idx + 1}...")
-        unique_vals = np.unique(abs_diffs.ravel())
-        unique_magnitudes.update(unique_vals.tolist())
+        # Unique absolute magnitudes
+        unique_abs_magnitudes.update(np.unique(abs_diffs.ravel()).tolist())
+
+        # Unique signed magnitudes
+        signed_flat = diffs.ravel()
+        unique_total.update(np.unique(signed_flat).tolist())
+        pos_mask = signed_flat > 0
+        neg_mask = signed_flat < 0
+        if pos_mask.any():
+            unique_positive.update(np.unique(signed_flat[pos_mask]).tolist())
+        if neg_mask.any():
+            unique_negative.update(np.unique(signed_flat[neg_mask]).tolist())
 
     # Finalize statistics
     print(f"Finalizing statistics...")
@@ -4620,6 +4646,9 @@ def analyze_fuzzy_fc_matrix_impact(
     global_std = np.sqrt(global_var) if global_var > 0 else 0.0
 
     mean_abs_diff_global = abs_sum / global_count
+
+    if global_min_abs == np.inf:
+        global_min_abs = 0.0
 
     # Histogram-based median from absolute differences
     cumulative = np.cumsum(abs_hist_counts)
@@ -4633,26 +4662,54 @@ def analyze_fuzzy_fc_matrix_impact(
     # Edge perturbation metrics
     edges_all_runs = int(all_perturbed.sum())
     pct_perturbed_all = (edges_all_runs / n_edges) * 100
-    n_unique_magnitudes = len(unique_magnitudes)
+
+    n_unique_abs = len(unique_abs_magnitudes)
+    n_unique_total = len(unique_total)
+    n_unique_positive = len(unique_positive)
+    n_unique_negative = len(unique_negative)
+    pct_positive = (
+        (n_unique_positive / n_unique_total * 100)
+        if n_unique_total > 0
+        else 0.0
+    )
+    pct_negative = (
+        (n_unique_negative / n_unique_total * 100)
+        if n_unique_total > 0
+        else 0.0
+    )
 
     print(f"  Mean absolute difference: {mean_abs_diff_global:.3e}")
     print(f"  Median absolute difference: {median_abs_diff:.3e}")
+    print(f"  Min absolute difference: {global_min_abs:.3e}")
     print(f"  Max absolute difference: {global_max_abs:.3e}")
     print(
         f"  Perturbed edges (all runs): {edges_all_runs} ({pct_perturbed_all:.1f}%)"
     )
-    print(f"  Unique magnitudes: {n_unique_magnitudes}")
+    print(f"  Unique absolute magnitudes: {n_unique_abs}")
+    print(f"  Unique signed magnitudes (total): {n_unique_total}")
+    print(
+        f"  Unique signed magnitudes (positive): {n_unique_positive} ({pct_positive:.1f}%)"
+    )
+    print(
+        f"  Unique signed magnitudes (negative): {n_unique_negative} ({pct_negative:.1f}%)"
+    )
 
     # Save statistics
     print(f"Saving statistics to {stats_path}...")
     stats = {
         "mean_abs_diff": float(mean_abs_diff_global),
         "median_abs_diff": float(median_abs_diff),
+        "min_abs_diff": float(global_min_abs),
         "max_abs_diff": float(global_max_abs),
         "std_diff": float(global_std),
         "pct_perturbed_all_runs": float(pct_perturbed_all),
         "edges_perturbed_all_runs": edges_all_runs,
-        "n_unique_magnitudes": n_unique_magnitudes,
+        "n_unique_abs": n_unique_abs,
+        "n_unique_total": n_unique_total,
+        "n_unique_positive": n_unique_positive,
+        "n_unique_negative": n_unique_negative,
+        "pct_unique_positive": float(pct_positive),
+        "pct_unique_negative": float(pct_negative),
     }
     with open(stats_path, "w") as f:
         json.dump(stats, f, indent=2)
@@ -4666,9 +4723,13 @@ def analyze_fuzzy_fc_matrix_impact(
 |--------|-------|
 | Mean absolute difference | {stats["mean_abs_diff"]:.3e} |
 | Median absolute difference | {stats["median_abs_diff"]:.3e} |
+| Min absolute difference | {stats["min_abs_diff"]:.3e} |
 | Max absolute difference | {stats["max_abs_diff"]:.3e} |
 | Std of differences | {stats["std_diff"]:.3e} |
-| Unique perturbation magnitudes | {stats["n_unique_magnitudes"]} |
+| Unique absolute perturbation magnitudes | {stats["n_unique_abs"]} |
+| Unique signed perturbation magnitudes (total) | {stats["n_unique_total"]} |
+| Unique signed perturbation magnitudes (positive) | {stats["n_unique_positive"]} ({stats["pct_unique_positive"]:.1f}%) |
+| Unique signed perturbation magnitudes (negative) | {stats["n_unique_negative"]} ({stats["pct_unique_negative"]:.1f}%) |
 | Total % of edges perturbated in all runs | {stats["pct_perturbed_all_runs"]:.1f}% ({stats["edges_perturbed_all_runs"]} edges) |
 """
 
@@ -4677,7 +4738,7 @@ def analyze_fuzzy_fc_matrix_impact(
 
 app._unparsable_cell(
     r"""
-        srpb_fuzzy_fc_matrices_impact_output_dir = (
+         srpb_fuzzy_fc_matrices_impact_output_dir = (
         "./res/pca-dim-reduction/srpb/fuzzy-fc-matrices-impact"
     )
     """,
