@@ -13,3 +13,4 @@ fuzzy-fmriprep-run*.o*
 .env
 *cache/
 .nfs*
+output.log
