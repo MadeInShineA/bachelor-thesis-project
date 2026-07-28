@@ -5123,6 +5123,7 @@ def _():
     )
     return (
         perturbated_srpb_fuzzy_cache_dir,
+        perturbated_srpb_fuzzy_metadata_dir,
         perturbated_srpb_fuzzy_plot_dir,
         perturbated_srpb_fuzzy_ttest_dir,
     )
@@ -5240,7 +5241,10 @@ def _(
         perturbated_srpb_fuzzy_metrics_results_list.append(perturbated_srpb_fuzy_metrics_dict["results"])
         perturbated_srpb_fuzzy_selected_pcs.append(perturbated_srpb_fuzy_metrics_dict["selected_pcs"])
         perturbated_srpb_fuzzy_metrics_ui_list.append(perturbated_srpb_fuzy_metrics_dict["ui"])
-    return
+    return (
+        perturbated_srpb_fuzzy_metrics_results_list,
+        perturbated_srpb_fuzzy_metrics_ui_list,
+    )
 
 
 @app.cell
@@ -5359,6 +5363,35 @@ def _(srpb_extracted_metrics_ui, srpb_fuzzy_metrics_ui_list):
     return
 
 
+@app.cell
+def _(perturbated_srpb_fuzzy_metrics_ui_list, srpb_extracted_metrics_ui):
+    perturbated_srpb_pc_metrics_comparison = mo.vstack(
+        [
+            mo.vstack(
+                [
+                    mo.md(
+                        f"### Comparison of the Perturbated Fuzzy run {_run_idx} vs Regular PC metrics graphs"
+                    ),
+                    mo.hstack(
+                        [
+                            perturbated_srpb_fuzzy_metrics_ui_list,
+                            srpb_extracted_metrics_ui,
+                        ],
+                        gap=2,
+                    ),
+                ]
+            )
+            for _run_idx, perturbated_srpb_fuzzy_metrics_ui_list in enumerate(
+                perturbated_srpb_fuzzy_metrics_ui_list
+            )
+        ],
+        gap=3,
+    )
+
+    perturbated_srpb_pc_metrics_comparison
+    return
+
+
 @app.cell(hide_code=True)
 def _():
     mo.md(r"""
@@ -5381,6 +5414,23 @@ def _(srpb_fuzzy_metrics_results_list):
 @app.cell
 def _(srpb_fuzzy_top_pc):
     set(srpb_fuzzy_top_pc)
+    return
+
+
+@app.cell
+def _(perturbated_srpb_fuzzy_metrics_results_list):
+    perturbated_srpb_fuzzy_top_pc = list(
+        map(
+            lambda x: x["diag"]["selected_pcs_with_scores"][0][0],
+            perturbated_srpb_fuzzy_metrics_results_list,
+        )
+    )
+    return (perturbated_srpb_fuzzy_top_pc,)
+
+
+@app.cell
+def _(perturbated_srpb_fuzzy_top_pc):
+    set(perturbated_srpb_fuzzy_top_pc)
     return
 
 
@@ -5412,6 +5462,36 @@ def _(
         for _run_idx, x in enumerate(srpb_fuzzy_metrics_results_list)
     ]
     return srpb_fuzzy_pc_plots_result_list, srpb_fuzzy_target_pcs_to_plot
+
+
+@app.cell
+def _(
+    coords_mni,
+    network_assignments,
+    perturbated_srpb_fuzzy_metadata_dir,
+    perturbated_srpb_fuzzy_metrics_results_list,
+    perturbated_srpb_fuzzy_plot_dir,
+    srpb_fuzzy_extracted_harmonized_fc_matrices_df_list,
+):
+    perturbated_srpb_fuzzy_target_pcs_to_plot = [1.0]
+
+    perturbated_srpb_fuzzy_pc_plots_result_list = [
+        plot_pcs(
+            results=x,
+            fc_matrices_df=srpb_fuzzy_extracted_harmonized_fc_matrices_df_list[
+                _run_idx
+            ],
+            node_coords=coords_mni,
+            pcs_to_plot=perturbated_srpb_fuzzy_target_pcs_to_plot,
+            metric_to_plot="diag",
+            plot_dir=perturbated_srpb_fuzzy_plot_dir + f"/run-{_run_idx}/",
+            metadata_dir=perturbated_srpb_fuzzy_metadata_dir + f"/run-{_run_idx}/",
+            show_legend=True,
+            network_assignments=network_assignments,
+        )
+        for _run_idx, x in enumerate(perturbated_srpb_fuzzy_metrics_results_list)
+    ]
+    return (perturbated_srpb_fuzzy_pc_plots_result_list,)
 
 
 @app.cell(hide_code=True)
@@ -5472,6 +5552,37 @@ def _(srpb_extracted_pc_plots_results, srpb_fuzzy_pc_plots_result_list):
     )
 
     srpb_pc_plots_result_comparison
+    return
+
+
+@app.cell
+def _(
+    perturbated_srpb_fuzzy_pc_plots_result_list,
+    srpb_extracted_pc_plots_results,
+):
+    perturbated_srpb_pc_plots_result_comparison = mo.vstack(
+        [
+            mo.vstack(
+                [
+                    mo.md(
+                        f"### Comparison of the Perturbated Fuzzy run {_run_idx} vs Regular PC plots"
+                    ),
+                    mo.hstack(
+                        [
+                            perturbated_srpb_fuzzy_pc_plots_result["ui_elements"][1.0],
+                            srpb_extracted_pc_plots_results["ui_elements"][1.0],
+                        ]
+                    ),
+                ]
+            )
+            for _run_idx, perturbated_srpb_fuzzy_pc_plots_result in enumerate(
+                perturbated_srpb_fuzzy_pc_plots_result_list
+            )
+        ],
+        gap=3,
+    )
+
+    perturbated_srpb_pc_plots_result_comparison
     return
 
 
@@ -6219,7 +6330,6 @@ def _(
     srpb_fuzzy_metadata_dir,
     srpb_fuzzy_metrics_results_list,
     srpb_fuzzy_plot_dir,
-    srpb_fuzzy_target_pcs_to_plot,
 ):
     srpb_fuzzy_consensus_target_pcs_to_plot = [1.0]
 
@@ -6227,7 +6337,7 @@ def _(
         results_list=srpb_fuzzy_metrics_results_list,
         fc_matrices_df_list=srpb_fuzzy_extracted_harmonized_fc_matrices_df_list,
         node_coords=coords_mni,
-        pcs_to_plot=srpb_fuzzy_target_pcs_to_plot,
+        pcs_to_plot=srpb_fuzzy_consensus_target_pcs_to_plot,
         metric_to_plot="diag",
         plot_dir=srpb_fuzzy_plot_dir + "/consensus-thresholds/",
         metadata_dir=srpb_fuzzy_metadata_dir + "/consensus-thresholds/",
@@ -6241,6 +6351,39 @@ def _(
 @app.cell
 def _(srpb_fuzzy_consensus_pc_plots_result):
     srpb_fuzzy_consensus_pc_plots_result["ui"]
+    return
+
+
+@app.cell
+def _(
+    coords_mni,
+    network_assignments,
+    perturbated_srpb_fuzzy_metadata_dir,
+    perturbated_srpb_fuzzy_metrics_results_list,
+    perturbated_srpb_fuzzy_plot_dir,
+    srpb_fuzzy_extracted_harmonized_fc_matrices_df_list,
+    srpb_fuzzy_target_pcs_to_plot,
+):
+    perturbated_srpb_fuzzy_consensus_target_pcs_to_plot = [1.0]
+
+    perturbated_srpb_fuzzy_consensus_pc_plots_result = plot_pcs_consensus(
+        results_list=perturbated_srpb_fuzzy_metrics_results_list,
+        fc_matrices_df_list=srpb_fuzzy_extracted_harmonized_fc_matrices_df_list,
+        node_coords=coords_mni,
+        pcs_to_plot=srpb_fuzzy_target_pcs_to_plot,
+        metric_to_plot="diag",
+        plot_dir=perturbated_srpb_fuzzy_plot_dir + "/consensus-thresholds/",
+        metadata_dir=perturbated_srpb_fuzzy_metadata_dir + "/consensus-thresholds/",
+        consensus_thresholds=[1.0, 0.75, 0.50, 0.25],
+        sperturbated_srpb_fuzzy_consensus_pc_plots_resultow_legend=True,
+        network_assignments=network_assignments,
+    )
+    return (perturbated_srpb_fuzzy_consensus_pc_plots_result,)
+
+
+@app.cell
+def _(perturbated_srpb_fuzzy_consensus_pc_plots_result):
+    perturbated_srpb_fuzzy_consensus_pc_plots_result["ui"]
     return
 
 
@@ -8023,6 +8166,7 @@ def _():
     )
     return (
         perturbated_bmb_fuzzy_cache_dir,
+        perturbated_bmb_fuzzy_metadata_dir,
         perturbated_bmb_fuzzy_plot_dir,
         perturbated_bmb_fuzzy_ttest_dir,
     )
@@ -8148,7 +8292,10 @@ def _(
         perturbated_bmb_fuzzy_metrics_results_list.append(perturbated_bmb_fuzy_metrics_dict["results"])
         perturbated_bmb_fuzzy_selected_pcs.append(perturbated_bmb_fuzy_metrics_dict["selected_pcs"])
         perturbated_bmb_fuzzy_metrics_ui_list.append(perturbated_bmb_fuzy_metrics_dict["ui"])
-    return
+    return (
+        perturbated_bmb_fuzzy_metrics_results_list,
+        perturbated_bmb_fuzzy_metrics_ui_list,
+    )
 
 
 @app.cell
@@ -8249,6 +8396,35 @@ def _(bmb_extracted_metrics_ui, bmb_fuzzy_metrics_ui_list):
     return
 
 
+@app.cell
+def _(bmb_extracted_metrics_ui, perturbated_bmb_fuzzy_metrics_ui_list):
+    perturbated_bmb_pc_metrics_comparison = mo.vstack(
+        [
+            mo.vstack(
+                [
+                    mo.md(
+                        f"### Comparison of the Perturbted Fuzzy run {_run_idx} vs Regular PC metrics graphs"
+                    ),
+                    mo.hstack(
+                        [
+                            perturbated_bmb_fuzzy_metrics_ui_list,
+                            bmb_extracted_metrics_ui,
+                        ],
+                        gap=2,
+                    ),
+                ]
+            )
+            for _run_idx, perturbated_bmb_fuzzy_metrics_ui_list in enumerate(
+                perturbated_bmb_fuzzy_metrics_ui_list
+            )
+        ],
+        gap=3,
+    )
+
+    perturbated_bmb_pc_metrics_comparison
+    return
+
+
 @app.cell(hide_code=True)
 def _():
     mo.md(r"""
@@ -8312,6 +8488,53 @@ def _(bmb_fuzzy_top_pc):
 
 
 @app.cell
+def _(perturbated_bmb_fuzzy_metrics_results_list):
+    perturbated_bmb_fuzzy_top_pc = list(
+        map(
+            lambda x: x["diag"]["selected_pcs_with_scores"][0][0],
+            perturbated_bmb_fuzzy_metrics_results_list,
+        )
+    )
+    return (perturbated_bmb_fuzzy_top_pc,)
+
+
+@app.cell
+def _(perturbated_bmb_fuzzy_top_pc):
+    set(perturbated_bmb_fuzzy_top_pc)
+    return
+
+
+@app.cell
+def _(
+    bmb_fuzzy_extracted_harmonized_fc_matrices_df_list,
+    coords_mni,
+    network_assignments,
+    perturbated_bmb_fuzzy_metadata_dir,
+    perturbated_bmb_fuzzy_metrics_results_list,
+    perturbated_bmb_fuzzy_plot_dir,
+):
+    perturbated_bmb_fuzzy_target_pcs_to_plot = [1.0]
+
+    perturbated_bmb_fuzzy_pc_plots_result_list = [
+        plot_pcs(
+            results=x,
+            fc_matrices_df=bmb_fuzzy_extracted_harmonized_fc_matrices_df_list[
+                _run_idx
+            ],
+            node_coords=coords_mni,
+            pcs_to_plot=perturbated_bmb_fuzzy_target_pcs_to_plot,
+            metric_to_plot="diag",
+            plot_dir=perturbated_bmb_fuzzy_plot_dir + f"/run-{_run_idx}/",
+            metadata_dir=perturbated_bmb_fuzzy_metadata_dir + f"/run-{_run_idx}/",
+            show_legend=True,
+            network_assignments=network_assignments,
+        )
+        for _run_idx, x in enumerate(perturbated_bmb_fuzzy_metrics_results_list)
+    ]
+    return (perturbated_bmb_fuzzy_pc_plots_result_list,)
+
+
+@app.cell
 def _(
     bmb_fuzzy_extracted_harmonized_fc_matrices_df_list,
     bmb_fuzzy_metadata_dir,
@@ -8338,7 +8561,7 @@ def _(
         )
         for _run_idx, x in enumerate(bmb_fuzzy_metrics_results_list)
     ]
-    return bmb_fuzzy_pc_plots_result_list, bmb_fuzzy_target_pcs_to_plot
+    return (bmb_fuzzy_pc_plots_result_list,)
 
 
 @app.cell
@@ -8372,11 +8595,42 @@ def _(bmb_extracted_pc_plots_results, bmb_fuzzy_pc_plots_result_list):
 
 @app.cell
 def _(
+    bmb_extracted_pc_plots_results,
+    perturbated_bmb_fuzzy_pc_plots_result_list,
+):
+    perturbated_bmb_pc_plots_result_comparison = mo.vstack(
+        [
+            mo.vstack(
+                [
+                    mo.md(
+                        f"### Comparison of the Perturbated Fuzzy run {_run_idx} vs Regular PC plots"
+                    ),
+                    mo.hstack(
+                        [
+                            perturbated_bmb_fuzzy_pc_plots_result["ui_elements"][1.0],
+                            bmb_extracted_pc_plots_results["ui_elements"][1.0],
+                        ],
+                        gap=2,
+                    ),
+                ]
+            )
+            for _run_idx, perturbated_bmb_fuzzy_pc_plots_result in enumerate(
+                perturbated_bmb_fuzzy_pc_plots_result_list
+            )
+        ],
+        gap=3,
+    )
+
+    perturbated_bmb_pc_plots_result_comparison
+    return
+
+
+@app.cell
+def _(
     bmb_fuzzy_extracted_harmonized_fc_matrices_df_list,
     bmb_fuzzy_metadata_dir,
     bmb_fuzzy_metrics_results_list,
     bmb_fuzzy_plot_dir,
-    bmb_fuzzy_target_pcs_to_plot,
     coords_mni,
     network_assignments,
 ):
@@ -8386,7 +8640,7 @@ def _(
         results_list=bmb_fuzzy_metrics_results_list,
         fc_matrices_df_list=bmb_fuzzy_extracted_harmonized_fc_matrices_df_list,
         node_coords=coords_mni,
-        pcs_to_plot=bmb_fuzzy_target_pcs_to_plot,
+        pcs_to_plot=bmb_fuzzy_consensus_target_pcs_to_plot,
         metric_to_plot="diag",
         plot_dir=bmb_fuzzy_plot_dir + "/consensus-thresholds/",
         metadata_dir=bmb_fuzzy_metadata_dir + "/consensus-thresholds/",
@@ -8400,6 +8654,38 @@ def _(
 @app.cell
 def _(bmb_fuzzy_consensus_pc_plots_result):
     bmb_fuzzy_consensus_pc_plots_result["ui"]
+    return
+
+
+@app.cell
+def _(
+    bmb_fuzzy_extracted_harmonized_fc_matrices_df_list,
+    coords_mni,
+    network_assignments,
+    perturbated_bmb_fuzzy_metadata_dir,
+    perturbated_bmb_fuzzy_metrics_results_list,
+    perturbated_bmb_fuzzy_plot_dir,
+):
+    perturbated_bmb_fuzzy_consensus_target_pcs_to_plot = [1.0]
+
+    perturbated_bmb_fuzzy_consensus_pc_plots_result = plot_pcs_consensus(
+        results_list=perturbated_bmb_fuzzy_metrics_results_list,
+        fc_matrices_df_list=bmb_fuzzy_extracted_harmonized_fc_matrices_df_list,
+        node_coords=coords_mni,
+        pcs_to_plot=perturbated_bmb_fuzzy_consensus_target_pcs_to_plot,
+        metric_to_plot="diag",
+        plot_dir=perturbated_bmb_fuzzy_plot_dir + "/consensus-thresholds/",
+        metadata_dir=perturbated_bmb_fuzzy_metadata_dir + "/consensus-thresholds/",
+        consensus_thresholds=[1.0, 0.75, 0.50, 0.25],
+        show_legend=True,
+        network_assignments=network_assignments,
+    )
+    return (perturbated_bmb_fuzzy_consensus_pc_plots_result,)
+
+
+@app.cell
+def _(perturbated_bmb_fuzzy_consensus_pc_plots_result):
+    perturbated_bmb_fuzzy_consensus_pc_plots_result["ui"]
     return
 
 
