@@ -20,6 +20,7 @@ with app.setup:
         select_pca_features,
         select_ttest_features,
         select_optimal_pcs,
+        select_pca_features_single_precision,
     )
     import scipy.io as sio
     from scipy.ndimage import center_of_mass
@@ -45,6 +46,8 @@ with app.setup:
     from joblib import Parallel, delayed
 
     import re
+
+    from concurrent.futures import ProcessPoolExecutor
 
 
 @app.cell(hide_code=True)
@@ -411,6 +414,74 @@ def calculate_features(
         }
 
 
+@app.function
+def calculate_features_single_precision(
+    target_str: str,
+    harmonized_fc_matrices_df: pl.DataFrame,
+    alpha_threshold: float,
+    n_pcs: int,
+    plot_dir: str,
+    ttest_dir,
+    ttest_output_prefix: str,
+) -> dict:
+    harmonized_fc_matrices_pandas_df = harmonized_fc_matrices_df.to_pandas()
+    target = harmonized_fc_matrices_pandas_df[target_str]
+    harmonized_fc_matrix_pandas_df = harmonized_fc_matrices_pandas_df[
+        "harmonized_fc_matrix"
+    ].to_frame()
+    col_name = harmonized_fc_matrix_pandas_df.columns[0]
+    df_X_train = pd.DataFrame(
+        harmonized_fc_matrix_pandas_df[col_name].tolist(),
+        index=harmonized_fc_matrix_pandas_df.index,
+    )
+    cons, cons_pc, statistics = select_pca_features_single_precision(
+        df_X_train=df_X_train,
+        target=target,
+        n_pcs=n_pcs,
+        return_statistics=True,
+        alpha=alpha_threshold,
+        method_pick_pca="fdr_bh",
+        method_pick_con="fdr_bh",
+        fig_dir=plot_dir,
+        fig_plot=True,
+    )
+    top_pc_indices = np.argsort(np.abs(statistics))[::-1][:n_pcs]
+    top_scores = np.abs(statistics[top_pc_indices])
+    max_score = top_scores.max()
+    if max_score > 0:
+        normalized_scores = top_scores / max_score
+    else:
+        normalized_scores = top_scores
+    selected_pcs_with_scores = [
+        (int(pc), float(score))
+        for pc, score in zip(top_pc_indices, normalized_scores)
+    ]
+    if target.nunique() == 2:
+        selected_indices, t_statistics, p_values = select_ttest_features(
+            df_X_train=df_X_train,
+            target=target,
+            output_dir=ttest_dir,
+            output_prefix=ttest_output_prefix,
+            save_results=True,
+        )
+        return {
+            "cons": cons,
+            "cons_pc": cons_pc,
+            "statistics": statistics,
+            "selected_pcs_with_scores": selected_pcs_with_scores,
+            "selected_indices": selected_indices,
+            "t_statistics": t_statistics,
+            "p_values": p_values,
+        }
+    else:
+        return {
+            "cons": cons,
+            "cons_pc": cons_pc,
+            "statistics": statistics,
+            "selected_pcs_with_scores": selected_pcs_with_scores,
+        }
+
+
 @app.cell
 def _():
     calculate_features
@@ -677,6 +748,99 @@ def calculate_metrics(
     return res
 
 
+@app.function
+def calculate_metrics_single_precision(
+    df: pd.DataFrame,
+    metric_dict: dict[str, dict],
+    alpha_threshold: float,
+    n_pcs: int,
+    plot_dir: str,
+    ttest_dir: str,
+    cache_dir: str,
+) -> dict:
+    os.makedirs(cache_dir, exist_ok=True)
+    res = {"results": {}}
+    ui_elements = []
+    for metric, config in metric_dict.items():
+        cache_path = os.path.join(cache_dir, f"{metric}_results.pkl")
+        if os.path.exists(cache_path):
+            print(f"Loading cached results for metric: {metric}")
+            with open(cache_path, "rb") as f:
+                results = pickle.load(f)
+        else:
+            print(f"Calculating and caching results for metric: {metric}")
+            results = calculate_features_single_precision(
+                target_str=metric,
+                harmonized_fc_matrices_df=df,
+                alpha_threshold=alpha_threshold,
+                n_pcs=n_pcs,
+                plot_dir=plot_dir,
+                ttest_dir=ttest_dir,
+                ttest_output_prefix=config["prefix"],
+            )
+            with open(cache_path, "wb") as f:
+                pickle.dump(results, f)
+        cons = results.get("cons")
+        cons_pc = results.get("cons_pc")
+        statistics = results.get("statistics")
+        selected_pcs_with_scores = results.get("selected_pcs_with_scores")
+        is_binary_target = "p_values" in results
+        if is_binary_target:
+            selected_indices = results["selected_indices"]
+            t_statistics = results["t_statistics"]
+            p_values = results["p_values"]
+        image_path = os.path.join(plot_dir, f"{metric}.png")
+        metric_image = mo.image(src=Path(image_path).read_bytes())
+        plot_section = metric_image
+        metric_ui = mo.vstack(
+            [
+                mo.md(f"#### Results for metric: `{metric}`"),
+                plot_section,
+                mo.md("---"),
+            ]
+        )
+        ui_elements.append(metric_ui)
+        res["results"][metric] = {
+            "cons": cons,
+            "cons_pc": cons_pc,
+            "statistics": statistics,
+            "selected_pcs_with_scores": selected_pcs_with_scores,
+            "is_binary_target": is_binary_target,
+        }
+        if is_binary_target:
+            res["results"][metric].update(
+                {
+                    "selected_indices": selected_indices,
+                    "t_statistics": t_statistics,
+                    "p_values": p_values,
+                }
+            )
+    # Build lists for select_optimal_pcs
+    target_pcs_lists = []
+    primary_target_pcs_lists = []
+    noise_pcs_lists = []
+    for metric, r in res["results"].items():
+        kind = metric_dict[metric].get("kind", "target")
+        if kind == "target":
+            # Always add to target scoring
+            target_pcs_lists.append(r["selected_pcs_with_scores"])
+            # If primary, also restrict the candidate pool
+            if metric_dict[metric].get("primary", False):
+                primary_target_pcs_lists.append(r["selected_pcs_with_scores"])
+        elif kind == "noise":
+            noise_pcs_lists.append(r["selected_pcs_with_scores"])
+    selected_pcs, info = select_optimal_pcs(
+        target_pcs_lists,
+        noise_pcs_lists,
+        n_pcs=n_pcs,
+        primary_target_pcs_lists=primary_target_pcs_lists,
+    )
+    res["selected_pcs"] = selected_pcs
+    res["optimal_pc_info"] = info
+    res["ui"] = mo.vstack(ui_elements, gap=3)
+    return res
+
+
 @app.cell
 def _():
     calculate_metrics
@@ -712,6 +876,21 @@ def _():
         "./res/pca-dim-reduction/srpb/features-extraction/old/metadatas/"
     )
     return old_srpb_cache_dir, old_srpb_plot_dir, old_srpb_ttest_dir
+
+
+@app.cell
+def _():
+    perturbated_srpb_plot_dir = "./res/pca-dim-reduction/srpb/features-extraction/perturbated/plots/"
+    perturbated_srpb_ttest_dir = "./res/pca-dim-reduction/srpb/features-extraction/perturbated/t-tests/"
+    perturbated_srpb_cache_dir = "./res/pca-dim-reduction/srpb/features-extraction/perturbated/cache/"
+    perturbated_srpb_metadata_dir = (
+        "./res/pca-dim-reduction/srpb/features-extraction/perturbated/metadatas/"
+    )
+    return (
+        perturbated_srpb_cache_dir,
+        perturbated_srpb_plot_dir,
+        perturbated_srpb_ttest_dir,
+    )
 
 
 @app.cell
@@ -847,6 +1026,42 @@ def _(
     old_srpb_results = old_srpb_metrics_dict["results"]
     old_srpb_ui = old_srpb_metrics_dict["ui"]
     return (old_srpb_results,)
+
+
+@app.cell
+def _(
+    harmonized_srpb_fc_matrices_hc_mdd_df,
+    metric_dict,
+    perturbated_srpb_cache_dir,
+    perturbated_srpb_plot_dir,
+    perturbated_srpb_ttest_dir,
+):
+    perturbated_srpb_metrics_dict = calculate_metrics_single_precision(
+        df=srpb_filter(harmonized_srpb_fc_matrices_hc_mdd_df),
+        metric_dict=metric_dict,
+        alpha_threshold=0.05,
+        n_pcs=5,
+        plot_dir=perturbated_srpb_plot_dir,
+        ttest_dir=perturbated_srpb_ttest_dir,
+        cache_dir=perturbated_srpb_cache_dir,
+    )
+
+    perturbated_srpb_results = perturbated_srpb_metrics_dict["results"]
+    perturbated_srpb_selected_pcs = perturbated_srpb_metrics_dict["selected_pcs"]
+    perturbated_srpb_ui = perturbated_srpb_metrics_dict["ui"]
+    return perturbated_srpb_selected_pcs, perturbated_srpb_ui
+
+
+@app.cell
+def _(perturbated_srpb_selected_pcs):
+    perturbated_srpb_selected_pcs
+    return
+
+
+@app.cell
+def _(perturbated_srpb_ui):
+    perturbated_srpb_ui
+    return
 
 
 @app.cell
@@ -1955,6 +2170,19 @@ def _():
 
 @app.cell
 def _():
+    perturbated_bmb_plot_dir = "./res/pca-dim-reduction/bmb/features-extraction/perturbated/plots/"
+    perturbated_bmb_ttest_dir = "./res/pca-dim-reduction/bmb/features-extraction/perturbated/t-tests/"
+    perturbated_bmb_cache_dir = "./res/pca-dim-reduction/bmb/features-extraction/perturbated/cache/"
+    perturbated_bmb_metadata_dir = "./res/pca-dim-reduction/bmb/features-extraction/perturbated/metadatas/"
+    return (
+        perturbated_bmb_cache_dir,
+        perturbated_bmb_plot_dir,
+        perturbated_bmb_ttest_dir,
+    )
+
+
+@app.cell
+def _():
     bmb_plot_dir = "./res/pca-dim-reduction/bmb/features-extraction/plots/"
     bmb_ttest_dir = "./res/pca-dim-reduction/bmb/features-extraction/t-tests/"
     bmb_cache_dir = "./res/pca-dim-reduction/bmb/features-extraction/cache/"
@@ -2006,6 +2234,30 @@ def _(
     old_bmb_results = old_bmb_metrics_dict["results"]
     old_bmb_ui = old_bmb_metrics_dict["ui"]
     return (old_bmb_results,)
+
+
+@app.cell
+def _(
+    harmonized_bmb_fc_matrices_hc_mdd_df,
+    metric_dict,
+    perturbated_bmb_cache_dir,
+    perturbated_bmb_plot_dir,
+    perturbated_bmb_ttest_dir,
+):
+    perturbated_bmb_metrics_dict = calculate_metrics_single_precision(
+        df=bmb_filter(harmonized_bmb_fc_matrices_hc_mdd_df),
+        metric_dict=metric_dict,
+        alpha_threshold=0.05,
+        n_pcs=5,
+        plot_dir=perturbated_bmb_plot_dir,
+        ttest_dir=perturbated_bmb_ttest_dir,
+        cache_dir=perturbated_bmb_cache_dir,
+    )
+
+    perturbated_bmb_results = perturbated_bmb_metrics_dict["results"]
+    perturbated_bmb_selected_pcs = perturbated_bmb_metrics_dict["selected_pcs"]
+    perturbated_bmb_ui = perturbated_bmb_metrics_dict["ui"]
+    return
 
 
 @app.cell
@@ -4736,14 +4988,12 @@ def analyze_fuzzy_fc_matrix_impact(
     return mo.md(summary_md)
 
 
-app._unparsable_cell(
-    r"""
-         srpb_fuzzy_fc_matrices_impact_output_dir = (
+@app.cell
+def _():
+    srpb_fuzzy_fc_matrices_impact_output_dir = (
         "./res/pca-dim-reduction/srpb/fuzzy-fc-matrices-impact"
     )
-    """,
-    name="_"
-)
+    return (srpb_fuzzy_fc_matrices_impact_output_dir,)
 
 
 @app.cell
@@ -4859,6 +5109,27 @@ def _():
 
 @app.cell
 def _():
+    perturbated_srpb_fuzzy_plot_dir = (
+        "./res/pca-dim-reduction/srpb/fuzzy-features-extraction/perturbated/plots"
+    )
+    perturbated_srpb_fuzzy_ttest_dir = (
+        "./res/pca-dim-reduction/srpb/fuzzy-features-extraction/perturbated/t-tests"
+    )
+    perturbated_srpb_fuzzy_cache_dir = (
+        "./res/pca-dim-reduction/srpb/fuzzy-features-extraction/perturbated/cache"
+    )
+    perturbated_srpb_fuzzy_metadata_dir = (
+        "./res/pca-dim-reduction/srpb/fuzzy-features-extraction/perturbated/metadatas"
+    )
+    return (
+        perturbated_srpb_fuzzy_cache_dir,
+        perturbated_srpb_fuzzy_plot_dir,
+        perturbated_srpb_fuzzy_ttest_dir,
+    )
+
+
+@app.cell
+def _():
     srpb_fuzzy_plot_dir = (
         "./res/pca-dim-reduction/srpb/fuzzy-features-extraction/plots"
     )
@@ -4934,6 +5205,41 @@ def _(
             old_srpb_fuzy_metrics_dict["results"]
         )
         old_srpb_fuzzy_metrics_ui_list.append(old_srpb_fuzy_metrics_dict["ui"])
+    return
+
+
+@app.cell
+def _(
+    metric_dict,
+    perturbated_srpb_fuzzy_cache_dir,
+    perturbated_srpb_fuzzy_plot_dir,
+    perturbated_srpb_fuzzy_ttest_dir,
+    srpb_fuzzy_extracted_harmonized_fc_matrices_hc_mdd_df_list,
+):
+    perturbated_srpb_fuzzy_metrics_results_list = []
+    perturbated_srpb_fuzzy_selected_pcs = []
+    perturbated_srpb_fuzzy_metrics_ui_list = []
+
+
+    for (
+        _run_idx,
+        _srpb_fuzzy_extracted_harmonized_fc_matrices_hc_mdd_df,
+    ) in enumerate(srpb_fuzzy_extracted_harmonized_fc_matrices_hc_mdd_df_list):
+        print(f"Calculating metrics for run {_run_idx}")
+
+        perturbated_srpb_fuzy_metrics_dict = calculate_metrics_single_precision(
+            df=srpb_filter(_srpb_fuzzy_extracted_harmonized_fc_matrices_hc_mdd_df),
+            metric_dict=metric_dict,
+            alpha_threshold=0.05,
+            n_pcs=5,
+            plot_dir=perturbated_srpb_fuzzy_plot_dir + f"/run-{_run_idx}/",
+            ttest_dir=perturbated_srpb_fuzzy_ttest_dir + f"/run-{_run_idx}/",
+            cache_dir=perturbated_srpb_fuzzy_cache_dir + f"/run-{_run_idx}/",
+        )
+
+        perturbated_srpb_fuzzy_metrics_results_list.append(perturbated_srpb_fuzy_metrics_dict["results"])
+        perturbated_srpb_fuzzy_selected_pcs.append(perturbated_srpb_fuzy_metrics_dict["selected_pcs"])
+        perturbated_srpb_fuzzy_metrics_ui_list.append(perturbated_srpb_fuzy_metrics_dict["ui"])
     return
 
 
@@ -7507,22 +7813,25 @@ def _():
         columns=["participants_id", "session"],
         null_values=["-", "NA", "N/A", ""],
     )
-    return
+    return (bmb_metadata_dataframe,)
 
 
-app._unparsable_cell(
-    r"""
-        bmb_missing_df = bmb_metadata_dataframe.join(
+@app.cell
+def _(
+    bmb_metadata_dataframe,
+    bmb_scrub_file_paths_df,
+    bmb_time_series_file_df,
+):
+    bmb_missing_df = bmb_metadata_dataframe.join(
         bmb_time_series_file_df.join(
             bmb_scrub_file_paths_df, on=["participants_id", "session"], how="inner"
         ),
         on=["participants_id", "session"],
         how="anti",
     )
+
     bmb_missing_df.height
-    """,
-    name="_"
-)
+    return (bmb_missing_df,)
 
 
 @app.cell
@@ -7700,6 +8009,27 @@ def _():
 
 @app.cell
 def _():
+    perturbated_bmb_fuzzy_plot_dir = (
+        "./res/pca-dim-reduction/bmb/fuzzy-features-extraction/perturbated/plots"
+    )
+    perturbated_bmb_fuzzy_ttest_dir = (
+        "./res/pca-dim-reduction/bmb/fuzzy-features-extraction/perturbated/t-tests"
+    )
+    perturbated_bmb_fuzzy_cache_dir = (
+        "./res/pca-dim-reduction/bmb/fuzzy-features-extraction/perturbated/cache"
+    )
+    perturbated_bmb_fuzzy_metadata_dir = (
+        "./res/pca-dim-reduction/bmb/fuzzy-features-extraction/perturbated/metadatas"
+    )
+    return (
+        perturbated_bmb_fuzzy_cache_dir,
+        perturbated_bmb_fuzzy_plot_dir,
+        perturbated_bmb_fuzzy_ttest_dir,
+    )
+
+
+@app.cell
+def _():
     bmb_fuzzy_plot_dir = (
         "./res/pca-dim-reduction/bmb/fuzzy-features-extraction/plots"
     )
@@ -7784,6 +8114,41 @@ def _(
         )
         old_bmb_fuzzy_metrics_ui_list.append(old_bmb_fuzy_metrics_dict["ui"])
     return (old_bmb_fuzzy_metrics_results_list,)
+
+
+@app.cell
+def _(
+    bmb_fuzzy_extracted_harmonized_fc_matrices_hc_mdd_df_list,
+    metric_dict,
+    perturbated_bmb_fuzzy_cache_dir,
+    perturbated_bmb_fuzzy_plot_dir,
+    perturbated_bmb_fuzzy_ttest_dir,
+):
+    perturbated_bmb_fuzzy_metrics_results_list = []
+    perturbated_bmb_fuzzy_selected_pcs = []
+    perturbated_bmb_fuzzy_metrics_ui_list = []
+
+
+    for (
+        _run_idx,
+        _bmb_fuzzy_extracted_harmonized_fc_matrices_hc_mdd_df,
+    ) in enumerate(bmb_fuzzy_extracted_harmonized_fc_matrices_hc_mdd_df_list):
+        print(f"Calculating metrics for run {_run_idx}")
+
+        perturbated_bmb_fuzy_metrics_dict = calculate_metrics_single_precision(
+            df=bmb_filter(_bmb_fuzzy_extracted_harmonized_fc_matrices_hc_mdd_df),
+            metric_dict=metric_dict,
+            alpha_threshold=0.05,
+            n_pcs=5,
+            plot_dir=perturbated_bmb_fuzzy_plot_dir + f"/run-{_run_idx}/",
+            ttest_dir=perturbated_bmb_fuzzy_ttest_dir + f"/run-{_run_idx}/",
+            cache_dir=perturbated_bmb_fuzzy_cache_dir + f"/run-{_run_idx}/",
+        )
+
+        perturbated_bmb_fuzzy_metrics_results_list.append(perturbated_bmb_fuzy_metrics_dict["results"])
+        perturbated_bmb_fuzzy_selected_pcs.append(perturbated_bmb_fuzy_metrics_dict["selected_pcs"])
+        perturbated_bmb_fuzzy_metrics_ui_list.append(perturbated_bmb_fuzy_metrics_dict["ui"])
+    return
 
 
 @app.cell
