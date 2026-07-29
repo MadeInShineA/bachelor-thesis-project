@@ -22,7 +22,6 @@ with app.setup:
         select_optimal_pcs,
         select_pca_features_single_precision,
     )
-    import scipy.io as sio
     from scipy.ndimage import center_of_mass
     from nilearn import plotting
     from matplotlib.lines import Line2D
@@ -30,7 +29,7 @@ with app.setup:
     import nibabel as nib
     from nilearn.image import resample_to_img
     import pickle
-    from concurrent.futures import ThreadPoolExecutor, as_completed
+    from concurrent.futures import ThreadPoolExecutor
     from tqdm import tqdm
     from scipy import stats
     from typing import Tuple
@@ -42,12 +41,7 @@ with app.setup:
     import subprocess
     from functools import partial
     import io
-
-    from joblib import Parallel, delayed
-
     import re
-
-    from concurrent.futures import ProcessPoolExecutor
 
 
 @app.cell(hide_code=True)
@@ -55,7 +49,7 @@ def _():
     mo.md(r"""
     # Fuzzy PCA Dimensionality Reduction Analysis
 
-    The goals of this notebook are:
+    The main goals of this notebook are:
     - Reproduce the results of [this paper](https://direct.mit.edu/imag/article/doi/10.1162/IMAG.a.1121/134875/Extraction-of-robust-functional-connectivity) using the `SRPB` dataset.
     - Perturb the FC matrix extraction.
     - Assess how the perturbations affect the original results.
@@ -268,13 +262,26 @@ def _():
 @app.cell(hide_code=True)
 def _():
     mo.md(r"""
-    Calculate the difference PCA and T test features for the following metrics:
-            - Major Depressive Disorder (MDD) vs Healthy Control (HC)
-            - Age
-            - Bdi
-            - Sex
-            - Site
-            - Mean FD
+    Calculate the different PCA feature selection for the following metrics:
+    - Major Depressive Disorder (MDD) vs Healthy Control (HC)
+    - Age
+    - Bdi
+    - Sex
+    - Site
+    - Mean FD
+
+    We will calculate 3 different versions of the `select_pca_features` function
+    - The original `select_pca_features` function
+    - A new version of the `select_pca_features` function
+    - A perturbated version of the new `select_pca_features` function using single digit precision
+    """)
+    return
+
+
+@app.cell(hide_code=True)
+def _():
+    mo.md(r"""
+    Define the different functions used for the extraction
     """)
     return
 
@@ -482,16 +489,10 @@ def calculate_features_single_precision(
         }
 
 
-@app.cell
-def _():
-    calculate_features
-    return
-
-
 @app.cell(hide_code=True)
 def _():
     mo.md(r"""
-    Define a function to plot the p values
+    Define a function to plot the p values (is currently unused)
     """)
     return
 
@@ -546,16 +547,10 @@ def plot_p_values(p_values, metric_name: str):
     return fig
 
 
-@app.cell
-def _():
-    plot_p_values
-    return
-
-
 @app.cell(hide_code=True)
 def _():
     mo.md(r"""
-    Define a function to calculate the PCA features extraction for the different metrics
+    Define a function to calculate the PCA features extraction for the different metrics for each of the previously defined `calculate_features` functions
     """)
     return
 
@@ -597,7 +592,6 @@ def old_calculate_metrics(
             with open(cache_path, "wb") as f:
                 pickle.dump(results, f)
 
-        print(results)
         cons = results.get("cons")
         cons_pc = results.get("cons_pc")
 
@@ -841,22 +835,10 @@ def calculate_metrics_single_precision(
     return res
 
 
-@app.cell
-def _():
-    calculate_metrics
-    return
-
-
 @app.cell(hide_code=True)
 def _():
     mo.md(r"""
-    Calculate the difference PCA and T test features for the following metrics:
-    - Major Depressive Disorder (MDD) vs Healthy Control (HC)
-    - Age
-    - Bdi
-    - Sex
-    - Site
-    - Mean FD
+    Define the different SRPB output paths
     """)
     return
 
@@ -875,21 +857,11 @@ def _():
     old_srpb_metadata_dir = (
         "./res/pca-dim-reduction/srpb/features-extraction/old/metadatas/"
     )
-    return old_srpb_cache_dir, old_srpb_plot_dir, old_srpb_ttest_dir
-
-
-@app.cell
-def _():
-    perturbated_srpb_plot_dir = "./res/pca-dim-reduction/srpb/features-extraction/perturbated/plots/"
-    perturbated_srpb_ttest_dir = "./res/pca-dim-reduction/srpb/features-extraction/perturbated/t-tests/"
-    perturbated_srpb_cache_dir = "./res/pca-dim-reduction/srpb/features-extraction/perturbated/cache/"
-    perturbated_srpb_metadata_dir = (
-        "./res/pca-dim-reduction/srpb/features-extraction/perturbated/metadatas/"
-    )
     return (
-        perturbated_srpb_cache_dir,
-        perturbated_srpb_plot_dir,
-        perturbated_srpb_ttest_dir,
+        old_srpb_cache_dir,
+        old_srpb_metadata_dir,
+        old_srpb_plot_dir,
+        old_srpb_ttest_dir,
     )
 
 
@@ -902,6 +874,42 @@ def _():
         "./res/pca-dim-reduction/srpb/features-extraction/metadatas/"
     )
     return srpb_cache_dir, srpb_metadata_dir, srpb_plot_dir, srpb_ttest_dir
+
+
+@app.cell
+def _():
+    perturbated_srpb_plot_dir = (
+        "./res/pca-dim-reduction/srpb/features-extraction/perturbated/plots/"
+    )
+    perturbated_srpb_ttest_dir = (
+        "./res/pca-dim-reduction/srpb/features-extraction/perturbated/t-tests/"
+    )
+    perturbated_srpb_cache_dir = (
+        "./res/pca-dim-reduction/srpb/features-extraction/perturbated/cache/"
+    )
+    perturbated_srpb_metadata_dir = (
+        "./res/pca-dim-reduction/srpb/features-extraction/perturbated/metadatas/"
+    )
+    return (
+        perturbated_srpb_cache_dir,
+        perturbated_srpb_metadata_dir,
+        perturbated_srpb_plot_dir,
+        perturbated_srpb_ttest_dir,
+    )
+
+
+@app.cell(hide_code=True)
+def _():
+    mo.md(r"""
+    Calculate the different PCA features extraction for the following metrics:
+    - Major Depressive Disorder (MDD) vs Healthy Control (HC)
+    - Age
+    - Bdi
+    - Sex
+    - Site
+    - Mean FD
+    """)
+    return
 
 
 @app.cell(hide_code=True)
@@ -1000,9 +1008,11 @@ def srpb_filter(df: pl.DataFrame):
     )
 
 
-@app.cell
-def _(harmonized_srpb_fc_matrices_hc_mdd_df):
-    harmonized_srpb_fc_matrices_hc_mdd_df.head()
+@app.cell(hide_code=True)
+def _():
+    mo.md(r"""
+    Run the different `calculate_metrics` functions
+    """)
     return
 
 
@@ -1025,43 +1035,7 @@ def _(
 
     old_srpb_results = old_srpb_metrics_dict["results"]
     old_srpb_ui = old_srpb_metrics_dict["ui"]
-    return (old_srpb_results,)
-
-
-@app.cell
-def _(
-    harmonized_srpb_fc_matrices_hc_mdd_df,
-    metric_dict,
-    perturbated_srpb_cache_dir,
-    perturbated_srpb_plot_dir,
-    perturbated_srpb_ttest_dir,
-):
-    perturbated_srpb_metrics_dict = calculate_metrics_single_precision(
-        df=srpb_filter(harmonized_srpb_fc_matrices_hc_mdd_df),
-        metric_dict=metric_dict,
-        alpha_threshold=0.05,
-        n_pcs=5,
-        plot_dir=perturbated_srpb_plot_dir,
-        ttest_dir=perturbated_srpb_ttest_dir,
-        cache_dir=perturbated_srpb_cache_dir,
-    )
-
-    perturbated_srpb_results = perturbated_srpb_metrics_dict["results"]
-    perturbated_srpb_selected_pcs = perturbated_srpb_metrics_dict["selected_pcs"]
-    perturbated_srpb_ui = perturbated_srpb_metrics_dict["ui"]
-    return perturbated_srpb_selected_pcs, perturbated_srpb_ui
-
-
-@app.cell
-def _(perturbated_srpb_selected_pcs):
-    perturbated_srpb_selected_pcs
-    return
-
-
-@app.cell
-def _(perturbated_srpb_ui):
-    perturbated_srpb_ui
-    return
+    return old_srpb_results, old_srpb_ui
 
 
 @app.cell
@@ -1089,14 +1063,44 @@ def _(
 
 
 @app.cell
-def _(srpb_selected_pcs):
-    srpb_selected_pcs
+def _(
+    harmonized_srpb_fc_matrices_hc_mdd_df,
+    metric_dict,
+    perturbated_srpb_cache_dir,
+    perturbated_srpb_plot_dir,
+    perturbated_srpb_ttest_dir,
+):
+    perturbated_srpb_metrics_dict = calculate_metrics_single_precision(
+        df=srpb_filter(harmonized_srpb_fc_matrices_hc_mdd_df),
+        metric_dict=metric_dict,
+        alpha_threshold=0.05,
+        n_pcs=5,
+        plot_dir=perturbated_srpb_plot_dir,
+        ttest_dir=perturbated_srpb_ttest_dir,
+        cache_dir=perturbated_srpb_cache_dir,
+    )
+
+    perturbated_srpb_results = perturbated_srpb_metrics_dict["results"]
+    perturbated_srpb_selected_pcs = perturbated_srpb_metrics_dict["selected_pcs"]
+    perturbated_srpb_ui = perturbated_srpb_metrics_dict["ui"]
+    return (
+        perturbated_srpb_results,
+        perturbated_srpb_selected_pcs,
+        perturbated_srpb_ui,
+    )
+
+
+@app.cell(hide_code=True)
+def _():
+    mo.md(r"""
+    Display the different SRPB PC plots
+    """)
     return
 
 
 @app.cell
-def _(srpb_ui):
-    srpb_ui
+def _(old_srpb_ui, perturbated_srpb_ui, srpb_ui):
+    mo.hstack([old_srpb_ui, srpb_ui, perturbated_srpb_ui])
     return
 
 
@@ -1111,7 +1115,7 @@ def _():
 @app.cell(hide_code=True)
 def _():
     mo.md(r"""
-    We first want to check which PC was selected only in the BDI and diag metrics
+    We first want to check the different PCs selected
     """)
     return
 
@@ -1159,12 +1163,6 @@ def select_mdd_pc(
 
 
 @app.cell
-def _():
-    select_mdd_pc
-    return
-
-
-@app.cell
 def _(old_srpb_results):
     old_srpb_selected_mdd_pcs = select_mdd_pc(old_srpb_results, ["bdi"])
     old_srpb_selected_mdd_pcs
@@ -1172,9 +1170,14 @@ def _(old_srpb_results):
 
 
 @app.cell
-def _(srpb_results):
-    srpb_selected_mdd_pcs = select_mdd_pc(srpb_results, ["bdi"])
-    srpb_selected_mdd_pcs
+def _(perturbated_srpb_selected_pcs):
+    perturbated_srpb_selected_pcs
+    return
+
+
+@app.cell
+def _(srpb_selected_pcs):
+    srpb_selected_pcs
     return
 
 
@@ -1338,7 +1341,7 @@ def _():
     return
 
 
-@app.function(hide_code=True)
+@app.function
 def plot_pcs(
     results: dict,
     fc_matrices_df: pl.DataFrame,
@@ -1871,10 +1874,37 @@ def plot_pcs(
     return res
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _():
-    plot_pcs
+    mo.md(r"""
+    Finally, we plot the FC connections for the different PCA features extractions
+    """)
     return
+
+
+@app.cell
+def _(
+    coords_mni,
+    harmonized_srpb_fc_matrices_hc_mdd_df,
+    network_assignments,
+    old_srpb_metadata_dir,
+    old_srpb_plot_dir,
+    old_srpb_results,
+):
+    old_srpb_target_pcs_to_plot = [1.0]
+
+    old_srpb_pc_plots_results = plot_pcs(
+        results=old_srpb_results,
+        fc_matrices_df=harmonized_srpb_fc_matrices_hc_mdd_df,
+        node_coords=coords_mni,
+        pcs_to_plot=old_srpb_target_pcs_to_plot,
+        metric_to_plot="diag",
+        plot_dir=old_srpb_plot_dir,
+        metadata_dir=old_srpb_metadata_dir,
+        show_legend=True,
+        network_assignments=network_assignments,
+    )
+    return (old_srpb_pc_plots_results,)
 
 
 @app.cell
@@ -1903,15 +1933,55 @@ def _(
 
 
 @app.cell
-def _(srpb_pc_plots_results):
-    mo.vstack(list(srpb_pc_plots_results["ui_elements"].values()), gap=3)
+def _(
+    coords_mni,
+    harmonized_srpb_fc_matrices_hc_mdd_df,
+    network_assignments,
+    perturbated_srpb_metadata_dir,
+    perturbated_srpb_plot_dir,
+    perturbated_srpb_results,
+):
+    perturbated_srpb_target_pcs_to_plot = [1.0]
+
+    perturbated_srpb_pc_plots_results = plot_pcs(
+        results=perturbated_srpb_results,
+        fc_matrices_df=harmonized_srpb_fc_matrices_hc_mdd_df,
+        node_coords=coords_mni,
+        pcs_to_plot=perturbated_srpb_target_pcs_to_plot,
+        metric_to_plot="diag",
+        plot_dir=perturbated_srpb_plot_dir,
+        metadata_dir=perturbated_srpb_metadata_dir,
+        show_legend=True,
+        network_assignments=network_assignments,
+    )
+    return (perturbated_srpb_pc_plots_results,)
+
+
+@app.cell
+def _(
+    old_srpb_pc_plots_results,
+    perturbated_srpb_pc_plots_results,
+    srpb_pc_plots_results,
+):
+    mo.hstack(
+        [
+            mo.vstack(
+                list(old_srpb_pc_plots_results["ui_elements"].values()), gap=3
+            ),
+            mo.vstack(list(srpb_pc_plots_results["ui_elements"].values()), gap=3),
+            mo.vstack(
+                list(perturbated_srpb_pc_plots_results["ui_elements"].values()),
+                gap=3,
+            ),
+        ]
+    )
     return
 
 
 @app.cell(hide_code=True)
 def _():
     mo.md(r"""
-    ### First draft of a conclusion
+    ### Conclusion
     """)
     return
 
@@ -1919,7 +1989,14 @@ def _():
 @app.cell(hide_code=True)
 def _():
     mo.md(r"""
-    The analysis of the BMB dataset confirms what was established in the first conclusion. While the selected PCs differ across datasets, their contributing FCs come from the same brain areas and show a majority of under-connectivity for MDD subjects.
+    As we can see, the different selected FC connection region repartitions and their connectivity are very similar to the original paper.
+
+
+    The different PC plots are the same, no matter the version of the extraction used. However, the old and new versions show different results regarding which PCs are selected, and how easy it is to actually select the PC we want to use for our analysis.
+
+    When looking at the original section, PC 2 appears both inside the confound and inside our target metrics, this is the same for the new version except this one assigns a score to the different PCs and sorts them, so it directly tells us which PC we should use (here PC 2 with index 1.0).
+
+    The new version is also resistant to single digit precision.
     """)
     return
 
@@ -2142,13 +2219,26 @@ def _():
 @app.cell(hide_code=True)
 def _():
     mo.md(r"""
-    Calculate the difference PCA and T test features for the following metrics:
+    Calculate the different PCA feature selection for the following metrics:
     - Major Depressive Disorder (MDD) vs Healthy Control (HC)
     - Age
     - Bdi
     - Sex
     - Site
     - Mean FD
+
+    We will calculate 3 different versions of the `select_pca_features` function
+    - The original `select_pca_features` function
+    - A new version of the `select_pca_features` function
+    - A perturbated version of the new `select_pca_features` function using single digit precision
+    """)
+    return
+
+
+@app.cell(hide_code=True)
+def _():
+    mo.md(r"""
+    Define the different BMB output paths
     """)
     return
 
@@ -2165,19 +2255,11 @@ def _():
     old_bmb_metadata_dir = (
         "./res/pca-dim-reduction/bmb/features-extraction/old/metadatas/"
     )
-    return old_bmb_cache_dir, old_bmb_plot_dir, old_bmb_ttest_dir
-
-
-@app.cell
-def _():
-    perturbated_bmb_plot_dir = "./res/pca-dim-reduction/bmb/features-extraction/perturbated/plots/"
-    perturbated_bmb_ttest_dir = "./res/pca-dim-reduction/bmb/features-extraction/perturbated/t-tests/"
-    perturbated_bmb_cache_dir = "./res/pca-dim-reduction/bmb/features-extraction/perturbated/cache/"
-    perturbated_bmb_metadata_dir = "./res/pca-dim-reduction/bmb/features-extraction/perturbated/metadatas/"
     return (
-        perturbated_bmb_cache_dir,
-        perturbated_bmb_plot_dir,
-        perturbated_bmb_ttest_dir,
+        old_bmb_cache_dir,
+        old_bmb_metadata_dir,
+        old_bmb_plot_dir,
+        old_bmb_ttest_dir,
     )
 
 
@@ -2191,8 +2273,32 @@ def _():
 
 
 @app.cell
-def _(harmonized_bmb_fc_matrices_hc_mdd_df):
-    print(harmonized_bmb_fc_matrices_hc_mdd_df.columns)
+def _():
+    perturbated_bmb_plot_dir = (
+        "./res/pca-dim-reduction/bmb/features-extraction/perturbated/plots/"
+    )
+    perturbated_bmb_ttest_dir = (
+        "./res/pca-dim-reduction/bmb/features-extraction/perturbated/t-tests/"
+    )
+    perturbated_bmb_cache_dir = (
+        "./res/pca-dim-reduction/bmb/features-extraction/perturbated/cache/"
+    )
+    perturbated_bmb_metadata_dir = (
+        "./res/pca-dim-reduction/bmb/features-extraction/perturbated/metadatas/"
+    )
+    return (
+        perturbated_bmb_cache_dir,
+        perturbated_bmb_metadata_dir,
+        perturbated_bmb_plot_dir,
+        perturbated_bmb_ttest_dir,
+    )
+
+
+@app.cell(hide_code=True)
+def _():
+    mo.md(r"""
+    Define the used filter for the BMB dataset
+    """)
     return
 
 
@@ -2214,6 +2320,14 @@ def bmb_filter(df: pl.DataFrame) -> pl.DataFrame:
     )
 
 
+@app.cell(hide_code=True)
+def _():
+    mo.md(r"""
+    Run the different PCA feature extraction
+    """)
+    return
+
+
 @app.cell
 def _(
     harmonized_bmb_fc_matrices_hc_mdd_df,
@@ -2233,31 +2347,7 @@ def _(
 
     old_bmb_results = old_bmb_metrics_dict["results"]
     old_bmb_ui = old_bmb_metrics_dict["ui"]
-    return (old_bmb_results,)
-
-
-@app.cell
-def _(
-    harmonized_bmb_fc_matrices_hc_mdd_df,
-    metric_dict,
-    perturbated_bmb_cache_dir,
-    perturbated_bmb_plot_dir,
-    perturbated_bmb_ttest_dir,
-):
-    perturbated_bmb_metrics_dict = calculate_metrics_single_precision(
-        df=bmb_filter(harmonized_bmb_fc_matrices_hc_mdd_df),
-        metric_dict=metric_dict,
-        alpha_threshold=0.05,
-        n_pcs=5,
-        plot_dir=perturbated_bmb_plot_dir,
-        ttest_dir=perturbated_bmb_ttest_dir,
-        cache_dir=perturbated_bmb_cache_dir,
-    )
-
-    perturbated_bmb_results = perturbated_bmb_metrics_dict["results"]
-    perturbated_bmb_selected_pcs = perturbated_bmb_metrics_dict["selected_pcs"]
-    perturbated_bmb_ui = perturbated_bmb_metrics_dict["ui"]
-    return
+    return old_bmb_results, old_bmb_ui
 
 
 @app.cell
@@ -2285,14 +2375,44 @@ def _(
 
 
 @app.cell
-def _(bmb_selected_pcs):
-    bmb_selected_pcs
+def _(
+    harmonized_bmb_fc_matrices_hc_mdd_df,
+    metric_dict,
+    perturbated_bmb_cache_dir,
+    perturbated_bmb_plot_dir,
+    perturbated_bmb_ttest_dir,
+):
+    perturbated_bmb_metrics_dict = calculate_metrics_single_precision(
+        df=bmb_filter(harmonized_bmb_fc_matrices_hc_mdd_df),
+        metric_dict=metric_dict,
+        alpha_threshold=0.05,
+        n_pcs=5,
+        plot_dir=perturbated_bmb_plot_dir,
+        ttest_dir=perturbated_bmb_ttest_dir,
+        cache_dir=perturbated_bmb_cache_dir,
+    )
+
+    perturbated_bmb_results = perturbated_bmb_metrics_dict["results"]
+    perturbated_bmb_selected_pcs = perturbated_bmb_metrics_dict["selected_pcs"]
+    perturbated_bmb_ui = perturbated_bmb_metrics_dict["ui"]
+    return (
+        perturbated_bmb_results,
+        perturbated_bmb_selected_pcs,
+        perturbated_bmb_ui,
+    )
+
+
+@app.cell(hide_code=True)
+def _():
+    mo.md(r"""
+    Display the different BMB PC plots
+    """)
     return
 
 
 @app.cell
-def _(bmb_ui):
-    bmb_ui
+def _(bmb_ui, old_bmb_ui, perturbated_bmb_ui):
+    mo.hstack([old_bmb_ui, bmb_ui, perturbated_bmb_ui])
     return
 
 
@@ -2300,6 +2420,14 @@ def _(bmb_ui):
 def _():
     mo.md(r"""
     ### Analyze the results of the PCA feature selection
+    """)
+    return
+
+
+@app.cell(hide_code=True)
+def _():
+    mo.md(r"""
+    We first want to check the different PCs selected
     """)
     return
 
@@ -2312,10 +2440,48 @@ def _(old_bmb_results):
 
 
 @app.cell
-def _(bmb_results):
-    bmb_selected_mdd_pcs = select_mdd_pc(bmb_results, ["bdi"])
-    bmb_selected_mdd_pcs
+def _(bmb_selected_pcs):
+    bmb_selected_pcs
     return
+
+
+@app.cell
+def _(perturbated_bmb_selected_pcs):
+    perturbated_bmb_selected_pcs
+    return
+
+
+@app.cell(hide_code=True)
+def _():
+    mo.md(r"""
+    And plot the different FCs connections for our desired PCs
+    """)
+    return
+
+
+@app.cell
+def _(
+    coords_mni,
+    harmonized_bmb_fc_matrices_hc_mdd_df,
+    network_assignments,
+    old_bmb_metadata_dir,
+    old_bmb_plot_dir,
+    old_bmb_results,
+):
+    old_bmb_target_pcs_to_plot = [1.0]
+
+    old_bmb_pc_plots_results = plot_pcs(
+        results=old_bmb_results,
+        fc_matrices_df=harmonized_bmb_fc_matrices_hc_mdd_df,
+        node_coords=coords_mni,
+        pcs_to_plot=old_bmb_target_pcs_to_plot,
+        metric_to_plot="diag",
+        plot_dir=old_bmb_plot_dir,
+        metadata_dir=old_bmb_metadata_dir,
+        show_legend=True,
+        network_assignments=network_assignments,
+    )
+    return (old_bmb_pc_plots_results,)
 
 
 @app.cell
@@ -2340,19 +2506,60 @@ def _(
         show_legend=True,
         network_assignments=network_assignments,
     )
-    return (bmb_pc_plots_results,)
+    return bmb_pc_plots_results, bmb_target_pcs_to_plot
 
 
 @app.cell
-def _(bmb_pc_plots_results):
-    mo.vstack(list(bmb_pc_plots_results["ui_elements"].values()), gap=3)
+def _(
+    bmb_target_pcs_to_plot,
+    coords_mni,
+    harmonized_bmb_fc_matrices_hc_mdd_df,
+    network_assignments,
+    perturbated_bmb_metadata_dir,
+    perturbated_bmb_plot_dir,
+    perturbated_bmb_results,
+):
+    perturbated_bmb_target_pcs_to_plot = [1.0]
+
+    perturbated_bmb_pc_plots_results = plot_pcs(
+        results=perturbated_bmb_results,
+        fc_matrices_df=harmonized_bmb_fc_matrices_hc_mdd_df,
+        node_coords=coords_mni,
+        pcs_to_plot=bmb_target_pcs_to_plot,
+        metric_to_plot="diag",
+        plot_dir=perturbated_bmb_plot_dir,
+        metadata_dir=perturbated_bmb_metadata_dir,
+        show_legend=True,
+        network_assignments=network_assignments,
+    )
+    return (perturbated_bmb_pc_plots_results,)
+
+
+@app.cell
+def _(
+    bmb_pc_plots_results,
+    old_bmb_pc_plots_results,
+    perturbated_bmb_pc_plots_results,
+):
+    mo.hstack(
+        [
+            mo.vstack(
+                list(old_bmb_pc_plots_results["ui_elements"].values()), gap=3
+            ),
+            mo.vstack(list(bmb_pc_plots_results["ui_elements"].values()), gap=3),
+            mo.vstack(
+                list(perturbated_bmb_pc_plots_results["ui_elements"].values()),
+                gap=3,
+            ),
+        ]
+    )
     return
 
 
 @app.cell(hide_code=True)
 def _():
     mo.md(r"""
-    ### First draft of a conclusion
+    ### Conclusion
     """)
     return
 
@@ -2360,7 +2567,9 @@ def _():
 @app.cell(hide_code=True)
 def _():
     mo.md(r"""
-    The PC extraction gives different results depending on the dataset, but the FC edges contributing to those PCs are largely consistent. The most represented networks (PrefrontalControlA, SomatoMotor, and Subcortical) are shared across datasets, and MDD subjects predominantly show under-connectivity in the selected PCs.
+    Even if the PC graphs look different than in the SRPB dataset, the best PC (PC 2) and its selected FCs follow the same trends as before (low connectivity for MDD subjects, same area repartition, etc).
+
+    This means that the PCA feature selection is robust to using different data.
     """)
     return
 
@@ -2376,7 +2585,7 @@ def _():
 @app.cell(hide_code=True)
 def _():
     mo.md(r"""
-    We will start by extracting regular FC matrices extraction, to see if the extraction method is correct and compare them to the harmonized ones
+    We will start by extracting and harmonizing regular FC matrices, to see if both are correct
     """)
     return
 
@@ -2691,56 +2900,6 @@ def extract_subject_fc_matrix(
     return connectivity.tolist()
 
 
-@app.cell
-def _():
-    extract_subject_fc_matrix
-    return
-
-
-@app.cell(hide_code=True)
-def _():
-    mo.md(r"""
-    And extract each FC matrix in parallel
-    """)
-    return
-
-
-@app.cell
-def _():
-    srpb_fuzzy_fc_matrices_output_path = (
-        "/home/cbi-biomark/olivier.amacker/fuzzy-fc-matrices/srpb"
-    )
-    return (srpb_fuzzy_fc_matrices_output_path,)
-
-
-@app.cell
-def _(srpb_fuzzy_fc_matrices_output_path):
-    regular_run_name = "regular-matrices"
-
-    srpb_run_fc_matrices_output_dir = (
-        f"{srpb_fuzzy_fc_matrices_output_path}/{regular_run_name}/"
-    )
-
-    srpb_run_fc_matrices_cache_filename = (
-        "Glasser_filtering1_GSR1_fuzzy_fc_matrices.pkl"
-    )
-    srpb_run_fc_matrices_cache_path = os.path.join(
-        srpb_run_fc_matrices_output_dir, srpb_run_fc_matrices_cache_filename
-    )
-    return (
-        regular_run_name,
-        srpb_run_fc_matrices_cache_path,
-        srpb_run_fc_matrices_output_dir,
-    )
-
-
-@app.cell
-def _(srpb_time_series_scrub_file_df):
-    srpb_ts_paths = srpb_time_series_scrub_file_df["time_series_path"].to_list()
-    srpb_scrub_paths = srpb_time_series_scrub_file_df["scrub_path"].to_list()
-    return srpb_scrub_paths, srpb_ts_paths
-
-
 @app.function
 def process_subject(
     subject_time_series_path: str,
@@ -2820,6 +2979,50 @@ def extract_regular_fc_matrices(
             pickle.dump(results, _f)
 
     return extracted_fc_matrices_df
+
+
+@app.cell(hide_code=True)
+def _():
+    mo.md(r"""
+    And extract each regular FC matrix in parallel
+    """)
+    return
+
+
+@app.cell
+def _():
+    srpb_fuzzy_fc_matrices_output_path = (
+        "/home/cbi-biomark/olivier.amacker/fuzzy-fc-matrices/srpb"
+    )
+    return (srpb_fuzzy_fc_matrices_output_path,)
+
+
+@app.cell
+def _(srpb_fuzzy_fc_matrices_output_path):
+    regular_run_name = "regular-matrices"
+
+    srpb_run_fc_matrices_output_dir = (
+        f"{srpb_fuzzy_fc_matrices_output_path}/{regular_run_name}/"
+    )
+
+    srpb_run_fc_matrices_cache_filename = (
+        "Glasser_filtering1_GSR1_fuzzy_fc_matrices.pkl"
+    )
+    srpb_run_fc_matrices_cache_path = os.path.join(
+        srpb_run_fc_matrices_output_dir, srpb_run_fc_matrices_cache_filename
+    )
+    return (
+        regular_run_name,
+        srpb_run_fc_matrices_cache_path,
+        srpb_run_fc_matrices_output_dir,
+    )
+
+
+@app.cell
+def _(srpb_time_series_scrub_file_df):
+    srpb_ts_paths = srpb_time_series_scrub_file_df["time_series_path"].to_list()
+    srpb_scrub_paths = srpb_time_series_scrub_file_df["scrub_path"].to_list()
+    return srpb_scrub_paths, srpb_ts_paths
 
 
 @app.cell
@@ -3107,7 +3310,7 @@ def _(srpb_extracted_fc_matrices_comparison_results):
 @app.cell(hide_code=True)
 def _():
     mo.md(r"""
-    ### Harmonization of the regular extracted matrices
+    ### Harmonization of the regular extracted FC matrices
     """)
     return
 
@@ -3128,27 +3331,11 @@ def _():
     return
 
 
-@app.cell(hide_code=True)
-def _():
-    mo.md(r"""
-    Function to load a Matlab connectivity file (.mat with HDF5 format)
-    """)
-    return
-
-
 @app.function
 def load_matlab_np_file(file_path: str) -> np.ndarray:
     with h5py.File(str(file_path), "r") as f:
         dset = f["/X"] if "/X" in f else f["X"]
         return np.array(dset).T
-
-
-@app.cell(hide_code=True)
-def _():
-    mo.md(r"""
-    Function to one hot encode a specific column
-    """)
-    return
 
 
 @app.cell
@@ -4460,20 +4647,20 @@ def _():
     return
 
 
-@app.cell(hide_code=True)
-def _():
-    mo.md(r"""
-    We start by defining  the functions needed for the fuzzy extraction
-    """)
-    return
-
-
 @app.cell
 def _():
     fuzzy_container_image = (
         "verificarlo/fuzzy:v2.0.0-lapack-python3.8.5-numpy-scipy-sklearn"
     )
     return (fuzzy_container_image,)
+
+
+@app.cell(hide_code=True)
+def _():
+    mo.md(r"""
+    We start by defining the functions needed for the fuzzy extraction
+    """)
+    return
 
 
 @app.cell(hide_code=True)
@@ -4774,7 +4961,7 @@ def _():
 @app.cell(hide_code=True)
 def _():
     mo.md(r"""
-    Please note that this coe was generated by Opencode (Qwen3.7 Max)
+    Please note that this code was generated by Opencode (Qwen3.7 Max)
     """)
     return
 
@@ -5112,15 +5299,11 @@ def _():
     perturbated_srpb_fuzzy_plot_dir = (
         "./res/pca-dim-reduction/srpb/fuzzy-features-extraction/perturbated/plots"
     )
-    perturbated_srpb_fuzzy_ttest_dir = (
-        "./res/pca-dim-reduction/srpb/fuzzy-features-extraction/perturbated/t-tests"
-    )
+    perturbated_srpb_fuzzy_ttest_dir = "./res/pca-dim-reduction/srpb/fuzzy-features-extraction/perturbated/t-tests"
     perturbated_srpb_fuzzy_cache_dir = (
         "./res/pca-dim-reduction/srpb/fuzzy-features-extraction/perturbated/cache"
     )
-    perturbated_srpb_fuzzy_metadata_dir = (
-        "./res/pca-dim-reduction/srpb/fuzzy-features-extraction/perturbated/metadatas"
-    )
+    perturbated_srpb_fuzzy_metadata_dir = "./res/pca-dim-reduction/srpb/fuzzy-features-extraction/perturbated/metadatas"
     return (
         perturbated_srpb_fuzzy_cache_dir,
         perturbated_srpb_fuzzy_metadata_dir,
@@ -5238,9 +5421,15 @@ def _(
             cache_dir=perturbated_srpb_fuzzy_cache_dir + f"/run-{_run_idx}/",
         )
 
-        perturbated_srpb_fuzzy_metrics_results_list.append(perturbated_srpb_fuzy_metrics_dict["results"])
-        perturbated_srpb_fuzzy_selected_pcs.append(perturbated_srpb_fuzy_metrics_dict["selected_pcs"])
-        perturbated_srpb_fuzzy_metrics_ui_list.append(perturbated_srpb_fuzy_metrics_dict["ui"])
+        perturbated_srpb_fuzzy_metrics_results_list.append(
+            perturbated_srpb_fuzy_metrics_dict["results"]
+        )
+        perturbated_srpb_fuzzy_selected_pcs.append(
+            perturbated_srpb_fuzy_metrics_dict["selected_pcs"]
+        )
+        perturbated_srpb_fuzzy_metrics_ui_list.append(
+            perturbated_srpb_fuzy_metrics_dict["ui"]
+        )
     return (
         perturbated_srpb_fuzzy_metrics_results_list,
         perturbated_srpb_fuzzy_metrics_ui_list,
@@ -5461,7 +5650,7 @@ def _(
         )
         for _run_idx, x in enumerate(srpb_fuzzy_metrics_results_list)
     ]
-    return srpb_fuzzy_pc_plots_result_list, srpb_fuzzy_target_pcs_to_plot
+    return (srpb_fuzzy_target_pcs_to_plot,)
 
 
 @app.cell
@@ -5491,7 +5680,7 @@ def _(
         )
         for _run_idx, x in enumerate(perturbated_srpb_fuzzy_metrics_results_list)
     ]
-    return (perturbated_srpb_fuzzy_pc_plots_result_list,)
+    return
 
 
 @app.cell(hide_code=True)
@@ -5527,65 +5716,6 @@ def _(
     return (srpb_extracted_pc_plots_results,)
 
 
-@app.cell
-def _(srpb_extracted_pc_plots_results, srpb_fuzzy_pc_plots_result_list):
-    srpb_pc_plots_result_comparison = mo.vstack(
-        [
-            mo.vstack(
-                [
-                    mo.md(
-                        f"### Comparison of the Fuzzy run {_run_idx} vs Regular PC plots"
-                    ),
-                    mo.hstack(
-                        [
-                            srpb_fuzzy_pc_plots_result["ui_elements"][1.0],
-                            srpb_extracted_pc_plots_results["ui_elements"][1.0],
-                        ]
-                    ),
-                ]
-            )
-            for _run_idx, srpb_fuzzy_pc_plots_result in enumerate(
-                srpb_fuzzy_pc_plots_result_list
-            )
-        ],
-        gap=3,
-    )
-
-    srpb_pc_plots_result_comparison
-    return
-
-
-@app.cell
-def _(
-    perturbated_srpb_fuzzy_pc_plots_result_list,
-    srpb_extracted_pc_plots_results,
-):
-    perturbated_srpb_pc_plots_result_comparison = mo.vstack(
-        [
-            mo.vstack(
-                [
-                    mo.md(
-                        f"### Comparison of the Perturbated Fuzzy run {_run_idx} vs Regular PC plots"
-                    ),
-                    mo.hstack(
-                        [
-                            perturbated_srpb_fuzzy_pc_plots_result["ui_elements"][1.0],
-                            srpb_extracted_pc_plots_results["ui_elements"][1.0],
-                        ]
-                    ),
-                ]
-            )
-            for _run_idx, perturbated_srpb_fuzzy_pc_plots_result in enumerate(
-                perturbated_srpb_fuzzy_pc_plots_result_list
-            )
-        ],
-        gap=3,
-    )
-
-    perturbated_srpb_pc_plots_result_comparison
-    return
-
-
 @app.cell(hide_code=True)
 def _():
     mo.md(r"""
@@ -5605,7 +5735,7 @@ def _():
 @app.function
 def plot_pcs_consensus(
     results_list: list[dict],
-    fc_matrices_df_list: list,  # list of pl.DataFrame
+    fc_matrices_df_list: list,
     node_coords: np.ndarray,
     pcs_to_plot: list,
     metric_to_plot: str,
@@ -5617,23 +5747,6 @@ def plot_pcs_consensus(
     network_assignments=None,
     skip_existing: bool = True,
 ) -> dict:
-    """
-    Generates consensus connectome plots across multiple bootstrap/fuzzy runs.
-
-    If skip_existing=True, checks if plot files already exist FIRST and skips
-    data extraction if all plots are cached.
-
-    Parameters
-    ----------
-    skip_existing : bool
-        If True, skip regenerating plots that already exist on disk.
-        Checks cache BEFORE any data extraction.
-
-    Returns
-    -------
-    dict with keys 'results' (nested by PC → threshold) and 'ui'.
-    """
-
     res: dict = {"results": {}}
     ui_elements: list = []
     n_runs = len(results_list)
@@ -5646,11 +5759,8 @@ def plot_pcs_consensus(
     print(f"Metadata directory: {metadata_dir}")
     print(f"Skip existing: {skip_existing}")
 
-    # ==================================================================
-    # 0.  CHECK CACHE FIRST - before any data extraction
-    # ==================================================================
     print(
-        f"\n[0/3] Checking cache for {len(pcs_to_plot)} PCs × {len(consensus_thresholds)} thresholds..."
+        f"\n[0/3] Checking cache for {len(pcs_to_plot)} PCs * {len(consensus_thresholds)} thresholds..."
     )
 
     all_cached = True
@@ -5662,7 +5772,6 @@ def plot_pcs_consensus(
             for thresh in consensus_thresholds:
                 pct_label = int(thresh * 100)
                 safe_thresh = str(pct_label)
-                # Use pc_idx + 1 directly (will be float like 2.0) to match existing files
                 pc_label = pc_idx + 1
                 image_path = os.path.join(
                     plot_dir,
@@ -5699,12 +5808,11 @@ def plot_pcs_consensus(
 
         if all_cached:
             print(
-                "  ✓ All plots cached! Loading from cache without data extraction..."
+                "All plots cached! Loading from cache without data extraction..."
             )
     else:
         print("  skip_existing=False, will regenerate all plots")
 
-    # ── colour map ──────────────────────────────────────────────────
     glasser_network_colors = {
         "Visual": "#00BFC4",
         "SomatoMotor": "#F8766D",
@@ -5719,9 +5827,6 @@ def plot_pcs_consensus(
         "Unknown": "#000000",
     }
 
-    # ==================================================================
-    # 1.  PER-RUN EXTRACTION (only if not all cached)
-    # ==================================================================
     if not all_cached:
         print(f"\n[1/3] Extracting data from {n_runs} runs...")
         per_run_mean_diff: list[np.ndarray] = []
@@ -5734,7 +5839,6 @@ def plot_pcs_consensus(
             if (run_idx + 1) % 10 == 0 or run_idx == 0:
                 print(f"  Processing run {run_idx + 1}/{n_runs}...")
 
-            # --- mean difference vector ---
             target_col = fc_df["diag"]
             mask = (
                 (target_col != -1000)
@@ -5755,7 +5859,6 @@ def plot_pcs_consensus(
             if n_nodes is None:
                 n_nodes = int((1 + np.sqrt(1 + 8 * len(md))) / 2)
 
-            # --- edge sets per PC for this run ---
             diag_data = run_result[metric_to_plot]
             pc_edge_map: dict[float, np.ndarray] = {}
             for pc in pcs_to_plot:
@@ -5765,31 +5868,24 @@ def plot_pcs_consensus(
                 )
             per_run_pc_edges.append(pc_edge_map)
 
-        # Average mean_diff across runs
         avg_mean_diff = np.mean(np.array(per_run_mean_diff), axis=0)
     else:
-        # If all cached, we still need n_nodes from the first cached file
         print("\n[1/3] Skipping data extraction")
-        # Get the first cached JSON path correctly
         first_pc_idx = list(cache_status.keys())[0]
         first_thresh = list(cache_status[first_pc_idx].keys())[0]
         first_json = cache_status[first_pc_idx][first_thresh]["json_path"]
 
         with open(first_json, "r") as f:
             first_metadata = json.load(f)
-        # Infer n_nodes from edge indices
         max_edge_idx = (
             max(first_metadata["edge_indices"])
             if first_metadata["edge_indices"]
             else 0
         )
         n_nodes = int((1 + np.sqrt(1 + 8 * (max_edge_idx + 1))) / 2)
-        avg_mean_diff = None  # Not needed if all cached
+        avg_mean_diff = None
         per_run_pc_edges = None
 
-    # ==================================================================
-    # 2.  PAD COORDINATES / COLOURS / ASSIGNMENTS ONCE
-    # ==================================================================
     node_coords = np.array(node_coords, dtype=float)
     if n_nodes > len(node_coords):
         pad = np.zeros((n_nodes - len(node_coords), 3))
@@ -5814,20 +5910,12 @@ def plot_pcs_consensus(
 
     i_idx, j_idx = np.tril_indices(n_nodes, k=1)
 
-    # ==================================================================
-    # 3.  LOOP:  PC  ×  THRESHOLD
-    # ==================================================================
     print(
-        f"\n[2/3] Processing {len(pcs_to_plot)} PCs × {len(consensus_thresholds)} thresholds..."
+        f"\n[2/3] Processing {len(pcs_to_plot)} PCs * {len(consensus_thresholds)} thresholds..."
     )
 
     for pc_idx in pcs_to_plot:
         pc_ui_elements: list = []
-        pc_ui_elements.append(
-            mo.md(
-                f"### PC {pc_idx + 1} (Index {pc_idx}) — Consensus across {n_runs} runs"
-            )
-        )
 
         res["results"][pc_idx] = {}
 
@@ -5838,38 +5926,25 @@ def plot_pcs_consensus(
 
             cache_info = cache_status[pc_idx][thresh]
 
-            # --- check if plot already exists ---
             if skip_existing and cache_info["cached"]:
-                print(f"PC {pc_idx + 1} @ {pct_label}% - Loading from cache")
+                print(f"PC {pc_idx + 1}  {pct_label}% - Loading from cache")
 
-                # Load existing metadata
                 with open(cache_info["json_path"], "r") as f:
                     metadata = json.load(f)
 
-                # Reconstruct adjacency matrix from saved edge indices
                 adj = np.zeros((n_nodes, n_nodes))
                 for e in metadata["edge_indices"]:
                     i, j = i_idx[e], j_idx[e]
-                    # Use stored weight if available, otherwise recompute
                     if avg_mean_diff is not None:
                         adj[i, j] = avg_mean_diff[e]
                         adj[j, i] = avg_mean_diff[e]
-                    else:
-                        # Find weight from edge_details if available
-                        for edge_detail in metadata.get("edge_details", []):
-                            if edge_detail["edge_idx"] == e:
-                                adj[i, j] = edge_detail["weight"]
-                                adj[j, i] = edge_detail["weight"]
-                                break
 
-                # Store results
                 res["results"][pc_idx][thresh] = {
                     "adj_matrix": adj,
                     "edges": metadata["edge_indices"],
                     "num_edges": metadata["num_edges"],
                 }
 
-                # UI fragment
                 desc_md = f"""
 #### {pct_label}% Consensus (≥{min_runs}/{n_runs} runs) — PC {pc_idx + 1}
 - **Edges displayed:** {metadata["num_edges"]}
@@ -5879,11 +5954,9 @@ def plot_pcs_consensus(
 """
                 pc_ui_elements.append(mo.md(desc_md))
 
-                # Reconstruct network stats markdown if available
                 if "network_statistics" in metadata:
                     net_stats = metadata["network_statistics"]
 
-                    # Nodes table
                     network_stats_md = (
                         "#### Participating Nodes per Network\n\n"
                     )
@@ -5895,7 +5968,6 @@ def plot_pcs_consensus(
                     ).items():
                         network_stats_md += f"| {net_name} | {node_count} |\n"
 
-                    # Edges table
                     network_stats_md += "\n#### FC Edges per Network\n\n"
                     network_stats_md += "| Network | Total Edges | Intra-Network | % of Total |\n| :--- | :---: | :---: | :---: |\n"
                     per_network = net_stats.get("per_network", {})
@@ -5907,7 +5979,6 @@ def plot_pcs_consensus(
                         ) * 100
                         network_stats_md += f"| {net_name} | {total_count} | {intra_count} | {percentage:.1f}% |\n"
 
-                    # Inter-network table
                     network_stats_md += "\n#### Top Inter-Network Connections\n\n| Connection Pair | Count |\n| :--- | :---: |\n"
                     for pair_name, count in list(
                         net_stats.get("inter_network", {}).items()
@@ -5917,39 +5988,12 @@ def plot_pcs_consensus(
 
                     pc_ui_elements.append(mo.md(network_stats_md))
 
-                # Reconstruct edge details table if available
-                if "edge_details" in metadata:
-                    edge_details_md = (
-                        "\n#### Edge Details (Top 20 by |Weight|)\n\n"
-                    )
-                    edge_details_md += "| Edge Index | Node i | Node j | Network i | Network j | Weight | Runs | Type |\n"
-                    edge_details_md += "| :---: | :---: | :---: | :--- | :--- | :---: | :---: | :---: |\n"
-
-                    # Sort by absolute weight
-                    sorted_edges = sorted(
-                        metadata["edge_details"],
-                        key=lambda x: abs(x["weight"]),
-                        reverse=True,
-                    )[:20]
-
-                    for edge_info in sorted_edges:
-                        edge_type = (
-                            "Intra"
-                            if edge_info["network_i"] == edge_info["network_j"]
-                            else "Inter"
-                        )
-                        edge_details_md += f"| {edge_info['edge_idx']} | {edge_info['node_i']} | {edge_info['node_j']} | {edge_info['network_i']} | {edge_info['network_j']} | {edge_info['weight']:.3f} | {edge_info['run_count']}/{n_runs} | {edge_type} |\n"
-                    edge_details_md += "\n---\n\n"
-                    pc_ui_elements.append(mo.md(edge_details_md))
-
                 pc_ui_elements.append(mo.image(src=cache_info["image_path"]))
                 pc_ui_elements.append(mo.md("---"))
                 continue
 
-            # --- need to generate this plot ---
-            print(f"PC {pc_idx + 1} @ {pct_label}% - Generating...")
+            print(f"PC {pc_idx + 1}  {pct_label}% - Generating...")
 
-            # Collect edge counts across runs
             edge_run_count: dict[int, int] = {}
             for run_idx in range(n_runs):
                 for e in per_run_pc_edges[run_idx].get(pc_idx, []):
@@ -5959,14 +6003,57 @@ def plot_pcs_consensus(
                 e for e, cnt in edge_run_count.items() if cnt >= min_runs
             ]
 
-            # --- regenerate plot ---
             if not consensus_edges:
+                fig, ax = plt.subplots(figsize=(8, 6))
+                ax.text(
+                    0.5,
+                    0.5,
+                    f"PC {pc_idx + 1} — {pct_label}% Consensus\nNo consensus edges",
+                    ha="center",
+                    va="center",
+                    fontsize=16,
+                    transform=ax.transAxes,
+                )
+                ax.set_xlim(0, 1)
+                ax.set_ylim(0, 1)
+                ax.axis("off")
+                fig.patch.set_facecolor("white")
+                fig.savefig(
+                    cache_info["image_path"],
+                    dpi=150,
+                    bbox_inches="tight",
+                    facecolor="white",
+                )
+                plt.close(fig)
+
+                metadata = {
+                    "pc_index_0_based": int(pc_idx),
+                    "pc_number_1_based": int(pc_idx + 1),
+                    "consensus_threshold": float(thresh),
+                    "min_runs_required": int(min_runs),
+                    "total_runs": int(n_runs),
+                    "num_edges": 0,
+                    "color_range": {"vmin": 0.0, "vmax": 0.0},
+                    "edge_indices": [],
+                    "edge_run_counts": {},
+                    "network_statistics": {
+                        "nodes_per_network": {},
+                        "per_network": {},
+                        "intra_network": {},
+                        "inter_network": {},
+                    },
+                }
+                with open(cache_info["json_path"], "w") as f:
+                    json.dump(metadata, f, indent=4)
+
                 pc_ui_elements.append(
                     mo.md(
                         f"**{pct_label}% consensus** (≥{min_runs}/{n_runs} runs): "
                         f"*no edges*"
                     )
                 )
+                pc_ui_elements.append(mo.image(src=cache_info["image_path"]))
+                pc_ui_elements.append(mo.md("---"))
                 res["results"][pc_idx][thresh] = {
                     "adj_matrix": np.zeros((n_nodes, n_nodes)),
                     "edges": [],
@@ -5974,29 +6061,23 @@ def plot_pcs_consensus(
                 }
                 continue
 
-            # --- adjacency matrix ---
             adj = np.zeros((n_nodes, n_nodes))
             for e in consensus_edges:
                 i, j = i_idx[e], j_idx[e]
                 adj[i, j] = avg_mean_diff[e]
                 adj[j, i] = avg_mean_diff[e]
 
-            # --- participating nodes ---
             participating = np.zeros(n_nodes, dtype=bool)
             for e in consensus_edges:
                 participating[i_idx[e]] = True
                 participating[j_idx[e]] = True
             node_sizes = np.where(participating, 20, 0)
 
-            # --- network stats ---
             network_node_counts: dict[str, int] = {}
             network_edge_counts: dict[str, int] = {}
             intra_network_edges: dict[str, int] = {}
             inter_network_edges: dict[str, int] = {}
             network_stats_md = ""
-
-            # --- edge details ---
-            edge_details_list = []
 
             if network_assignments is not None:
                 for ni in range(n_nodes):
@@ -6038,20 +6119,6 @@ def plot_pcs_consensus(
                         inter_network_edges[pair] = (
                             inter_network_edges.get(pair, 0) + 1
                         )
-
-                    # Store edge details
-                    edge_details_list.append(
-                        {
-                            "edge_idx": int(e),
-                            "node_i": int(i),
-                            "node_j": int(j),
-                            "network_i": str(ni),
-                            "network_j": str(nj),
-                            "weight": float(avg_mean_diff[e]),
-                            "run_count": int(edge_run_count[e]),
-                            "type": "Intra" if ni == nj else "Inter",
-                        }
-                    )
 
                 network_stats_md = (
                     f"#### {pct_label}% Consensus — Participating Nodes\n\n"
@@ -6095,7 +6162,6 @@ def plot_pcs_consensus(
                     network_stats_md += f"| {pair} | {cnt} |\n"
                 network_stats_md += "\n---\n\n"
 
-            # --- colour scale ---
             abs_vals = np.abs(adj[adj != 0])
             vmax = (
                 float(np.percentile(abs_vals, 95))
@@ -6104,7 +6170,6 @@ def plot_pcs_consensus(
             )
             vmin = -vmax
 
-            # --- figure ---
             if show_legend:
                 fig = plt.figure(figsize=(16, 12))
                 gs = fig.add_gridspec(
@@ -6143,7 +6208,6 @@ def plot_pcs_consensus(
                     edge_threshold=0.01,
                 )
 
-            # --- legend ---
             if show_legend:
                 legend_elements = []
                 if network_assignments is not None and network_node_counts:
@@ -6208,7 +6272,6 @@ def plot_pcs_consensus(
             plt.tight_layout()
             fig.patch.set_facecolor("white")
 
-            # --- save image ---
             fig.savefig(
                 cache_info["image_path"],
                 dpi=150,
@@ -6216,7 +6279,6 @@ def plot_pcs_consensus(
                 facecolor="white",
             )
 
-            # --- save metadata ---
             metadata = {
                 "pc_index_0_based": int(pc_idx),
                 "pc_number_1_based": int(pc_idx + 1),
@@ -6229,7 +6291,6 @@ def plot_pcs_consensus(
                 "edge_run_counts": {
                     str(e): edge_run_count[e] for e in consensus_edges
                 },
-                "edge_details": edge_details_list,
                 "network_statistics": {
                     "nodes_per_network": {
                         k: int(v)
@@ -6270,14 +6331,12 @@ def plot_pcs_consensus(
 
             plt.close(fig)
 
-            # --- store results ---
             res["results"][pc_idx][thresh] = {
                 "adj_matrix": adj,
                 "edges": consensus_edges,
                 "num_edges": len(consensus_edges),
             }
 
-            # --- UI fragment ---
             desc_md = f"""
 #### {pct_label}% Consensus (≥{min_runs}/{n_runs} runs) — PC {pc_idx + 1}
 - **Edges displayed:** {len(consensus_edges)}
@@ -6289,34 +6348,12 @@ def plot_pcs_consensus(
             if network_stats_md:
                 frag.append(mo.md(network_stats_md))
 
-            # Add edge details table
-            if edge_details_list:
-                edge_details_md = (
-                    "\n#### Edge Details (Top 20 by |Weight|)\n\n"
-                )
-                edge_details_md += "| Edge Index | Node i | Node j | Network i | Network j | Weight | Runs | Type |\n"
-                edge_details_md += "| :---: | :---: | :---: | :--- | :--- | :---: | :---: | :---: |\n"
-
-                # Sort by absolute weight
-                sorted_edges = sorted(
-                    edge_details_list,
-                    key=lambda x: abs(x["weight"]),
-                    reverse=True,
-                )[:20]
-
-                for edge_info in sorted_edges:
-                    edge_details_md += f"| {edge_info['edge_idx']} | {edge_info['node_i']} | {edge_info['node_j']} | {edge_info['network_i']} | {edge_info['network_j']} | {edge_info['weight']:.3f} | {edge_info['run_count']}/{n_runs} | {edge_info['type']} |\n"
-                edge_details_md += "\n---\n\n"
-                frag.append(mo.md(edge_details_md))
-
             frag.append(mo.image(src=cache_info["image_path"]))
             pc_ui_elements.append(mo.vstack(frag, gap=2))
             pc_ui_elements.append(mo.md("---"))
 
-        # end threshold loop
         ui_elements.append(mo.vstack(pc_ui_elements, gap=2))
 
-    # end PC loop
     print(f"\n[3/3] Complete!")
     res["ui"] = mo.vstack(ui_elements, gap=3)
     return res
@@ -6332,6 +6369,7 @@ def _(
     srpb_fuzzy_plot_dir,
 ):
     srpb_fuzzy_consensus_target_pcs_to_plot = [1.0]
+    srpb_consensus_thresholds = [1.0, 0.75, 0.50, 0.25]
 
     srpb_fuzzy_consensus_pc_plots_result = plot_pcs_consensus(
         results_list=srpb_fuzzy_metrics_results_list,
@@ -6341,16 +6379,31 @@ def _(
         metric_to_plot="diag",
         plot_dir=srpb_fuzzy_plot_dir + "/consensus-thresholds/",
         metadata_dir=srpb_fuzzy_metadata_dir + "/consensus-thresholds/",
-        consensus_thresholds=[1.0, 0.75, 0.50, 0.25],
+        consensus_thresholds=srpb_consensus_thresholds,
         show_legend=True,
         network_assignments=network_assignments,
     )
-    return (srpb_fuzzy_consensus_pc_plots_result,)
+    return srpb_consensus_thresholds, srpb_fuzzy_consensus_pc_plots_result
 
 
 @app.cell
-def _(srpb_fuzzy_consensus_pc_plots_result):
-    srpb_fuzzy_consensus_pc_plots_result["ui"]
+def _(
+    srpb_consensus_thresholds,
+    srpb_extracted_pc_plots_results,
+    srpb_fuzzy_consensus_pc_plots_result,
+):
+    mo.hstack(
+        [
+            srpb_fuzzy_consensus_pc_plots_result["ui"],
+            mo.vstack(
+                [
+                    srpb_extracted_pc_plots_results["ui_elements"][1.0]
+                    for i in range(len(srpb_consensus_thresholds))
+                ],
+                gap=2,
+            ),
+        ]
+    )
     return
 
 
@@ -6365,6 +6418,7 @@ def _(
     srpb_fuzzy_target_pcs_to_plot,
 ):
     perturbated_srpb_fuzzy_consensus_target_pcs_to_plot = [1.0]
+    perturbated_consensus_thresholds = [1.0, 0.75, 0.50, 0.25]
 
     perturbated_srpb_fuzzy_consensus_pc_plots_result = plot_pcs_consensus(
         results_list=perturbated_srpb_fuzzy_metrics_results_list,
@@ -6373,17 +6427,33 @@ def _(
         pcs_to_plot=srpb_fuzzy_target_pcs_to_plot,
         metric_to_plot="diag",
         plot_dir=perturbated_srpb_fuzzy_plot_dir + "/consensus-thresholds/",
-        metadata_dir=perturbated_srpb_fuzzy_metadata_dir + "/consensus-thresholds/",
-        consensus_thresholds=[1.0, 0.75, 0.50, 0.25],
-        sperturbated_srpb_fuzzy_consensus_pc_plots_resultow_legend=True,
+        metadata_dir=perturbated_srpb_fuzzy_metadata_dir
+        + "/consensus-thresholds/",
+        consensus_thresholds=perturbated_consensus_thresholds,
+        show_legend=True,
         network_assignments=network_assignments,
     )
     return (perturbated_srpb_fuzzy_consensus_pc_plots_result,)
 
 
 @app.cell
-def _(perturbated_srpb_fuzzy_consensus_pc_plots_result):
-    perturbated_srpb_fuzzy_consensus_pc_plots_result["ui"]
+def _(
+    perturbated_srpb_consensus_thresholds,
+    perturbated_srpb_fuzzy_consensus_pc_plots_result,
+    srpb_extracted_pc_plots_results,
+):
+    mo.hstack(
+        [
+            perturbated_srpb_fuzzy_consensus_pc_plots_result["ui"],
+            mo.vstack(
+                [
+                    srpb_extracted_pc_plots_results["ui_elements"][1.0]
+                    for i in range(len(perturbated_srpb_consensus_thresholds))
+                ],
+                gap=2,
+            ),
+        ]
+    )
     return
 
 
@@ -6412,24 +6482,40 @@ def compute_noise_metrics_consensus(
             continue
         print(f"Running the Consensus for metric {metric}")
 
-        all_selected_pcs = []
+        pc_score_sum = {}
+        all_cons_pcs = set()
+
         for subject_results in fuzzy_metrics_results_list:
             if metric in subject_results:
-                selected_pcs = [
-                    pc
-                    for pc, score in subject_results[metric][
-                        "selected_pcs_with_scores"
-                    ]
-                ]
-                all_selected_pcs.extend(selected_pcs)
+                for pc, score in subject_results[metric][
+                    "selected_pcs_with_scores"
+                ]:
+                    pc_score_sum[pc] = pc_score_sum.get(pc, 0.0) + score
 
-        if not all_selected_pcs:
+                cons_pc = subject_results[metric]["cons_pc"]
+                all_cons_pcs.update(set(np.unique(cons_pc)))
+
+        if not pc_score_sum:
             print(f"Warning: No PCs found for metric {metric}, skipping.")
             continue
 
-        best_pc = Counter(all_selected_pcs).most_common(1)[0][0]
+        ranked_pcs = sorted(
+            pc_score_sum.keys(), key=lambda pc: pc_score_sum[pc], reverse=True
+        )
 
-        print(f"Best PC (most frequent): {best_pc}")
+        best_pc = None
+        for pc in ranked_pcs:
+            if pc in all_cons_pcs:
+                best_pc = pc
+                break
+
+        if best_pc is None:
+            print(
+                f"Warning: No PC with FDR-significant edges found for metric {metric}, skipping."
+            )
+            continue
+
+        print(f"Best PC (highest score with edges): {best_pc}")
 
         consensus_results = plot_pcs_consensus(
             results_list=fuzzy_metrics_results_list,
@@ -7824,7 +7910,7 @@ def _():
 @app.cell
 def _():
     num_fuzzy_bmb_run = 15
-    return (num_fuzzy_bmb_run,)
+    return
 
 
 @app.cell
@@ -7834,16 +7920,9 @@ def _(bmb_time_series_scrub_file_df):
     return bmb_scrub_paths, bmb_ts_paths
 
 
-@app.cell
-def _(
-    bmb_fuzzy_fc_matrices_output_path,
-    bmb_scrub_paths,
-    bmb_time_series_scrub_file_df,
-    bmb_ts_paths,
-    fuzzy_container_image,
-    num_fuzzy_bmb_run,
-):
-    bmb_fuzzy_extracted_fc_matrices_df_list = run_fuzzy_extraction_runs(
+app._unparsable_cell(
+    r"""
+        bmb_fuzzy_extracted_fc_matrices_df_list = run_fuzzy_extraction_runs(
         num_fuzzy_run=num_fuzzy_bmb_run,
         container_name="fuzzy-container",
         container_image=fuzzy_container_image,
@@ -7852,7 +7931,9 @@ def _(
         scrub_paths=bmb_scrub_paths,
         fuzzy_fc_matrices_output_path=bmb_fuzzy_fc_matrices_output_path,
     )
-    return (bmb_fuzzy_extracted_fc_matrices_df_list,)
+    """,
+    name="_"
+)
 
 
 @app.cell(hide_code=True)
@@ -8161,9 +8242,7 @@ def _():
     perturbated_bmb_fuzzy_cache_dir = (
         "./res/pca-dim-reduction/bmb/fuzzy-features-extraction/perturbated/cache"
     )
-    perturbated_bmb_fuzzy_metadata_dir = (
-        "./res/pca-dim-reduction/bmb/fuzzy-features-extraction/perturbated/metadatas"
-    )
+    perturbated_bmb_fuzzy_metadata_dir = "./res/pca-dim-reduction/bmb/fuzzy-features-extraction/perturbated/metadatas"
     return (
         perturbated_bmb_fuzzy_cache_dir,
         perturbated_bmb_fuzzy_metadata_dir,
@@ -8289,9 +8368,15 @@ def _(
             cache_dir=perturbated_bmb_fuzzy_cache_dir + f"/run-{_run_idx}/",
         )
 
-        perturbated_bmb_fuzzy_metrics_results_list.append(perturbated_bmb_fuzy_metrics_dict["results"])
-        perturbated_bmb_fuzzy_selected_pcs.append(perturbated_bmb_fuzy_metrics_dict["selected_pcs"])
-        perturbated_bmb_fuzzy_metrics_ui_list.append(perturbated_bmb_fuzy_metrics_dict["ui"])
+        perturbated_bmb_fuzzy_metrics_results_list.append(
+            perturbated_bmb_fuzy_metrics_dict["results"]
+        )
+        perturbated_bmb_fuzzy_selected_pcs.append(
+            perturbated_bmb_fuzy_metrics_dict["selected_pcs"]
+        )
+        perturbated_bmb_fuzzy_metrics_ui_list.append(
+            perturbated_bmb_fuzy_metrics_dict["ui"]
+        )
     return (
         perturbated_bmb_fuzzy_metrics_results_list,
         perturbated_bmb_fuzzy_metrics_ui_list,
@@ -8331,6 +8416,14 @@ def _(
         bmb_fuzzy_selected_pcs.append(bmb_fuzy_metrics_dict["selected_pcs"])
         bmb_fuzzy_metrics_ui_list.append(bmb_fuzy_metrics_dict["ui"])
     return bmb_fuzzy_metrics_results_list, bmb_fuzzy_metrics_ui_list
+
+
+@app.cell(hide_code=True)
+def _():
+    mo.md(r"""
+    We also want to run the PCA features extraction on the extracted BMB FC matrices
+    """)
+    return
 
 
 @app.cell
@@ -8434,6 +8527,18 @@ def _():
 
 
 @app.cell
+def _(old_bmb_fuzzy_metrics_results_list):
+    old_bmb_fuzzy_selected_mdd_pcs_list = list(
+        map(
+            lambda x: select_mdd_pc(x, ["bdi"]), old_bmb_fuzzy_metrics_results_list
+        )
+    )
+
+    old_bmb_fuzzy_selected_mdd_pcs_list
+    return
+
+
+@app.cell
 def _(
     bmb_extracted_harmonized_fc_matrices_hc_mdd_df,
     bmb_extracted_metrics_results,
@@ -8456,18 +8561,6 @@ def _(
         network_assignments=network_assignments,
     )
     return (bmb_extracted_pc_plots_results,)
-
-
-@app.cell
-def _(old_bmb_fuzzy_metrics_results_list):
-    old_bmb_fuzzy_selected_mdd_pcs_list = list(
-        map(
-            lambda x: select_mdd_pc(x, ["bdi"]), old_bmb_fuzzy_metrics_results_list
-        )
-    )
-
-    old_bmb_fuzzy_selected_mdd_pcs_list
-    return
 
 
 @app.cell
@@ -8531,7 +8624,7 @@ def _(
         )
         for _run_idx, x in enumerate(perturbated_bmb_fuzzy_metrics_results_list)
     ]
-    return (perturbated_bmb_fuzzy_pc_plots_result_list,)
+    return
 
 
 @app.cell
@@ -8561,67 +8654,6 @@ def _(
         )
         for _run_idx, x in enumerate(bmb_fuzzy_metrics_results_list)
     ]
-    return (bmb_fuzzy_pc_plots_result_list,)
-
-
-@app.cell
-def _(bmb_extracted_pc_plots_results, bmb_fuzzy_pc_plots_result_list):
-    bmb_pc_plots_result_comparison = mo.vstack(
-        [
-            mo.vstack(
-                [
-                    mo.md(
-                        f"### Comparison of the Fuzzy run {_run_idx} vs Regular PC plots"
-                    ),
-                    mo.hstack(
-                        [
-                            bmb_fuzzy_pc_plots_result["ui_elements"][1.0],
-                            bmb_extracted_pc_plots_results["ui_elements"][1.0],
-                        ],
-                        gap=2,
-                    ),
-                ]
-            )
-            for _run_idx, bmb_fuzzy_pc_plots_result in enumerate(
-                bmb_fuzzy_pc_plots_result_list
-            )
-        ],
-        gap=3,
-    )
-
-    bmb_pc_plots_result_comparison
-    return
-
-
-@app.cell
-def _(
-    bmb_extracted_pc_plots_results,
-    perturbated_bmb_fuzzy_pc_plots_result_list,
-):
-    perturbated_bmb_pc_plots_result_comparison = mo.vstack(
-        [
-            mo.vstack(
-                [
-                    mo.md(
-                        f"### Comparison of the Perturbated Fuzzy run {_run_idx} vs Regular PC plots"
-                    ),
-                    mo.hstack(
-                        [
-                            perturbated_bmb_fuzzy_pc_plots_result["ui_elements"][1.0],
-                            bmb_extracted_pc_plots_results["ui_elements"][1.0],
-                        ],
-                        gap=2,
-                    ),
-                ]
-            )
-            for _run_idx, perturbated_bmb_fuzzy_pc_plots_result in enumerate(
-                perturbated_bmb_fuzzy_pc_plots_result_list
-            )
-        ],
-        gap=3,
-    )
-
-    perturbated_bmb_pc_plots_result_comparison
     return
 
 
@@ -8635,6 +8667,7 @@ def _(
     network_assignments,
 ):
     bmb_fuzzy_consensus_target_pcs_to_plot = [1.0]
+    bmb_consensus_thresholds = [1.0, 0.75, 0.50, 0.25]
 
     bmb_fuzzy_consensus_pc_plots_result = plot_pcs_consensus(
         results_list=bmb_fuzzy_metrics_results_list,
@@ -8644,16 +8677,31 @@ def _(
         metric_to_plot="diag",
         plot_dir=bmb_fuzzy_plot_dir + "/consensus-thresholds/",
         metadata_dir=bmb_fuzzy_metadata_dir + "/consensus-thresholds/",
-        consensus_thresholds=[1.0, 0.75, 0.50, 0.25],
+        consensus_thresholds=bmb_consensus_thresholds,
         show_legend=True,
         network_assignments=network_assignments,
     )
-    return (bmb_fuzzy_consensus_pc_plots_result,)
+    return bmb_consensus_thresholds, bmb_fuzzy_consensus_pc_plots_result
 
 
 @app.cell
-def _(bmb_fuzzy_consensus_pc_plots_result):
-    bmb_fuzzy_consensus_pc_plots_result["ui"]
+def _(
+    bmb_consensus_thresholds,
+    bmb_extracted_pc_plots_results,
+    bmb_fuzzy_consensus_pc_plots_result,
+):
+    mo.hstack(
+        [
+            bmb_fuzzy_consensus_pc_plots_result["ui"],
+            mo.vstack(
+                [
+                    bmb_extracted_pc_plots_results["ui_elements"][1.0]
+                    for i in range(len(bmb_consensus_thresholds))
+                ],
+                gap=2,
+            ),
+        ]
+    )
     return
 
 
@@ -8667,6 +8715,8 @@ def _(
     perturbated_bmb_fuzzy_plot_dir,
 ):
     perturbated_bmb_fuzzy_consensus_target_pcs_to_plot = [1.0]
+    perturbated_bmb_consensus_thresholds = [1.0, 0.75, 0.50, 0.25]
+
 
     perturbated_bmb_fuzzy_consensus_pc_plots_result = plot_pcs_consensus(
         results_list=perturbated_bmb_fuzzy_metrics_results_list,
@@ -8676,16 +8726,34 @@ def _(
         metric_to_plot="diag",
         plot_dir=perturbated_bmb_fuzzy_plot_dir + "/consensus-thresholds/",
         metadata_dir=perturbated_bmb_fuzzy_metadata_dir + "/consensus-thresholds/",
-        consensus_thresholds=[1.0, 0.75, 0.50, 0.25],
+        consensus_thresholds=perturbated_bmb_consensus_thresholds,
         show_legend=True,
         network_assignments=network_assignments,
     )
-    return (perturbated_bmb_fuzzy_consensus_pc_plots_result,)
+    return (
+        perturbated_bmb_consensus_thresholds,
+        perturbated_bmb_fuzzy_consensus_pc_plots_result,
+    )
 
 
 @app.cell
-def _(perturbated_bmb_fuzzy_consensus_pc_plots_result):
-    perturbated_bmb_fuzzy_consensus_pc_plots_result["ui"]
+def _(
+    bmb_extracted_pc_plots_results,
+    perturbated_bmb_consensus_thresholds,
+    perturbated_bmb_fuzzy_consensus_pc_plots_result,
+):
+    mo.hstack(
+        [
+            perturbated_bmb_fuzzy_consensus_pc_plots_result["ui"],
+            mo.vstack(
+                [
+                    bmb_extracted_pc_plots_results["ui_elements"][1.0]
+                    for i in range(len(perturbated_bmb_consensus_thresholds))
+                ],
+                gap=2,
+            ),
+        ]
+    )
     return
 
 
