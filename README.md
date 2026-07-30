@@ -43,11 +43,14 @@ uv sync               # install Python dependencies
 uv sync               # creates a venv and installs all dependencies
 ```
 
-### Docker image
+### Docker images
 
-The `Dockerfile` builds a multi-stage image:
+**Fuzzy fMRIPrep** — The `Dockerfile` builds a multi-stage image for preprocessing:
 1. **Stage 1** (`verificarlo/fuzzy:v0.9.1-lapack-python3.8.5-numpy-scipy-sklearn`) — provides fuzzy libmath and Verificarlo
 2. **Stage 2** (`nipreps/fmriprep:25.2.5`) — installs Verificarlo and preloads the MCA-instrumented libmath
+
+**Fuzzy extraction** — The analysis notebooks use a separate image to perturb `np.corrcoef` during FC matrix extraction:
+- `verificarlo/fuzzy:v2.0.0-lapack-python3.8.5-numpy-scipy-sklearn`
 
 Key environment variables:
 
@@ -163,13 +166,20 @@ Focuses on the FC matrices produced by fuzzy-fMRIPrep:
 
 ### `fuzzy_pca_dim_reduction_analysis.py`
 
-Reproduces and extends a PCA-based feature-selection pipeline on public datasets:
+Reproduces and extends a PCA-based feature-selection pipeline on the **SRPB** and **BMB** public datasets, then assesses how floating-point perturbations affect downstream biomarker stability:
 
-1. Loads harmonized FC matrices and metadata for the **SRPB** and **BMB** datasets
+1. Loads pre-harmonized FC matrices and metadata (Glasser parcellation, 446 ROIs, GSR + filtering)
 2. Selects subjects with Healthy Control (HC) and Major Depressive Disorder (MDD) diagnoses
 3. Computes PCA and t-test features for diagnosis, age, BDI, sex, site, and mean framewise displacement
 4. Plots significant principal components as connectome brain maps coloured by Yeo/Glasser networks
-5. Serves as the foundation for perturbing FC matrix extraction and assessing the impact on biomarker stability
+5. Extracts regular FC matrices from raw time series (Pearson correlation + Fisher Z-transform + scrubbing)
+6. Harmonizes extracted FC matrices using traveling-subject harmonization (site, sampling, and protocol bias correction via KKT-constrained regularized regression)
+7. Extracts fuzzy (perturbed) FC matrices using Verificarlo MCA instrumentation inside Docker containers (100 runs for SRPB, 15 for BMB)
+8. Harmonizes each fuzzy run independently using the same traveling-subject approach
+9. Compares regular vs fuzzy PCA feature selection results across all runs
+10. Computes consensus connectome maps at multiple thresholds (100%, 75%, 50%, 25% of runs)
+11. Runs a robustness analysis: edge weight stability (CV), Jaccard similarity between runs, effect sizes with 95% CIs, convergence curves, network topology metrics, permutation-based p-value distributions, rich club coefficients, and cross-threshold edge stability
+12. Computes consensus maps for noise metrics (age, sex, site, meanFD) to verify they do not contaminate the diagnosis signal
 
 ### `npvr_simulation.py`
 
