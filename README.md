@@ -45,11 +45,11 @@ uv sync               # creates a venv and installs all dependencies
 
 ### Docker images
 
-**Fuzzy fMRIPrep** — The `Dockerfile` builds a multi-stage image for preprocessing:
-1. **Stage 1** (`verificarlo/fuzzy:v0.9.1-lapack-python3.8.5-numpy-scipy-sklearn`) — provides fuzzy libmath and Verificarlo
-2. **Stage 2** (`nipreps/fmriprep:25.2.5`) — installs Verificarlo and preloads the MCA-instrumented libmath
+**Fuzzy fMRIPrep**: The `Dockerfile` builds a multi-stage image for preprocessing:
+1. **Stage 1** (`verificarlo/fuzzy:v0.9.1-lapack-python3.8.5-numpy-scipy-sklearn`): provides fuzzy libmath and Verificarlo
+2. **Stage 2** (`nipreps/fmriprep:25.2.5`): installs Verificarlo and preloads the MCA-instrumented libmath
 
-**Fuzzy extraction** — The analysis notebooks use a separate image to perturb `np.corrcoef` during FC matrix extraction:
+**Fuzzy extraction**: The analysis notebooks use a separate image to perturb `np.corrcoef` during FC matrix extraction:
 - `verificarlo/fuzzy:v2.0.0-lapack-python3.8.5-numpy-scipy-sklearn`
 
 Key environment variables:
@@ -125,8 +125,8 @@ Finds the least-loaded node across the cluster, creates a temporary job script, 
 
 These require [nushell](https://www.nushell.sh/) (available via the Nix dev shell).
 
-- **`group_sub_by_common_lab.nu`** — Parses a directory listing (`data/ls_output.txt`) and groups subjects by common lab patterns. Outputs to `res/sub_by_common_lab.json`.
-- **`get_sub_filename_by_common_lab.nu`** — Given a lab pattern string, extracts matching subject filenames from the JSON file. Outputs a CSV to `res/`.
+- **`group_sub_by_common_lab.nu`**: Parses a directory listing (`data/ls_output.txt`) and groups subjects by common lab patterns. Outputs to `res/sub_by_common_lab.json`.
+- **`get_sub_filename_by_common_lab.nu`**: Given a lab pattern string, extracts matching subject filenames from the JSON file. Outputs a CSV to `res/`.
 
 ## Analysis notebooks (Marimo)
 
