@@ -5376,7 +5376,7 @@ def _(
     ) in enumerate(srpb_fuzzy_extracted_harmonized_fc_matrices_hc_mdd_df_list):
         print(f"Calculating metrics for run {_run_idx}")
 
-        old_srpb_fuzy_metrics_dict = old_calculate_metrics(
+        old_srpb_fuzzy_metrics_dict = old_calculate_metrics(
             df=srpb_filter(_srpb_fuzzy_extracted_harmonized_fc_matrices_hc_mdd_df),
             metric_dict=old_metric_dict,
             alpha_threshold=0.05,
@@ -5386,9 +5386,9 @@ def _(
         )
 
         old_srpb_fuzzy_metrics_results_list.append(
-            old_srpb_fuzy_metrics_dict["results"]
+            old_srpb_fuzzy_metrics_dict["results"]
         )
-        old_srpb_fuzzy_metrics_ui_list.append(old_srpb_fuzy_metrics_dict["ui"])
+        old_srpb_fuzzy_metrics_ui_list.append(old_srpb_fuzzy_metrics_dict["ui"])
     return
 
 
@@ -5411,7 +5411,7 @@ def _(
     ) in enumerate(srpb_fuzzy_extracted_harmonized_fc_matrices_hc_mdd_df_list):
         print(f"Calculating metrics for run {_run_idx}")
 
-        perturbated_srpb_fuzy_metrics_dict = calculate_metrics_single_precision(
+        perturbated_srpb_fuzzy_metrics_dict = calculate_metrics_single_precision(
             df=srpb_filter(_srpb_fuzzy_extracted_harmonized_fc_matrices_hc_mdd_df),
             metric_dict=metric_dict,
             alpha_threshold=0.05,
@@ -5422,13 +5422,13 @@ def _(
         )
 
         perturbated_srpb_fuzzy_metrics_results_list.append(
-            perturbated_srpb_fuzy_metrics_dict["results"]
+            perturbated_srpb_fuzzy_metrics_dict["results"]
         )
         perturbated_srpb_fuzzy_selected_pcs.append(
-            perturbated_srpb_fuzy_metrics_dict["selected_pcs"]
+            perturbated_srpb_fuzzy_metrics_dict["selected_pcs"]
         )
         perturbated_srpb_fuzzy_metrics_ui_list.append(
-            perturbated_srpb_fuzy_metrics_dict["ui"]
+            perturbated_srpb_fuzzy_metrics_dict["ui"]
         )
     return (
         perturbated_srpb_fuzzy_metrics_results_list,
@@ -5455,7 +5455,7 @@ def _(
     ) in enumerate(srpb_fuzzy_extracted_harmonized_fc_matrices_hc_mdd_df_list):
         print(f"Calculating metrics for run {_run_idx}")
 
-        srpb_fuzy_metrics_dict = calculate_metrics(
+        srpb_fuzzy_metrics_dict = calculate_metrics(
             df=srpb_filter(srpb_fuzzy_extracted_harmonized_fc_matrices_hc_mdd_df),
             metric_dict=metric_dict,
             alpha_threshold=0.05,
@@ -5465,9 +5465,9 @@ def _(
             cache_dir=srpb_fuzzy_cache_dir + f"/run-{_run_idx}/",
         )
 
-        srpb_fuzzy_metrics_results_list.append(srpb_fuzy_metrics_dict["results"])
-        srpb_fuzzy_selected_pcs.append(srpb_fuzy_metrics_dict["selected_pcs"])
-        srpb_fuzzy_metrics_ui_list.append(srpb_fuzy_metrics_dict["ui"])
+        srpb_fuzzy_metrics_results_list.append(srpb_fuzzy_metrics_dict["results"])
+        srpb_fuzzy_selected_pcs.append(srpb_fuzzy_metrics_dict["selected_pcs"])
+        srpb_fuzzy_metrics_ui_list.append(srpb_fuzzy_metrics_dict["ui"])
     return srpb_fuzzy_metrics_results_list, srpb_fuzzy_metrics_ui_list
 
 
@@ -6418,7 +6418,7 @@ def _(
     srpb_fuzzy_target_pcs_to_plot,
 ):
     perturbated_srpb_fuzzy_consensus_target_pcs_to_plot = [1.0]
-    perturbated_consensus_thresholds = [1.0, 0.75, 0.50, 0.25]
+    perturbated_srpb_consensus_thresholds = [1.0, 0.75, 0.50, 0.25]
 
     perturbated_srpb_fuzzy_consensus_pc_plots_result = plot_pcs_consensus(
         results_list=perturbated_srpb_fuzzy_metrics_results_list,
@@ -6429,11 +6429,14 @@ def _(
         plot_dir=perturbated_srpb_fuzzy_plot_dir + "/consensus-thresholds/",
         metadata_dir=perturbated_srpb_fuzzy_metadata_dir
         + "/consensus-thresholds/",
-        consensus_thresholds=perturbated_consensus_thresholds,
+        consensus_thresholds=perturbated_srpb_consensus_thresholds,
         show_legend=True,
         network_assignments=network_assignments,
     )
-    return (perturbated_srpb_fuzzy_consensus_pc_plots_result,)
+    return (
+        perturbated_srpb_consensus_thresholds,
+        perturbated_srpb_fuzzy_consensus_pc_plots_result,
+    )
 
 
 @app.cell
@@ -7910,7 +7913,7 @@ def _():
 @app.cell
 def _():
     num_fuzzy_bmb_run = 15
-    return
+    return (num_fuzzy_bmb_run,)
 
 
 @app.cell
@@ -7920,9 +7923,16 @@ def _(bmb_time_series_scrub_file_df):
     return bmb_scrub_paths, bmb_ts_paths
 
 
-app._unparsable_cell(
-    r"""
-        bmb_fuzzy_extracted_fc_matrices_df_list = run_fuzzy_extraction_runs(
+@app.cell
+def _(
+    bmb_fuzzy_fc_matrices_output_path,
+    bmb_scrub_paths,
+    bmb_time_series_scrub_file_df,
+    bmb_ts_paths,
+    fuzzy_container_image,
+    num_fuzzy_bmb_run,
+):
+    bmb_fuzzy_extracted_fc_matrices_df_list = run_fuzzy_extraction_runs(
         num_fuzzy_run=num_fuzzy_bmb_run,
         container_name="fuzzy-container",
         container_image=fuzzy_container_image,
@@ -7931,9 +7941,7 @@ app._unparsable_cell(
         scrub_paths=bmb_scrub_paths,
         fuzzy_fc_matrices_output_path=bmb_fuzzy_fc_matrices_output_path,
     )
-    """,
-    name="_"
-)
+    return (bmb_fuzzy_extracted_fc_matrices_df_list,)
 
 
 @app.cell(hide_code=True)
@@ -8296,14 +8304,6 @@ def _(bmb_fuzzy_extracted_harmonized_fc_matrices_df_list):
     return (bmb_fuzzy_extracted_harmonized_fc_matrices_hc_mdd_df_list,)
 
 
-@app.cell(hide_code=True)
-def _():
-    mo.md(r"""
-    ### Comparison of the Fuzzy and Regular PC BMB metrics graphs
-    """)
-    return
-
-
 @app.cell
 def _(
     bmb_fuzzy_extracted_harmonized_fc_matrices_hc_mdd_df_list,
@@ -8323,7 +8323,7 @@ def _(
     ) in enumerate(bmb_fuzzy_extracted_harmonized_fc_matrices_hc_mdd_df_list):
         print(f"Calculating metrics for run {_run_idx}")
 
-        old_bmb_fuzy_metrics_dict = old_calculate_metrics(
+        old_bmb_fuzzy_metrics_dict = old_calculate_metrics(
             df=bmb_filter(_bmb_fuzzy_extracted_harmonized_fc_matrices_hc_mdd_df),
             metric_dict=old_metric_dict,
             alpha_threshold=0.05,
@@ -8333,10 +8333,10 @@ def _(
         )
 
         old_bmb_fuzzy_metrics_results_list.append(
-            old_bmb_fuzy_metrics_dict["results"]
+            old_bmb_fuzzy_metrics_dict["results"]
         )
-        old_bmb_fuzzy_metrics_ui_list.append(old_bmb_fuzy_metrics_dict["ui"])
-    return (old_bmb_fuzzy_metrics_results_list,)
+        old_bmb_fuzzy_metrics_ui_list.append(old_bmb_fuzzy_metrics_dict["ui"])
+    return
 
 
 @app.cell
@@ -8358,7 +8358,7 @@ def _(
     ) in enumerate(bmb_fuzzy_extracted_harmonized_fc_matrices_hc_mdd_df_list):
         print(f"Calculating metrics for run {_run_idx}")
 
-        perturbated_bmb_fuzy_metrics_dict = calculate_metrics_single_precision(
+        perturbated_bmb_fuzzy_metrics_dict = calculate_metrics_single_precision(
             df=bmb_filter(_bmb_fuzzy_extracted_harmonized_fc_matrices_hc_mdd_df),
             metric_dict=metric_dict,
             alpha_threshold=0.05,
@@ -8369,13 +8369,13 @@ def _(
         )
 
         perturbated_bmb_fuzzy_metrics_results_list.append(
-            perturbated_bmb_fuzy_metrics_dict["results"]
+            perturbated_bmb_fuzzy_metrics_dict["results"]
         )
         perturbated_bmb_fuzzy_selected_pcs.append(
-            perturbated_bmb_fuzy_metrics_dict["selected_pcs"]
+            perturbated_bmb_fuzzy_metrics_dict["selected_pcs"]
         )
         perturbated_bmb_fuzzy_metrics_ui_list.append(
-            perturbated_bmb_fuzy_metrics_dict["ui"]
+            perturbated_bmb_fuzzy_metrics_dict["ui"]
         )
     return (
         perturbated_bmb_fuzzy_metrics_results_list,
@@ -8402,7 +8402,7 @@ def _(
     ) in enumerate(bmb_fuzzy_extracted_harmonized_fc_matrices_hc_mdd_df_list):
         print(f"Calculating metrics for run {_run_idx}")
 
-        bmb_fuzy_metrics_dict = calculate_metrics(
+        bmb_fuzzy_metrics_dict = calculate_metrics(
             df=bmb_filter(bmb_fuzzy_extracted_harmonized_fc_matrices_hc_mdd_df),
             metric_dict=metric_dict,
             alpha_threshold=0.05,
@@ -8412,9 +8412,9 @@ def _(
             cache_dir=bmb_fuzzy_cache_dir + f"/run-{_run_idx}/",
         )
 
-        bmb_fuzzy_metrics_results_list.append(bmb_fuzy_metrics_dict["results"])
-        bmb_fuzzy_selected_pcs.append(bmb_fuzy_metrics_dict["selected_pcs"])
-        bmb_fuzzy_metrics_ui_list.append(bmb_fuzy_metrics_dict["ui"])
+        bmb_fuzzy_metrics_results_list.append(bmb_fuzzy_metrics_dict["results"])
+        bmb_fuzzy_selected_pcs.append(bmb_fuzzy_metrics_dict["selected_pcs"])
+        bmb_fuzzy_metrics_ui_list.append(bmb_fuzzy_metrics_dict["ui"])
     return bmb_fuzzy_metrics_results_list, bmb_fuzzy_metrics_ui_list
 
 
@@ -8460,6 +8460,14 @@ def _(
     return bmb_extracted_metrics_results, bmb_extracted_metrics_ui
 
 
+@app.cell(hide_code=True)
+def _():
+    mo.md(r"""
+    ### Comparison of the Fuzzy and Regular BMB PC metrics graphs
+    """)
+    return
+
+
 @app.cell
 def _(bmb_extracted_metrics_ui, bmb_fuzzy_metrics_ui_list):
     bmb_pc_metrics_comparison = mo.vstack(
@@ -8496,7 +8504,7 @@ def _(bmb_extracted_metrics_ui, perturbated_bmb_fuzzy_metrics_ui_list):
             mo.vstack(
                 [
                     mo.md(
-                        f"### Comparison of the Perturbted Fuzzy run {_run_idx} vs Regular PC metrics graphs"
+                        f"### Comparison of the Perturbated Fuzzy run {_run_idx} vs Regular PC metrics graphs"
                     ),
                     mo.hstack(
                         [
@@ -8524,43 +8532,6 @@ def _():
     ### Comparison of the BMB Fuzzy and Regular PC metrics results
     """)
     return
-
-
-@app.cell
-def _(old_bmb_fuzzy_metrics_results_list):
-    old_bmb_fuzzy_selected_mdd_pcs_list = list(
-        map(
-            lambda x: select_mdd_pc(x, ["bdi"]), old_bmb_fuzzy_metrics_results_list
-        )
-    )
-
-    old_bmb_fuzzy_selected_mdd_pcs_list
-    return
-
-
-@app.cell
-def _(
-    bmb_extracted_harmonized_fc_matrices_hc_mdd_df,
-    bmb_extracted_metrics_results,
-    bmb_fuzzy_metadata_dir,
-    bmb_fuzzy_plot_dir,
-    coords_mni,
-    network_assignments,
-):
-    bmb_extracted_target_pcs_to_plot = [1.0]
-
-    bmb_extracted_pc_plots_results = plot_pcs(
-        results=bmb_extracted_metrics_results,
-        fc_matrices_df=bmb_extracted_harmonized_fc_matrices_hc_mdd_df,
-        node_coords=coords_mni,
-        pcs_to_plot=bmb_extracted_target_pcs_to_plot,
-        metric_to_plot="diag",
-        plot_dir=bmb_fuzzy_plot_dir + f"/extracted-fc-matrices/",
-        metadata_dir=bmb_fuzzy_metadata_dir + f"/extracted-fc-matrices/",
-        show_legend=True,
-        network_assignments=network_assignments,
-    )
-    return (bmb_extracted_pc_plots_results,)
 
 
 @app.cell
@@ -8600,6 +8571,36 @@ def _(perturbated_bmb_fuzzy_top_pc):
 @app.cell
 def _(
     bmb_fuzzy_extracted_harmonized_fc_matrices_df_list,
+    bmb_fuzzy_metadata_dir,
+    bmb_fuzzy_metrics_results_list,
+    bmb_fuzzy_plot_dir,
+    coords_mni,
+    network_assignments,
+):
+    bmb_fuzzy_target_pcs_to_plot = [1.0]
+
+    bmb_fuzzy_pc_plots_result_list = [
+        plot_pcs(
+            results=x,
+            fc_matrices_df=bmb_fuzzy_extracted_harmonized_fc_matrices_df_list[
+                _run_idx
+            ],
+            node_coords=coords_mni,
+            pcs_to_plot=bmb_fuzzy_target_pcs_to_plot,
+            metric_to_plot="diag",
+            plot_dir=bmb_fuzzy_plot_dir + f"/run-{_run_idx}/",
+            metadata_dir=bmb_fuzzy_metadata_dir + f"/run-{_run_idx}/",
+            show_legend=True,
+            network_assignments=network_assignments,
+        )
+        for _run_idx, x in enumerate(bmb_fuzzy_metrics_results_list)
+    ]
+    return
+
+
+@app.cell
+def _(
+    bmb_fuzzy_extracted_harmonized_fc_matrices_df_list,
     coords_mni,
     network_assignments,
     perturbated_bmb_fuzzy_metadata_dir,
@@ -8627,34 +8628,37 @@ def _(
     return
 
 
+@app.cell(hide_code=True)
+def _():
+    mo.md(r"""
+    We also want to run the FC plots on the extracted BMB FC matrices
+    """)
+    return
+
+
 @app.cell
 def _(
-    bmb_fuzzy_extracted_harmonized_fc_matrices_df_list,
+    bmb_extracted_harmonized_fc_matrices_hc_mdd_df,
+    bmb_extracted_metrics_results,
     bmb_fuzzy_metadata_dir,
-    bmb_fuzzy_metrics_results_list,
     bmb_fuzzy_plot_dir,
     coords_mni,
     network_assignments,
 ):
-    bmb_fuzzy_target_pcs_to_plot = [1.0]
+    bmb_extracted_target_pcs_to_plot = [1.0]
 
-    bmb_fuzzy_pc_plots_result_list = [
-        plot_pcs(
-            results=x,
-            fc_matrices_df=bmb_fuzzy_extracted_harmonized_fc_matrices_df_list[
-                _run_idx
-            ],
-            node_coords=coords_mni,
-            pcs_to_plot=bmb_fuzzy_target_pcs_to_plot,
-            metric_to_plot="diag",
-            plot_dir=bmb_fuzzy_plot_dir + f"/run-{_run_idx}/",
-            metadata_dir=bmb_fuzzy_metadata_dir + f"/run-{_run_idx}/",
-            show_legend=True,
-            network_assignments=network_assignments,
-        )
-        for _run_idx, x in enumerate(bmb_fuzzy_metrics_results_list)
-    ]
-    return
+    bmb_extracted_pc_plots_results = plot_pcs(
+        results=bmb_extracted_metrics_results,
+        fc_matrices_df=bmb_extracted_harmonized_fc_matrices_hc_mdd_df,
+        node_coords=coords_mni,
+        pcs_to_plot=bmb_extracted_target_pcs_to_plot,
+        metric_to_plot="diag",
+        plot_dir=bmb_fuzzy_plot_dir + f"/extracted-fc-matrices/",
+        metadata_dir=bmb_fuzzy_metadata_dir + f"/extracted-fc-matrices/",
+        show_legend=True,
+        network_assignments=network_assignments,
+    )
+    return (bmb_extracted_pc_plots_results,)
 
 
 @app.cell
