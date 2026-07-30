@@ -8,11 +8,16 @@
 
 ## Overview
 
-This project reproduces and extends the methodology from *Alizadeh et al. 2025* ([biorxiv](https://www.biorxiv.org/content/10.64898/2025.12.22.695524)), computing the **Numerical-Population Variability Ratio (NPVR)** for functional connectivity matrices, graph-theoretical metrics and connectivity biomarkers derived from preprocessed fMRI data.
+This project is the implementation of my bachelor thesis on the numerical stability of functional MRI connectivity biomarkers. It has two parts:
+
+1. **Reproduction** of *Alizadeh et al. 2025* ([biorxiv](https://www.biorxiv.org/content/10.64898/2025.12.22.695524)), which introduces the **Numerical-Population Variability Ratio (NPVR)** for FC matrices and graph-theoretical metrics. The fMRIPrep preprocessing pipeline is perturbed with a custom `fuzzy-fmriprep` Docker container built on [Verificarlo](https://github.com/verificarlo/verificarlo) and its [Fuzzy](https://github.com/verificarlo/fuzzy) libmath library, complemented by a synthetic NPVR simulation exploring how sample size and numerical-to-population variability ratios affect effect-size estimation.
+
+2. **Extension** in two directions: examining FC matrix edge NPVR directly, and assessing the numerical stability of the PCA-based feature extraction introduced by *Yamashita et al. 2026* ([doi:10.1162/IMAG.a.1121](https://doi.org/10.1162/IMAG.a.1121)) by perturbing the `np.corrcoef` function used to build the FC matrices and forcing the PCA inputs to 32-bit floating-point precision.
+2. **Extension** to the PCA-based feature-selection method of *Yamashita et al. 2026* ([doi:10.1162/IMAG.a.1121](https://doi.org/10.1162/IMAG.a.1121)), whose numerical stability is assessed by perturbing the `np.corrcoef` function used to build the FC matrices and forcing the PCA inputs to 32-bit floating-point precision.
 
 **Key question:** How does numerical noise from floating-point operations propagate through preprocessing and affect downstream functional connectivity biomarkers?
 
-> This repository is based on work by Mina Alizadeh, Copyright (c) 2026 Mina Alizadeh used under the MIT License.
+> This repository is based on work by Mina Alizadeh (Copyright (c) 2026 Mina Alizadeh, used under the MIT License) and on the PCA-based feature-selection method of Yamashita et al. 2026.
 
 ## Getting started
 
@@ -174,7 +179,7 @@ Reproduces and extends a PCA-based feature-selection pipeline on the **SRPB** an
 4. Plots significant principal components as connectome brain maps coloured by Yeo/Glasser networks
 5. Extracts regular FC matrices from raw time series (Pearson correlation + Fisher Z-transform + scrubbing)
 6. Harmonizes extracted FC matrices using traveling-subject harmonization (site, sampling, and protocol bias correction via KKT-constrained regularized regression)
-7. Extracts fuzzy (perturbed) FC matrices using Verificarlo MCA instrumentation inside Docker containers (100 runs for SRPB, 15 for BMB)
+7. Extracts fuzzy (perturbed) FC matrices by perturbing `np.corrcoef` via Verificarlo MCA instrumentation inside Docker containers (100 runs for SRPB, 15 for BMB), and forces PCA inputs to 32-bit floating-point precision to assess its effect on feature selection
 8. Harmonizes each fuzzy run independently using the same traveling-subject approach
 9. Compares regular vs fuzzy PCA feature selection results across all runs
 10. Computes consensus connectome maps at multiple thresholds (100%, 75%, 50%, 25% of runs)
