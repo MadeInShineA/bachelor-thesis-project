@@ -10,10 +10,9 @@
 
 This project is the implementation of my bachelor thesis on the numerical stability of functional MRI connectivity biomarkers. It has two parts:
 
-1. **Reproduction** of *Alizadeh et al. 2025* ([biorxiv](https://www.biorxiv.org/content/10.64898/2025.12.22.695524)), which introduces the **Numerical-Population Variability Ratio (NPVR)** for FC matrices and graph-theoretical metrics. The fMRIPrep preprocessing pipeline is perturbed with a custom `fuzzy-fmriprep` Docker container built on [Verificarlo](https://github.com/verificarlo/verificarlo) and its [Fuzzy](https://github.com/verificarlo/fuzzy) libmath library, complemented by a synthetic NPVR simulation exploring how sample size and numerical-to-population variability ratios affect effect-size estimation.
+1. **Reproduction** of _Alizadeh et al. 2025_ ([biorxiv](https://www.biorxiv.org/content/10.64898/2025.12.22.695524)), which introduces the **Numerical-Population Variability Ratio (NPVR)**, first through a synthetic NPVR simulation exploring how sample size and numerical-to-population variability ratios affect effect-size estimation, then for FC matrices and graph-theoretical metrics by perturbing the fMRIPrep preprocessing pipeline with a custom `fuzzy-fmriprep` Docker container built on [Verificarlo](https://github.com/verificarlo/verificarlo) and its [Fuzzy](https://github.com/verificarlo/fuzzy) libmath library.
 
-2. **Extension** in two directions: examining FC matrix edge NPVR directly, and assessing the numerical stability of the PCA-based feature extraction introduced by *Yamashita et al. 2026* ([doi:10.1162/IMAG.a.1121](https://doi.org/10.1162/IMAG.a.1121)) by perturbing the `np.corrcoef` function used to build the FC matrices and forcing the PCA inputs to 32-bit floating-point precision.
-2. **Extension** to the PCA-based feature-selection method of *Yamashita et al. 2026* ([doi:10.1162/IMAG.a.1121](https://doi.org/10.1162/IMAG.a.1121)), whose numerical stability is assessed by perturbing the `np.corrcoef` function used to build the FC matrices and forcing the PCA inputs to 32-bit floating-point precision.
+2. **Extension** in two directions: examining FC matrix edge NPVR directly, and assessing the numerical stability of the PCA-based feature extraction introduced by _Yamashita et al. 2026_ ([doi:10.1162/IMAG.a.1121](https://doi.org/10.1162/IMAG.a.1121)) by perturbing the `np.corrcoef` function used to build the FC matrices and forcing the PCA inputs to 32-bit floating-point precision.
 
 **Key question:** How does numerical noise from floating-point operations propagate through preprocessing and affect downstream functional connectivity biomarkers?
 
@@ -31,18 +30,21 @@ This project is the implementation of my bachelor thesis on the numerical stabil
 ### Development environment
 
 **With Nix + direnv (recommended):**
+
 ```shell
 direnv allow          # activates the Nix flake (uv, Python 3.14, nushell, etc.)
 uv sync               # install Python dependencies
 ```
 
 **With Nix (without direnv):**
+
 ```shell
 nix develop           # enters the Nix dev shell (uv, Python 3.14, nushell, etc.)
 uv sync               # install Python dependencies
 ```
 
 **Without Nix (only uv required):**
+
 ```shell
 # Install uv: https://docs.astral.sh/uv/getting-started/installation/
 uv sync               # creates a venv and installs all dependencies
@@ -51,27 +53,31 @@ uv sync               # creates a venv and installs all dependencies
 ### Docker images
 
 **Fuzzy fMRIPrep**: The `Dockerfile` builds a multi-stage image for preprocessing:
+
 1. **Stage 1** (`verificarlo/fuzzy:v0.9.1-lapack-python3.8.5-numpy-scipy-sklearn`): provides fuzzy libmath and Verificarlo
 2. **Stage 2** (`nipreps/fmriprep:25.2.5`): installs Verificarlo and preloads the MCA-instrumented libmath
 
 **Fuzzy extraction**: The analysis notebooks use a separate image to perturb `np.corrcoef` during FC matrix extraction:
+
 - `verificarlo/fuzzy:v2.0.0-lapack-python3.8.5-numpy-scipy-sklearn`
 
 Key environment variables:
 
-| Variable | Purpose |
-|---|---|
-| `VFC_BACKENDS` | MCA backend configuration (default: `libinterflop_mca.so --precision-binary32=24 --precision-binary64=53 --mode=mca`) |
-| `LD_PRELOAD` | Path to the instrumented libmath library |
-| `VFC_BACKENDS_SILENT_LOAD=True` | Suppresses backend loading logs (needed to avoid `skullstrip_first_pass` crashes) |
-| `VFC_BACKENDS_LOGGER=False` | Disables the logger |
+| Variable                        | Purpose                                                                                                               |
+| ------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `VFC_BACKENDS`                  | MCA backend configuration (default: `libinterflop_mca.so --precision-binary32=24 --precision-binary64=53 --mode=mca`) |
+| `LD_PRELOAD`                    | Path to the instrumented libmath library                                                                              |
+| `VFC_BACKENDS_SILENT_LOAD=True` | Suppresses backend loading logs (needed to avoid `skullstrip_first_pass` crashes)                                     |
+| `VFC_BACKENDS_LOGGER=False`     | Disables the logger                                                                                                   |
 
 **Build yourself:**
+
 ```shell
 docker build -t fuzzy-fmriprep:25.2.5 .
 ```
 
 **Or pull the pre-built image:**
+
 ```shell
 docker pull madeinshinea/fuzzy-fmriprep:25.2.5
 ```
@@ -145,6 +151,15 @@ uv run marimo edit notebooks/<notebook_name>.py
 uv run marimo run notebooks/<notebook_name>.py
 ```
 
+### `npvr_simulation.py`
+
+Synthetic simulation reproducing Figure 1 from Alizadeh et al. 2025:
+
+- Two synthetic populations (low vs high numerical variability)
+- Interactive controls for sample size and variability scales
+- NPVR calculation and visualisation on a σ_num / σ_pop grid
+- Cohen's d variability as a function of sample size and NPVR
+
 ### `fuzzy_fmriprep_graph_metrics_analysis.py`
 
 Loads preprocessed fuzzy-fMRIPrep outputs and:
@@ -186,25 +201,17 @@ Reproduces and extends a PCA-based feature-selection pipeline on the **SRPB** an
 11. Runs a robustness analysis: edge weight stability (CV), Jaccard similarity between runs, effect sizes with 95% CIs, convergence curves, network topology metrics, permutation-based p-value distributions, rich club coefficients, and cross-threshold edge stability
 12. Computes consensus maps for noise metrics (age, sex, site, meanFD) to verify they do not contaminate the diagnosis signal
 
-### `npvr_simulation.py`
-
-Synthetic simulation reproducing Figure 1 from Alizadeh et al. 2025:
-- Two synthetic populations (low vs high numerical variability)
-- Interactive controls for sample size and variability scales
-- NPVR calculation and visualisation on a σ_num / σ_pop grid
-- Cohen's d variability as a function of sample size and NPVR
-
 ## Resources
 
-| File | Content |
-|---|---|
-| `resources/alizadeh-2025-paper-summary/` | Full summary of the paper, preprocessing pipeline explanation, graph metrics reference |
-| `resources/alizadeh-2025-paper-summary/images/` | Figures from the paper |
-| `resources/connectivity-analysis-pipeline/` | Overview of the connectivity analysis pipeline steps |
+| File                                            | Content                                                                                |
+| ----------------------------------------------- | -------------------------------------------------------------------------------------- |
+| `resources/alizadeh-2025-paper-summary/`        | Full summary of the paper, preprocessing pipeline explanation, graph metrics reference |
+| `resources/alizadeh-2025-paper-summary/images/` | Figures from the paper                                                                 |
+| `resources/connectivity-analysis-pipeline/`     | Overview of the connectivity analysis pipeline steps                                   |
 
 ## Acknowledgments
 
-- This work builds on **Alizadeh et al. 2025**, *Numerical Variability of functional MRI Graph Measures*
+- This work builds on **Alizadeh et al. 2025**, _Numerical Variability of functional MRI Graph Measures_
 - Floating-point perturbations via [Verificarlo / fuzzy](https://github.com/verificarlo/fuzzy)
 - Preprocessing with [fMRIPrep](https://fmriprep.org/)
 - Data from the [PPMI dataset](https://www.ppmi-info.org/)
