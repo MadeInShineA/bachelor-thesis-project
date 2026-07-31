@@ -16,7 +16,7 @@ This project is the implementation of my bachelor thesis on the numerical stabil
 
 **Key question:** How does numerical noise from floating-point operations propagate through preprocessing and affect downstream functional connectivity biomarkers?
 
-> This repository is based on work by Mina Alizadeh (Copyright (c) 2026 Mina Alizadeh, used under the MIT License) and on the PCA-based feature-selection method of Yamashita et al. 2026.
+> This repository is based on work by Mina Alizadeh (Copyright (c) 2026 Mina Alizadeh, used under the MIT License) and on the PCA-based feature-extraction method of Yamashita et al. 2026.
 
 ## Getting started
 
@@ -164,15 +164,15 @@ Synthetic simulation reproducing Figure 1 from Alizadeh et al. 2025:
 
 Loads preprocessed fuzzy-fMRIPrep outputs and:
 
-1. Extracts ROI time series using the **Schaefer 2018** atlas (100 regions, 7 networks) via `NiftiLabelsMasker` (smoothing 6mm FWHM, temporal standardization)
+1. Extracts ROI time series using the Schaefer 2018 atlas (100 regions, 7 networks) via `NiftiLabelsMasker` (smoothing 6mm FWHM, temporal standardization)
 2. Generates FC matrices (Pearson correlation) in two variants:
-   - **Without confound regression**
-   - **With confound regression**
+   - Without confound regression
+   - With confound regression
 3. Applies absolute thresholds (0.05, 0.1, 0.2, 0.3, 0.4, 0.5) to produce binary adjacency matrices
 4. Computes graph metrics:
    - **Local:** degree centrality, clustering coefficient, betweenness centrality, eigenvector centrality
    - **Global:** average shortest path length
-5. Calculates the **NPVR** (pooled across subjects) per threshold, per session, and per metric
+5. Calculates the NPVR (pooled across subjects) per threshold, per session, and per metric
 6. Produces comparison plots: NV/PV boxplots with NPVR overlay for each metric, split by session and globally, plus a difference plot (without-confound minus with-confound)
 
 ### `fuzzy_fmriprep_fc_matrices_analysis.py`
@@ -180,13 +180,13 @@ Loads preprocessed fuzzy-fMRIPrep outputs and:
 Focuses on the FC matrices produced by fuzzy-fMRIPrep:
 
 1. Loads existing FC matrices (or generates them from preprocessed outputs)
-2. Computes edge-wise **NPVR** to identify connections most affected by numerical variability
+2. Computes edge-wise NPVR to identify connections most affected by numerical variability
 3. Compares confound-regression strategies (`with_all_confounds` vs. `with_filtered_confounds`)
 4. Produces edge-wise heatmaps, scatter plots, histograms, and regional brain maps
 
 ### `fuzzy_pca_dim_reduction_analysis.py`
 
-Reproduces and extends a PCA-based feature-selection pipeline on the **SRPB** and **BMB** public datasets, then assesses how floating-point perturbations affect downstream biomarker stability:
+Reproduces and extends a PCA-based dimensionality reduction pipeline on the SRPB and BMB public datasets, then assesses how floating-point perturbations affect downstream biomarker stability:
 
 1. Loads pre-harmonized FC matrices and metadata (Glasser parcellation, 446 ROIs, GSR + filtering)
 2. Selects subjects with Healthy Control (HC) and Major Depressive Disorder (MDD) diagnoses
