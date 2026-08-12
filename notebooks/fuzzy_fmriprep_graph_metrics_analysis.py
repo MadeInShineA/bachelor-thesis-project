@@ -69,14 +69,17 @@ def _(
     session_comparison_plot_path,
 ):
     def show_image(path, caption=""):
-        return mo.vstack([
-            mo.md(f"**{caption}**"),
-            mo.image(str(path), width="100%"),
-        ])
+        return mo.vstack(
+            [
+                mo.md(f"**{caption}**"),
+                mo.image(str(path), width="100%"),
+            ]
+        )
+
 
     binary_rows = []
     for i in range(0, len(binary_matrix_plot_paths), 3):
-        row_paths = binary_matrix_plot_paths[i:i + 3]
+        row_paths = binary_matrix_plot_paths[i : i + 3]
         captions = [f"T={Path(p).stem.split('-')[-1]}" for p in row_paths]
         binary_rows.append(
             mo.hstack(
@@ -85,35 +88,30 @@ def _(
             )
         )
 
-    brain_map_rows = []
-    for i in range(0, len(brain_region_plot_paths), 2):
-        row_paths = brain_region_plot_paths[i:i + 2]
-        brain_map_rows.append(
+
+    gallery = mo.vstack(
+        [
+            mo.md("### Functional Connectivity Matrices (Binary Thresholds)"),
+            mo.md("Binary adjacency matrices for one example subject/run pair."),
+            *binary_rows,
+            mo.md("---"),
+            mo.md("### NPVR per Graph Metric"),
+            mo.md(
+                "Left: NPVR across sessions and globally. Right: NPVR of the (without-confound − with-confound) difference."
+            ),
             mo.hstack(
                 [
-                    show_image(p["path"], p["metric"].replace("_", " ").title())
-                    for p in row_paths
+                    show_image(session_comparison_plot_path, "Session Comparison"),
+                    show_image(difference_plot_path, "Confound Difference"),
                 ],
                 widths="equal",
-            )
-        )
-
-    gallery = mo.vstack([
-        mo.md("### Functional Connectivity Matrices (Binary Thresholds)"),
-        mo.md("Binary adjacency matrices for one example subject/run pair."),
-        *binary_rows,
-        mo.md("---"),
-        mo.md("### NPVR per Graph Metric"),
-        mo.md("Left: NPVR across sessions and globally. Right: NPVR of the (without-confound − with-confound) difference."),
-        mo.hstack([
-            show_image(session_comparison_plot_path, "Session Comparison"),
-            show_image(difference_plot_path, "Confound Difference"),
-        ], widths="equal"),
-        mo.md("---"),
-        mo.md("### NPVR across Brain Regions"),
-        mo.md("Regional NPVR values projected onto the Schaefer 2018 atlas."),
-        *brain_map_rows,
-    ])
+            ),
+            mo.md("---"),
+            mo.md("### NPVR across Brain Regions"),
+            mo.md("Regional NPVR values projected onto the Schaefer 2018 atlas."),
+            brain_region_plot_paths,
+        ]
+    )
 
     gallery
     return
@@ -1114,7 +1112,8 @@ def plot_thresholds(thresholded_data: dict, figures_output_path) -> list[Path]:
             plt.tight_layout()
 
             save_path = (
-                figures_output_path / f"binary_fc_matrices-threshold-{threshold}.png"
+                figures_output_path
+                / f"binary_fc_matrices-threshold-{threshold}.png"
             )
             fig.savefig(save_path, bbox_inches="tight")
             saved_paths.append(save_path)
@@ -1126,7 +1125,9 @@ def plot_thresholds(thresholded_data: dict, figures_output_path) -> list[Path]:
 
 @app.cell
 def _(figures_output_path, thresholded_data):
-    binary_matrix_plot_paths = plot_thresholds(thresholded_data, figures_output_path)
+    binary_matrix_plot_paths = plot_thresholds(
+        thresholded_data, figures_output_path
+    )
     return (binary_matrix_plot_paths,)
 
 
@@ -1694,94 +1695,63 @@ def _():
 @app.function
 def calculate_npvr_difference(fc_metrics, metric_name, session_filter=None):
     """
-    Calculate σ_num, σ_pop, and NPVR for the difference (without-confound - with-confound).
+    Calculate the difference of σ_num, σ_pop, and NPVR between
+    without-confound and with-confound.
 
-    This function pre-processes the data to compute the differences, then delegates
-    the actual NPVR calculation to calculate_npvr_data to ensure statistical consistency
-    (using pooled standard deviation) and avoid code duplication.
+    Returns: (thresholds, sigma_num_diff, sigma_pop_diff, npvr_diff)
     """
-    thresholds = sorted(fc_metrics.keys())
-    fc_metrics_diff = {}
+    # 1. Séparer les deux conditions
+    fc_without = {}
+    fc_with = {}
 
-    for threshold in thresholds:
-        entries = fc_metrics[threshold]
+    for threshold, entries in fc_metrics.items():
+        fc_without[threshold] = [
+            e
+            for e in entries
+            if e.get("metadata", {}).get("type") == "without-confound"
+        ]
+        fc_with[threshold] = [
+            e
+            for e in entries
+            if e.get("metadata", {}).get("type") == "with-confound"
+        ]
 
-        # Group by (subject, session, sub_run, mca_run, region) to find pairs
-        grouped_values = defaultdict(dict)
-
-        for entry in entries:
-            subject_id = entry["metadata"]["subject"]
-            mca_run = entry["metadata"]["run"]
-            session = entry["metadata"]["session"]
-            sub_run = entry["metadata"]["sub_run"]
-            data_type = entry["metadata"]["type"]
-
-            if metric_name in entry["metrics"].get("local_metrics", {}):
-                values_dict = entry["metrics"]["local_metrics"][metric_name]
-            elif metric_name in entry["metrics"].get("global_metrics", {}):
-                values_dict = {
-                    "global": entry["metrics"]["global_metrics"][metric_name]
-                }
-            else:
-                continue
-
-            for region, value in values_dict.items():
-                key = (subject_id, session, sub_run, mca_run, region)
-                grouped_values[key][data_type] = value
-
-        # Create new synthetic entries for the differences
-        entry_cache = {}
-
-        for key, type_values in grouped_values.items():
-            subject_id, session, sub_run, mca_run, region = key
-
-            if (
-                "without-confound" in type_values
-                and "with-confound" in type_values
-            ):
-                diff_value = (
-                    type_values["without-confound"]
-                    - type_values["with-confound"]
-                )
-
-                cache_key = (subject_id, session, sub_run, mca_run)
-                if cache_key not in entry_cache:
-                    entry_cache[cache_key] = {
-                        "metadata": {
-                            "subject": subject_id,
-                            "run": mca_run,
-                            "session": session,
-                            "sub_run": sub_run,
-                            "type": "difference",
-                        },
-                        "metrics": {"local_metrics": {}, "global_metrics": {}},
-                    }
-
-                # Place the difference in the correct metric dictionary
-                if region == "global":
-                    entry_cache[cache_key]["metrics"]["global_metrics"][
-                        metric_name
-                    ] = diff_value
-                else:
-                    if (
-                        metric_name
-                        not in entry_cache[cache_key]["metrics"][
-                            "local_metrics"
-                        ]
-                    ):
-                        entry_cache[cache_key]["metrics"]["local_metrics"][
-                            metric_name
-                        ] = {}
-                    entry_cache[cache_key]["metrics"]["local_metrics"][
-                        metric_name
-                    ][region] = diff_value
-
-        fc_metrics_diff[threshold] = list(entry_cache.values())
-
-    # Delegate to the main function, which will handle the pooled variance calculation
-    return calculate_npvr_data(
-        fc_metrics_diff, metric_name, session_filter=session_filter
+    # 2. Calculer NPVR pour chaque condition séparément
+    thresholds_w, sn_without, sp_without, npvr_without = calculate_npvr_data(
+        fc_without, metric_name, session_filter=session_filter
     )
+    thresholds_c, sn_with, sp_with, npvr_with = calculate_npvr_data(
+        fc_with, metric_name, session_filter=session_filter
+    )
+
+    # 3. Calculer les différences (without - with) threshold par threshold
+    thresholds = sorted(fc_metrics.keys())
+    sigma_num_diff = []
+    sigma_pop_diff = []
+    npvr_diff = []
+
+    for i, t in enumerate(thresholds):
+        # sigma_num et sigma_pop sont des LISTES de valeurs (distributions par région)
+        sn_w = sn_without[i] if i < len(sn_without) else []
+        sn_c = sn_with[i] if i < len(sn_with) else []
+        sp_w = sp_without[i] if i < len(sp_without) else []
+        sp_c = sp_with[i] if i < len(sp_with) else []
+
+        # npvr est un SCALAIRE (float) par threshold
+        np_w = npvr_without[i] if i < len(npvr_without) else 0.0
+        np_c = npvr_with[i] if i < len(npvr_with) else 0.0
+
+        # Soustraction élément par élément pour les distributions
+        min_len_sn = min(len(sn_w), len(sn_c))
+        sigma_num_diff.append([sn_w[j] - sn_c[j] for j in range(min_len_sn)])
+
+        min_len_sp = min(len(sp_w), len(sp_c))
+        sigma_pop_diff.append([sp_w[j] - sp_c[j] for j in range(min_len_sp)])
+
+        # Soustraction directe pour NPVR (scalaire)
+        npvr_diff.append(np_w - np_c)
+
+    return thresholds, sigma_num_diff, sigma_pop_diff, npvr_diff
 
 
 @app.function
@@ -1935,14 +1905,18 @@ def _():
 @app.cell(hide_code=True)
 def _():
     mo.md(r"""
-    Please note that for now, this complete cell has been written by Qwen3.7-Plus and need to be double checked
+    Please note that for now, this complete cells have been written by Qwen3.7-Plus and need to be double checked
     """)
     return
 
 
 @app.function
 def calculate_npvr_per_region(fc_metrics, metric_name, session_filter=None):
-    """Calculate pooled NPVR for each brain region individually."""
+    """Calculate pooled NPVR for each brain region individually.
+
+    Also computes per-threshold min-max normalized NPVR (npvr_normalized)
+    across regions, scaled to [0, 1].
+    """
     thresholds = sorted(fc_metrics.keys())
     results = {t: {} for t in thresholds}
 
@@ -2041,21 +2015,51 @@ def calculate_npvr_per_region(fc_metrics, metric_name, session_filter=None):
                 "npvr": npvr,
             }
 
+        # ── PER-THRESHOLD MIN-MAX NORMALIZATION ACROSS REGIONS ─────────────────
+        regions = list(results[threshold].keys())
+        if len(regions) > 1:
+            npvr_vals = np.array(
+                [
+                    results[threshold][r]["npvr"]
+                    for r in regions
+                    if not np.isnan(results[threshold][r]["npvr"])
+                ]
+            )
+
+            if len(npvr_vals) > 0:
+                min_v = np.min(npvr_vals)
+                max_v = np.max(npvr_vals)
+                rng = max_v - min_v
+
+                for r in regions:
+                    v = results[threshold][r]["npvr"]
+                    if not np.isnan(v) and rng > 0:
+                        results[threshold][r]["npvr_normalized"] = (
+                            v - min_v
+                        ) / rng
+                    else:
+                        results[threshold][r]["npvr_normalized"] = (
+                            0.0 if not np.isnan(v) else np.nan
+                        )
+
     return results
 
 
 @app.function
-def create_npvr_nifti(npvr_dict, atlas_img):
+def create_npvr_nifti(npvr_dict, atlas_img, use_normalized=True):
     """Maps regional NPVR values to the Schaefer atlas."""
     atlas_data = atlas_img.get_fdata()
     npvr_map_data = np.zeros_like(atlas_data)
+    value_key = "npvr_normalized" if use_normalized else "npvr"
 
     for region_str, data in npvr_dict.items():
         if region_str == "global":
             continue
         region_id = int(region_str) + 1
         if 1 <= region_id <= 100:
-            npvr_map_data[atlas_data == region_id] = data["npvr"]
+            val = data.get(value_key, np.nan)
+            if not np.isnan(val):
+                npvr_map_data[atlas_data == region_id] = val
 
     return nib.Nifti1Image(npvr_map_data, atlas_img.affine)
 
@@ -2194,22 +2198,156 @@ def plot_npvr_brain_grid(fc_metrics, atlas_img):
     return figures
 
 
+@app.function
+def plot_npvr_grid_horizontal_labels(
+    fc_metrics,
+    atlas_img,
+    thresholds_list=None,
+    cmap="Reds",
+    save_path=None,
+    dpi=300,
+):
+    """
+    Plot normalized regional NPVR maps.
+    Rows = metrics (horizontal labels in their own column)
+    Columns = thresholds
+    """
+    if thresholds_list is None:
+        thresholds_list = sorted(fc_metrics.keys())
+
+    desired_order = [
+        "betweenness_centrality",
+        "clustering_coefficient",
+        "eigenvector_centrality",
+        "degree_centrality",
+    ]
+
+    first_entry = fc_metrics[thresholds_list[0]][0]
+    available_metrics = set()
+    if "local_metrics" in first_entry["metrics"]:
+        available_metrics.update(
+            first_entry["metrics"]["local_metrics"].keys()
+        )
+
+    metrics_list = [m for m in desired_order if m in available_metrics]
+    metric_labels = [m.replace("_", " ").title() for m in metrics_list]
+
+    n_metrics = len(metrics_list)
+    n_thresholds = len(thresholds_list)
+
+    fig = plt.figure(figsize=(5.2 * n_thresholds + 2.0, 4.0 * n_metrics))
+
+    # n_thresholds + 1 columns: first column is for labels, rest for brain maps
+    width_ratios = [0.6] + [1.0] * n_thresholds
+
+    gs = fig.add_gridspec(
+        n_metrics,
+        n_thresholds + 1,
+        width_ratios=width_ratios,
+        left=0.06,
+        right=0.85,
+        top=0.92,
+        bottom=0.06,
+        wspace=0.10,
+        hspace=0.28,
+    )
+
+    vmin, vmax = 0.0, 1.0
+
+    for i, metric_name in enumerate(metrics_list):
+        npvr_results = calculate_npvr_per_region(fc_metrics, metric_name)
+
+        # --- Label column (column 0) ---
+        ax_label = fig.add_subplot(gs[i, 0])
+        ax_label.text(
+            0.5,
+            0.5,
+            metric_labels[i],
+            ha="center",
+            va="center",
+            fontsize=13,
+            fontweight="bold",
+            transform=ax_label.transAxes,
+        )
+        ax_label.axis("off")
+
+        for j, thresh in enumerate(thresholds_list):
+            if thresh not in npvr_results:
+                continue
+
+            npvr_img = create_npvr_nifti(
+                npvr_results[thresh], atlas_img, use_normalized=True
+            )
+
+            norm_vals = [
+                data["npvr_normalized"]
+                for data in npvr_results[thresh].values()
+                if "npvr_normalized" in data
+                and not np.isnan(data["npvr_normalized"])
+            ]
+            sd_val = np.std(norm_vals) if len(norm_vals) > 0 else 0.0
+
+            # Brain map columns start at index 1
+            ax = fig.add_subplot(gs[i, j + 1])
+
+            plotting.plot_stat_map(
+                npvr_img,
+                display_mode="ortho",
+                cut_coords=[2, 0, 0],
+                cmap=cmap,
+                colorbar=False,
+                black_bg=False,
+                dim=0,
+                threshold=0,
+                vmin=vmin,
+                vmax=vmax,
+                axes=ax,
+            )
+
+            if i == 0:
+                ax.set_title(
+                    f"Threshold = {thresh}\nSD = {sd_val:.3f}",
+                    fontsize=12,
+                    fontweight="bold",
+                    pad=8,
+                )
+            else:
+                ax.set_title(
+                    f"SD = {sd_val:.3f}",
+                    fontsize=12,
+                    fontweight="bold",
+                    pad=8,
+                )
+
+    # Colorbar
+    cax = fig.add_axes([0.88, 0.15, 0.025, 0.7])
+    sm = plt.cm.ScalarMappable(
+        cmap=cmap, norm=plt.Normalize(vmin=0.0, vmax=1.0)
+    )
+    sm.set_array([])
+    cbar = fig.colorbar(sm, cax=cax)
+    cbar.set_label("Variability Ratio", fontsize=14, rotation=270, labelpad=18)
+    cbar.ax.tick_params(labelsize=11)
+
+    if save_path is not None:
+        fig.savefig(save_path, dpi=dpi, bbox_inches="tight", facecolor="white")
+        print(f"Saved to {save_path}")
+
+    return fig
+
+
 @app.cell
 def _(figures_output_path, fuzzy_fmriprep_analysis, graph_metrics):
     brain_maps_img = nib.load(fuzzy_fmriprep_analysis.brain_maps)
 
-    figures = plot_npvr_brain_grid(graph_metrics, brain_maps_img)
-    brain_region_plot_paths = []
-    for values in figures:
-        save_path = (
-            figures_output_path
-            / f"npvr_across_brain_regions_{values['metric']}.png"
-        )
-        values["figure"].savefig(save_path, bbox_inches="tight")
-        brain_region_plot_paths.append(
-            {"metric": values["metric"], "path": save_path}
-        )
-        plt.show()
+    brain_region_plot_paths = plot_npvr_grid_horizontal_labels(
+        graph_metrics,
+        brain_maps_img,
+        thresholds_list=[0.1, 0.4],
+        save_path=figures_output_path / "npvr_grid_normalized.png",
+    )
+
+    plt.show()
     return (brain_region_plot_paths,)
 
 
