@@ -623,7 +623,7 @@ def _():
 @app.cell
 def _(output_path, version):
     previous_matrices_figures_output_path = (
-        output_path / version / "figures" / "previous-matrices"
+        output_path / version / "figures" / "global-signal"
     )
 
     previous_matrices_figures_output_path.mkdir(parents=True, exist_ok=True)
@@ -644,7 +644,7 @@ def _():
 def _():
     temp_fc_matrices_output_path = (
         Path("./res/fuzzy-fmriprep-analysis/graph-metrics-analysis/")
-        / "v3"
+        / "global-signal"
         / "fc-matrices"
     )
     temp_fc_matrices_output_path
@@ -843,7 +843,11 @@ def calculate_npvr_per_edge(fc_matrices, session_filter=None):
 
 @app.cell
 def _(cleaned_fc_matrices):
-    npvr_per_edge = calculate_npvr_per_edge(cleaned_fc_matrices)
+    with_all_confounds_matrices = [
+        entry for entry in cleaned_fc_matrices
+        if entry["metadata"]["type"] == "with_all_confounds"
+    ]
+    npvr_per_edge = calculate_npvr_per_edge(with_all_confounds_matrices)
     return (npvr_per_edge,)
 
 
@@ -1357,7 +1361,7 @@ def plot_edge_delta_npvr_matrix(edge_delta_npvr_dict, output_path: Path, n_nodes
         vmin=-max_abs_val,
         vmax=max_abs_val,
         figure=fig,
-        title="Edge-wise Delta NPVR Connectivity Matrix\n(Red = NPVR Increased/Worse | Blue = NPVR Decreased/Better)",
+        title="Edge-wise Delta NPVR Connectivity Matrix\n(Red = NPVR Increased/Worse | Green = NPVR Decreased/Better)",
         reorder=False,
     )
 
@@ -1403,7 +1407,7 @@ def plot_edge_delta_npvr_scatter(edge_delta_npvr_dict, output_path: Path):
     )
     ax_scatter.invert_yaxis()
 
-    ax_scatter.set_xlabel("Delta NPVR Value (Filtered - All)", fontsize=14)
+    ax_scatter.set_xlabel("Delta NPVR Value (All Confounds - Without Global-signal Confound)", fontsize=14)
     ax_scatter.set_ylabel("Edge Rank", fontsize=14)
     ax_scatter.set_title(
         f"Distribution of all {n_edges} Edges by Delta NPVR\n(Red = NPVR Increased | Blue = NPVR Decreased)",
@@ -1523,7 +1527,7 @@ def plot_edge_delta_npvr_table(edge_delta_npvr_dict, output_path: Path, n_extrem
             )
 
     ax_table.set_title(
-        f"Top & Bottom {n_extremes} Edges by Delta NPVR\n(Filtered - All Confounds)",
+        f"Top & Bottom {n_extremes} Edges by Delta NPVR\n(All Confounds - Without Global-signal Confound)",
         fontweight="bold",
         fontsize=14,
         pad=10,
@@ -1596,7 +1600,7 @@ def plot_edge_delta_npvr_histogram(edge_delta_npvr_dict, output_path: Path):
         label=f"Median ({median_val:+.3f})",
     )
 
-    ax.set_xlabel("Delta NPVR Value (Filtered - All)", fontsize=14)
+    ax.set_xlabel("Delta NPVR Value (All Confounds - Without Global-signal Confound)", fontsize=14)
     ax.set_ylabel("Number of Edges", fontsize=14)
     ax.set_title(
         f"Distribution of Edge-wise Delta NPVR (N = {len(npvr_values):,} Edges) \n Min: {npvr_values.min():+.4f} | Max: {npvr_values.max():+.4f}",
